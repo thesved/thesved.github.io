@@ -1,7 +1,7 @@
 #### 👋 You didn't yet get the recording?
 #### [**register here**](https://doklist.typeform.com/to/pD4XeOzC)
 
-# What you find here?
+# What's on this page:
 - [How to import our Frustration Free Webinar slides into your Roam](#import-our-slides--your-roam)
 - [iOS shortcut for `share to` functionality](#ios-shortcut-for-share-to-functionality)
 - [Automatic dark/light mode with `roam/css` page](#automatic-darklight-mode)
