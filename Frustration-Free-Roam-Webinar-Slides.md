@@ -1,0 +1,517 @@
+- # 👋 Curious people, you look awesome today! 
+    - question:: ^^if you could have one **superpower** what would it be and why?^^
+    - video:: **please turn on your video** so the call is more personal
+    - disclaimer:: PG18 adult language
+    - **we will email you** everything (__webinar recording, slides, guides, code__), just give attention
+    - office hour:: you will be able to ask follow-up questions
+    - **questions**: we answer them at the end to keep the flow and our time limit
+        - preface questions with all caps "QUESTION: " so we can find them
+    - [prev](block:parent,prev) | [next](block:parent,next)
+- # Poll: 
+    - ## What is your experience level with Roam?
+        - 1 – I am new
+        - 10 – I am a wizard
+    - 
+    - ## Do you use Templates or text expanders in Roam?
+        - Yes or No
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Who are we and why we're doing this?
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Cynthia Lou
+    - BASB mentor focusing on Roam, PARA and BASB
+        - {{[[table]]}}
+            - ![](https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2FViktor%2FHmFbI6612x.png?alt=media&token=500c8c46-c78c-433c-8d89-67f652ae7ef4)
+            - ![](https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2FViktor%2F0y-i8moR0x.png?alt=media&token=ef7a47fe-e361-41f2-93be-0b12df70a303)
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+        - a true polymath, she used to do coaching and charge $5000/day
+        - If someone can memorize 10 mental models then that means great memory.
+        - When someone can boil down to what 3 models matter the most and why in a given situation then that is smart. And she is one of the smartest person I know.
+- # Viktor Tabori #block:lineabove
+    - engineer with OCD
+    - Write of Passage mentor
+    - ![](https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2FViktor%2FMH4jPRLOgs.jpg?alt=media&token=72373ef0-b6a6-4b83-9fcc-c8e9223e11e7)
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Why we build a course and this free webinar?
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Cynthia:
+    - I tried all the software: Airtable, Notion, Evernote
+    - Was excited by the hype of Roam:
+        - couldn't figure it out the first time, got frustrated and left
+        - tables, WTF
+    - Came back to it: changed my life
+    - 
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Viktor #block:lineabove
+    - Doing [[Tiago Forte]]'s Art of Accomplishment I was frustrated by not being able to use my daily templates on the go.
+    - **Roam is the most powerful tool** to manage the most important things
+        - how and what I think
+        - what I output
+    - It can be **overwhelming**: 
+        - feels like you have to be a developer
+        - too many options
+        - too much information
+        - what is the top 20% that matters?
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # My goal
+    - I am a coder so you don't have to be!
+    - I want to 
+        - help you gain muscle memory by DOING without fear of fucking up your Roam
+        - show the beauty of Roam
+        - ease the [[[[Roam]] FOMO]]
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Who do we want to help?
+    - **beginners**: quick-start, what's __actually useful__ vs. __nerdery non-essentials__
+    - **more advanced users**: maximize your ease, usability, and productivity
+    - **sharing what WE do**: not trying to convince anyone to switch to Roam
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # How do we want to help?
+    - {{mermaid}}
+        - gantt
+        - dateFormat  YYYY-MM-DD
+        - axisFormat  %b %d %a
+        - todayMarker off
+        - excludes 2020-11-01,2020-11-02,2020-11-03,2020-11-04,2020-11-05,2020-11-06,2020-11-07,2020-11-08
+        - title ROAM FOUNDATION
+        - 
+        - section WEBINAR
+            - Mindset             :active,   des1, 2020-10-28, 2h
+            - DEMO Structures & PARA in Roam   :active,   des2, after des1, 2h
+            - FIXES Mobile UX         :active,  des3, after des2, 2h
+            - DEMO Daily Templates & Templating         :active,  des4, after des3, 2h
+            - DEMO Permanent Notes (Zettlekasten)         :active,  des4, after des3, 2h
+        - section APPLY
+            - Early bird         :crit, done,  des5, after des4, 2020-10-30
+            - Registration     :done, des6, after des5, 2020-11-09
+        - section COURSE
+            - INSTANT WINS - PARA - Simple Zettelkasten - Template V2 by Viktor   :active, des7, after des6, 7d
+            - GROWTH - Workflows - Digital Garden - Projects - Todos - PKM - Shortcuts - Template v2 Deepdive   :active, des12, after des7, 7d
+            - ADVANCING – Template v2 API - Version Control - Your Own Workflows  :active, after des12, 7d
+            - Community  :done, after des6, 3w
+            - EXCLUSIVE Template v2 for Course Participants  :done, after des6, 3w
+            - Open Source Release  :done, 2020-12-13, 1d
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # In this Webinar #block:lineabove
+    - Mindset Shifts for Roam
+    - Why does Roam Work?
+        - Compared to other common apps (Evernote, Notion, etc)
+    - How we use Roam: Case Studies & Uses
+    - **DEMO**: Adding structure: Build your Roam Foundation
+        - Refining PARA
+        - Adding "Hang" Tags
+    - **FIXES**: Mobile Roam: From rusty to Superhuman in 5 minutes
+    - **DEMO**: Templating shortcuts, Permanent Notes (Zettlekasten)
+    - **INVITATION**: Our New Course!
+    - Q&A
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # ^^How **we** use Roam^^
+    - super easy and quick to use **Zettelkasten system** to create epic notes and new insights
+    - finally get enough **sleep**
+    - create **meal plans** for complete diet shifts
+    - create a new **fitness** routine
+    - learn how to **roller skate**
+    - **manage stress** and encourage **meditation**
+    - create a **music** practice habit
+    - **track health metrics**
+    - track **COVID** symptoms
+    - work only on ^^**projects that Spark Joy**^^
+    - ^^**ship more content**^^
+    - manifest and plan a **home move**
+    - create a **digital garden**
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Mindset shifts for Roam
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Mindset Shift: Surrender to "messiness"
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Mindset Shift: Think flexibly, not linearly. 
+Think relationally, not linearly.
+    - Old mindset:
+        - these
+        - dots 
+        - are
+        - not
+        - related
+    - The Roam Mindset
+        - these
+            - dots are
+                - related
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Mindset Shift: Don't organize by tables, organize in flow
+    - let your content organize itself
+    - Micro: get your ideas down first, then add some structure
+    - Macro: understand how pages link, so you can design pages and sections differently
+        - think in sections
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Mindset Shift: Simultaneously track and direct life with Roam
+    - before: think of what to track, track it, feel bad about missing marks
+    - after: track some things, see if it works, adjust and keep tracking what matters
+        - see what naturally wins out
+        - if things die off, explore how to change structure
+        - quicker feedback, quicker iterations --> quicker results
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Why does Roam work? #block:lineabove
+    - ## "I have an idea"
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Evernote/Notion/et al.
+    - ## "I have an idea"
+    - **enforced** outdated structure
+        - separate **notebooks**
+        - **tags**: separate from note
+        - **notes** as one blob
+    - Which category should I put in?→ think and click
+        - **title**: review my slides to remove #fuckitline
+            - **tags**:
+            - **note**: this is what happened during the presentation
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Roam eliminates mental tax to entry.
+    - ## "I have an idea"
+    - Have structure, which gets out of the way:
+        - **Daily note**: ^^**instantly** can write^^ #anchor 
+        - Blocks: **no difference** between title and note, **just write**
+            - if I have block
+            - I have a note `cmd + shift + up / down`
+        - Easy to create #tags and [[links]]
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+        - I learned datomic, the database behind Roam, and as I put my learnings to the  daily page I realized that I learned from [[Filipe Silva]] in July that it doesn't have `:db/ident`
+- # Roam benefits from adding structure #block:lineabove
+    - ## "Where is my stuff?
+    - Roam's strength can be its weakness: so flexible and limitless, content can fall into the "Roam void"
+        - **Roam Void**
+    - Structures: a way and place to "hang" content
+        - **Hang Tags**
+    - Refining PARA in Roam
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # The Roam Void and Hang Tags
+    - ![](https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2FViktor%2F2CN4Q1OC9x.jpg?alt=media&token=94deaac6-d64e-42a7-ba79-0cac4ad1325d)
+    - 
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # What is PARA
+    - Framework of actionability
+    - From [[Tiago Forte]]'s Build a Second Brain [[BASB]]
+        - Projects: time bound
+        - Areas: standard to maintain over time
+        - Resource: sometimes refer to, gather info for but not taking action on
+        - Archive: archived projects
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Refining PARA in Roam
+    - (see sidebar)
+    - ^^Yes, the whole PARA system in Roam^^
+    - Projects – active repository, recording, to-dos, writing, action
+    - Areas – (same as Projects, with a different due date/focus)
+    - **Resources** – Inactive, but gathering information, ideas todos in the background
+    - **Archive** – 10,000 foot view of everything completed
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Additional Structures, "Hang Tags"
+    - (see sidebar)
+    - "Hang" Tags
+        - gathering areas for your thoughts
+        - anchors in the "Roam Void"
+        - reminders
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Next: **Mobile Roam** #block:lineabove
+    - You are not using Roam Mobile. Because it is not the most frustration-free experience.
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # All things Mobile Roam
+    - can't share urls and content to roam on iOS (quick capture)
+    - images small and stuck
+    - [[October 28th, 2020]] 
+    - can't exclude tags
+    - can't right-click bullets or titles
+    - can't use the sidebar (design)
+    - can't open pages in sidebar
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # From rusty to Superhuman Smooth mobile UX under 5 minutes
+    - 3 extensions by [[Viktor]]
+        1. iOS shortcut
+        2. Gallery Plugin
+        3. Mobile Long-Tap Plugin
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # iOS shortcut
+    - https://twitter.com/ViktorTabori/status/1279070166433902592
+        - notes::
+            - Open this shortcut from iOS: 
+                - https://www.icloud.com/shortcuts/a9e45858154046d7bd3c62158a045a9c
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # How to Install plugins
+    - Go to: [[roam/js]]
+    - notes::
+        - **nest** the code-block under `{{[[roam/js]]}}`
+        - **approve** the javascript code
+        - make sure the code-block is `javascript`
+        - Weekdays for Dates: https://www.dropbox.com/s/u5pddfa45vt8a5d/roamDateFormatter.js?dl=0
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+        - use date modifier
+- # Mobile Gallery Plugin
+    - https://twitter.com/ViktorTabori/status/1298353154963181571
+    - notes::
+        - [[roam/js]]
+        - https://gist.github.com/thesved/6574586e102332ab4a010e3dfaa9c4e7
+        - **demo**:
+            - {{mermaid}} 
+                - graph TB
+    c1-->a2
+    subgraph one
+    a1-->a2
+    end
+    subgraph two
+    b1-->b2
+    end
+    subgraph three
+    c1-->c2
+    end
+            - {{mermaid}}
+                - sequenceDiagram
+    participant Alice
+    participant Bob
+    Alice->>John: Hello John, how are you?
+    loop Healthcheck
+        John->>John: Fight against hypochondria
+    end
+    Note right of John: Rational thoughts <br/>prevail!
+    John-->>Alice: Great!
+    John->>Bob: How about you?
+    Bob-->>John: Jolly good!
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Mobile Long-Tap Plugin
+    - https://twitter.com/ViktorTabori/status/1303830808701087745
+    - notes::
+        - https://gist.github.com/thesved/48cab2307cf0598fcc5cd37643d36cb4
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # [[one more thing]]: Automatic day/night mode in Roam #notyetreleased #block:lineabove
+    - h/t: [[Matt Galligan]] @mg
+    - install CSS
+        - https://viktoroam.glitch.me/roamCSS-auto.css
+        - [[roam/css]] and `CSS` code block needed
+        - 
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # [[one more thing]]: day formatting #notyetreleased #block:lineabove
+    - [twitter video](https://twitter.com/ViktorTabori/status/1300851279850332160)
+    - demo
+        - [[October 29th, 2020]] 
+        - 
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # [[one more thing]]: dynamic block links #notyetreleased #block:lineabove
+    - this presentation 🙂
+    - "demo"
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # **Course** 
+__Roam Foundation: Do Epic Shit Fast__ #block:lineabove
+    - The only course designed to give you a **solid foundation** to your Roam experience so that you can **ease up on the vice grip of perfectionism**, have a **working system** you feel **confident** about, and start **using Roam** to create the **results** you want **without losing time, sleep, or insights**.
+        - **beginners**: quick-start, what's __actually useful__ vs. __nerdery non-essentials__
+        - **more advanced users**: maximize your ease, usability, and productivity
+        - help you from novice to fluid
+        - gain muscle memory by **DOING** without fear of fucking up your Roam
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # **What's included in
+**__Roam Foundation: Do Epic Shit Fast__
+    - **Prompts**
+        - gain confidence by doing
+        - populate your Roam graph with your unique and relevant content
+    - Course material and walkthroughs
+    - Live **office hours**
+    - **Tools Library**: the plugins and scripts you need to make your Roam Home more usable and comfortable
+    - **Templates Library**: get started with the right tags and Content Zones
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # **Inside** __Roam Foundation: Do Epic Shit Fast__
+    - 3 Week Course
+        - Start: [[November 9th, 2020]], 10am PT
+        - End: [[November 25th, 2020]] 
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Week 1: **Foundation – Roam that supports YOU**
+    - ![](https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2FViktor%2FHjqo6UwxwA.png?alt=media&token=b5264d01-1fe8-44c5-aab7-d0e0072aa75e)
+    - **Beginners**: start getting **value from an empty Roam**
+    - **Advanced users**: refine your system, fine tune your mindset and structure
+    - Mindset, structure
+    - Plugin essentials
+    - Copy templates, metadata, plugins
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Week 2: **Roam in practice**
+    - ![](https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2FViktor%2FRvU0rcN_67.png?alt=media&token=1a21bb3d-f35f-42eb-a690-8d6c8a447e76)
+    - **Beginners**: get started doing shit right away!
+    - **Advanced users**: explore new workflows, ideas, and use cases to add to your working systems
+    - Workflows, demos, a deep dive into Template Engine v2, and Getting shit done!
+    - Add advanced (dynamic) metadata, copy more complex Template examples
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Week 3: **Advance your Roam**
+    - ![](https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2FViktor%2FwDWPP44hHi.png?alt=media&token=c329fb2d-ae9b-45be-ba4a-e6e4e20d11b1)
+    - Advanced Templating
+    - Content management and versioning
+    - Ongoing tracking
+    - Queries demystified
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # __What is included in the Course?__
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # __Roam Foundation: Do Epic Shit Fast__
+    - {{[[table]]}}
+        - 
+            - {{[[embed]]: ((A172ZN_Nu))}}
+                - {{[[embed]]: ((scq7qZhO5))}}
+        - **Course material**
+__walkthroughs, demos, templates__
+            - {{[[embed]]: ((IGWZLZDiC))}}
+                - {{[[embed]]: ((IGWZLZDiC))}}
+        - Live **Office Hours**
+            - {{[[embed]]: ((IGWZLZDiC))}}
+                - {{[[embed]]: ((IGWZLZDiC))}}
+        - **Accountability buddy**
+Boost your output
+            - {{[[embed]]: ((IGWZLZDiC))}}
+                - {{[[embed]]: ((IGWZLZDiC))}}
+        - **Templating v2 + Library**
+steal the best templates
+            - {{[[embed]]: ((IGWZLZDiC))}}
+                - {{[[embed]]: ((IGWZLZDiC))}}
+        - **Tools Library**
+plugins, scripts
+            - {{[[embed]]: ((IGWZLZDiC))}}
+                - {{[[embed]]: ((IGWZLZDiC))}}
+        - **Lifetime Updates**
+Roam Foundation Course
+            - {{[[embed]]: ((IGWZLZDiC))}}
+                - {{[[embed]]: ((dGJMeM6o_))}}
+        - **Limitless Roam Community**
+- Roam Get Shit Doners
+- Share templates
+- Office Hours
+- Prompts
+- Accountability buddy
+__15/month - 150/yr__
+            - {{[[embed]]: ((lIfP1Cgex))}}
+                - {{[[embed]]: ((dGJMeM6o_))}}
+        - **Investment**
+discount: __first cohort only__
+            - {{[[embed]]: ((h0IEmHvfl))}}
+                - {{[[embed]]: ((bnV3Mr8B8))}}
+        - **Early Bird** **-$50**
+__untill__ [[October 31st, 2020]] 
+            - {{[[embed]]: ((EFrdgSUK2))}}
+                - {{[[embed]]: ((6KaxYv83T))}}
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+        - values
+            - # **Genius** 
+package
+            - # **Essential** package
+            - # **~~1000~~** 500
+            - # **~~600~~** 300
+            - ## 450
+            - ## 250
+            - ## ✅ 
+            - ## ❌
+
+            - ## ✅ 
+1 year incl.
+$150 value
+- # How I use Templating Engine V2 #block:lineabove
+    - Faster, better, smoother, smarter
+    - First version recap
+        - https://twitter.com/ViktorTabori/status/1284271370264813568
+    - Release:
+        - beta access: first to Roam Foundation course participants
+        - open source access: in December, on my b-day 🥳
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # My Daily Template
+    - h/t [[Shu Omi]]
+    - demo
+        - ## Vitals
+            - #2/5 [[avg. resting HR]] 53
+            - #3/5 [[avg. resting HRV]] 67ms
+        - ## Weather
+            - temp: 12.15C
+            - sunset 16:33
+        - ## ☀️ [[Morning Journal]]  {{[[POMO]]}} {{word-count}}
+            - [[What are you grateful for?]]
+            - [[What do you want today's highlight to be?]]
+            - [[What help could you ask for to solve your biggest challenge?]]
+            - [[Morning Meditation]]
+            - [[[[AOA]] exercise]]
+            - [[My Values]]
+            - [[What's on your mind?]]
+        - ## 📌 Tasks
+            - {{[[embed]]: [[Live List]]}}
+        - ## 💡 Input
+            - 
+        - ## 📝 Output  {{word-count}}
+            - 
+        - ## 🌙 [[Evening Reflection]] {{[[POMO]]}} {{word-count}}
+            - [[How are you feeling today?]] 
+            - [[What could you have done better?]]
+            - [[Amazing things that happened]]
+            - [[What did you learn today?]]
+            - [[Positivity Score]]
+        - ## Read note
+            - [[P: Greener Pasture]]
+        - ## explore past 
+            - a week: [[October 21st, 2020]]
+            - a month: [[September 28th, 2020]]
+            - a year: [[October 28th, 2019]]
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # My Permanent Note / Zettelkasten Template
+    - template
+        - [[[[template]]/pnote]]
+    - example
+        - [[P: Better vs Brand New]]
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Twitter threads
+    - manually using character count and change to Document View
+        - {{character-count}} 
+            this a tweet
+        - {{character-count}} 
+            
+    - with template
+        1. 
+            - {{character-count}} 
+                fff
+                fff
+                fff
+            - attachment
+        2. 
+            - {{character-count}} 
+                
+            - attachment
+        3. 
+            - {{character-count}} 
+                
+            - attachment
+                - 
+    - real example
+        - {{[[embed]]: ((ltm3rImGv))}}
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Easy dates
+    - remind me in 2 weeks, bi-weekly calls
+        - [[Jochem Kroon]] [[November 11th, 2020]] 
+            - talk about philosophy
+    - course will start on Monday 2 weeks from now
+        - 
+    - tomorrow
+        - 
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # [[one more thing]]: Zotero
+    - demo
+        - Wang, C. Jason, Chun Y. Ng, and Robert H. Brook. “Response to COVID-19 in Taiwan: Big Data Analytics, New Technology, and Proactive Testing.” JAMA, March 3, 2020. https://doi.org/10.1001/jama.2020.3151. 
+        - 
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Investment and Early Bird Special #block:lineabove
+    - ### Genius Package: Lifetime updates
+        - **Course**: Roam Foundation: Do Epic Shit Fast!
+            - **future cohorts**
+        - **Community**: 1-year access to the Limitless Roam Community
+        - price:: ~~1000~~ 500
+    - ### Essential Package: Base course
+        - **Course**: Roam Foundation: Do Epic Shit Fast!
+        - price:: ~~600~~ 300
+    - ### Community
+        - price:: 15/month, 150/year
+    - ^^**$50 off early bird**^^ till [[October 30th, 2020]] 
+        - ## Genius: 450
+        - ## Essential: 250
+    - ### You can win **FREE** access to the course
+        - we will send **instructions in email** to everyone who **registered** for the webinar
+    - ### Apply for the course: http://bit.ly/RoamFoundation
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Questions #block:lineabove
+    - ### Apply for the course: http://bit.ly/RoamFoundation
+    - #[[Daily Notes]] #[[2020-10-28]] #[[2020]] #[[28]] #[[October]] #[[October 28]]  #[[October 2020]] #[[Wednesday]] #[[Week 44 of 2020]] 
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- 
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- 
+- 
