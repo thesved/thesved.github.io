@@ -1,5 +1,12 @@
-# 👋 You didn't yet get the recording?
+#### 👋 You didn't yet get the recording?
 #### [**register here**](https://doklist.typeform.com/to/pD4XeOzC)
+
+# What you find here?
+- [How to import our Frustration Free Webinar slides into your Roam](#import-our-slides--your-roam)
+- [iOS shortcut for `share to` functionality](#ios-shortcut-for-share-to-functionality)
+- [Automatic dark/light mode with `roam/css` page](#automatic-darklight-mode)
+- [Top plugins for Mobile and Tablet Roam (iOS and Android)](#top-plugins-for-mobile-roam)
+- [How to install plugins in Roam](#how-to-install-plugins-in-roam)
 
 # Import our slides 👉 your Roam
 If you want to see how we created our slides for the presentation in Roam, follow these two steps:
@@ -30,7 +37,7 @@ _see next section to how to install them_
 - Day name for roam dates (eg. [[October 29th, 2020]] -> [[2020.10.29 Thursday]]): [link](https://gist.github.com/thesved/e61fef8b3e5a50ac1ae1362e72da88cf)
 - Relative block links (prev/next we used in our presentation): [link](https://gist.github.com/thesved/adb077f8f16082a64b21c70c6ea511ce)
 
-### How to install plugins on Roam
+### How to install plugins in Roam
 1. go to `roam/js` page
 2. create a block with the name of the plugin
 3. indent a new block under it (hit `enter` and then hit `tab`)
