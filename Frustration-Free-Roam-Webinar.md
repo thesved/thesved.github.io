@@ -10,7 +10,7 @@
 
 # Import our slides 👉 your Roam
 If you want to see how we created our slides for the presentation in Roam, follow these two steps:
-1. download the `.md` formatted file from [here](https://raw.githubusercontent.com/thesved/thesved.github.io/main/Frustration-Free-Roam-Webinar-Slides.md)
+1. download the `.md` formatted file from [Webinar Slides](https://raw.githubusercontent.com/thesved/thesved.github.io/main/Frustration-Free-Roam-Webinar-Slides.md), [Office Hours Slides](https://raw.githubusercontent.com/thesved/thesved.github.io/main/Frustration-Free-Roam-Office-Hours.md)
 2. import into Roam:
 
 ![](https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2FViktor%2FzS-auhqWH3.png?alt=media&token=76c7bd4c-f387-4b9d-89a5-1ff7492c061a)
