@@ -1,0 +1,215 @@
+- # 👋 Curious people, you look awesome today! 
+    - ^^**Thank you** for all the **beautiful questions** you have submitted! 🙏^^
+    - video:: **please turn on your video** so the call is more personal
+    - disclaimer:: PG18 adult language
+    - **we will email you** everything (__webinar recording, slides, guides, code__), just give attention
+    - **questions**: we answer them at the end to keep the flow and our time limit
+        - preface questions with all caps "QUESTION: " so we can find them
+    - [prev](block:parent,prev) | [next](block:parent,next)
+- # Biggest pain we encountered #block:lineabove
+    - Roam is **extremely powerful**.
+    - It is easy to 
+        - pour your mind into it
+        - adapt it to your needs
+        - extend
+    - It also has downsides, like it is **intimidating** at first.
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Roam FOMO
+    - On Twitter **everyone** gets value out of Roam.
+    - You feel **left behind**.
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Lack of Roamside Assistance
+    - Roam **changes quickly**. You **can't keep up**.
+    - ![Sisyphus | Cory Seznec](https://external-content.duckduckgo.com/iu/?u=https%3A%2F%2Ff4.bcbits.com%2Fimg%2Fa2184270591_10.jpg&f=1&nofb=1)
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Roam Void
+    - **Losing** your **notes**. They are not resurfacig.
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Why we do what we do?
+    - Output: get shit done
+    - Mindful productivity
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Viktor
+    - Viktor mentored in the last two cohorts Write of Passage.
+        - ![](https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2FViktor%2FMH4jPRLOgs.jpg?alt=media&token=72373ef0-b6a6-4b83-9fcc-c8e9223e11e7)
+    - Viktor wrote 10k lines of code for Roam. Viktor is a coder, so you don't have to be one.
+        - templating engine
+        - better Mobile UX
+        - better tools for collaboration
+        - ![](https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2FViktor%2Fz91PTRUUkV.png?alt=media&token=03738801-538c-40ae-9468-60aec9ca7e74)
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Cynthia #block:lineabove
+    - She is the most organized, and brilliant person I know.
+    - BASB mentor focusing on PARA and Roam.
+        - {{[[table]]}}
+            - ![](https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2FViktor%2FHmFbI6612x.png?alt=media&token=500c8c46-c78c-433c-8d89-67f652ae7ef4)
+            - ![](https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2FViktor%2F0y-i8moR0x.png?alt=media&token=ef7a47fe-e361-41f2-93be-0b12df70a303)
+    - She is using Roam to 
+        - track exercise
+        - moving home
+        - developing facial creams for her skin care business
+    - We met in [[Tiago Forte]]'s coaching program.
+        - Cynthia taught Viktor structure, asked questions how to do things, then boiled down to the essential.
+        - Viktor was teaching advanced Roam.
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Roam = output
+    - QUESTION: why and how to use Roam as a main tool to manage your life?
+    - Easier = less frustration, more usage
+    - More usage = more output
+    - Examples
+        - [[[[Recipe]]: Tiramisu]] - experiment, what my wife loves
+        - [[Health Tracking]] - COVID
+        - [[P: Greener Pasture]] - digital garden
+        - [[datomic]] - learning new things
+        - [[template]]s
+        - research, twitter, planning, my Mobile Plugins for better UX or this "desktop chrome app"
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # **Roam Foundation** course #block:lineabove
+    - QUESTION: How is this different from the courses available? 
+        - we focus on implementation and use
+    - The **essential 20%**
+        - What is essential actually useful vs nerdery?
+    - **Fuckup proof**
+        - Gain familiarity fast without you having to worry about fucking up your Roam.
+    - **Share** what **WE do**: 
+        - A system you can copy.
+        - If things change, we change our tools, since we are actually using everything we share. And we only share what we use frequently.
+        - Limitless Roam community:
+            - learn from each other
+            - community of get shit doners
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Weekly Structure: muscle memory
+    - ![](https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2FViktor%2F3pebMfzOXV.png?alt=media&token=0dbdf384-8fef-45b3-9de4-c665520c95df)
+    - Beginners: you learn by doing, and you will start to have content in your Roam to keep
+    - Advanced: you already have the basics down, now it's about refining the content you are creating
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Overview of Course
+    - {{mermaid}}
+        - gantt
+        - dateFormat  YYYY-MM-DD
+        - axisFormat  %b %d %a
+        - todayMarker off
+        - excludes 2020-11-01,2020-11-02,2020-11-03,2020-11-04,2020-11-05,2020-11-06,2020-11-07,2020-11-08
+        - title ROAM FOUNDATION
+        - 
+        - section APPLY
+            - Early bird         :crit, done,  des5, 2020-10-30
+            - Application     :done, des6, 2020-11-07
+        - section COURSE
+            - INSTANT WINS - PARA - Simple Zettelkasten - Template V2 by Viktor   :active, des7, 2020-11-09, 7d
+            - GROWTH - Workflows - Digital Garden - Projects - Todos - PKM - Shortcuts - Template v2 Deepdive   :active, des12, after des7, 7d
+            - ADVANCING – Template v2 API - Version Control - Your Own Workflows  :active, after des12, 7d
+            - Community  :done, 2020-11-09, 3w
+            - EXCLUSIVE Template v2 for Course Participants  :done, 2020-11-09, 3w
+            - Open Source Release  :done, 2020-12-13, 1d
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Week 1: valuable **empty** Roam & strong **foundation**
+    - QUESTION: How does this course give me an easier start?
+        - how does this course simplify my use?
+        - already know Roam, but it doesn't "click" for me
+        - how can using Roam become second nature for me?
+        - how can i reduce decision fatigue?
+    - Fast & fearless
+        - Ideal setup: desktop app, mobile home screen, essential plugins
+        - Gain **muscle memory** and confidence in Roam without fearing of fucking up
+    - Blocks, pages, meta data
+    - Templating basics
+    - Import into Roam
+    - ![](https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2FViktor%2FFWFAlIap6l.png?alt=media&token=db591e71-8ad4-47c6-9f74-cc43f8f4219d)
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Week 2: **workflows, demos, digital garden**
+    - QUESTION:
+        - what advanced content? do you offer?
+        - is this good for intermediate users?
+        - already in ___ other course. How can this course help me?
+        - I already know Roam. What's in this corse for me?
+    - ![](https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2FViktor%2Ff522EPQ_O9.png?alt=media&token=a526a2f4-c3b0-4615-b145-ee838017c292)
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Week 3: **advanced** features, and experiment with **your own** workflow
+    - QUESTION: How does this help beginners?
+        - Is this a fit for intermediate users?
+        - What is the advanced content?
+    - ![](https://firebasestorage.googleapis.com/v0/b/firescript-577a2.appspot.com/o/imgs%2Fapp%2FViktor%2FVIZFxK-Lgd.png?alt=media&token=d071c5e8-ffb3-44dc-915c-4f5661582c95)
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # __Roam Foundation: Do Epic Shit Fast__
+    - {{[[table]]}}
+        - 
+            - {{[[embed]]: ((Eap9UashS))}}
+                - {{[[embed]]: ((vJLU1HxcI))}}
+        - **Course material**
+__walkthroughs, demos, templates__
+            - {{[[embed]]: ((KdQu4a1ps))}}
+                - {{[[embed]]: ((KdQu4a1ps))}}
+        - Live **Office Hours**
+            - {{[[embed]]: ((KdQu4a1ps))}}
+                - {{[[embed]]: ((KdQu4a1ps))}}
+        - **Accountability buddy**
+Boost your output
+            - {{[[embed]]: ((KdQu4a1ps))}}
+                - {{[[embed]]: ((KdQu4a1ps))}}
+        - **Templating v2 + Library**
+steal the best templates
+            - {{[[embed]]: ((KdQu4a1ps))}}
+                - {{[[embed]]: ((KdQu4a1ps))}}
+        - **Tools Library**
+plugins, scripts
+            - {{[[embed]]: ((KdQu4a1ps))}}
+                - {{[[embed]]: ((KdQu4a1ps))}}
+        - **Lifetime Updates**
+Roam Foundation Course
+            - {{[[embed]]: ((KdQu4a1ps))}}
+                - {{[[embed]]: ((twpgqp-kQ))}}
+        - **Limitless Roam Community**
+- Roam Get Shit Doners
+- Share templates
+- Office Hours
+- Prompts
+- Accountability buddy
+__15/month - 150/yr__
+            - {{[[embed]]: ((dkOKYMT-p))}}
+                - {{[[embed]]: ((twpgqp-kQ))}}
+        - **Investment**
+- discount: __first cohort only__
+- application closes on 
+[[November 7th, 2020]] 
+            - {{[[embed]]: ((4c5Jlm3KZ))}}
+                - {{[[embed]]: ((AQKdm85J8))}}
+    - ## https://go.limitlessroam.com/roam-foundation
+    - 
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+        - values
+            - # **Genius** 
+package
+            - # **Essential** package
+            - # **~~1000~~** 500
+            - # **~~600~~** 300
+            - ## 450
+            - ## 250
+            - ## ✅ 
+            - ## ❌
+
+            - ## ✅ 
+1 year incl.
+$150 value
+- # Misc Questions #block:lineabove
+    - disclaimer: ^^We definitely **don't want to convince** anyone^^, we are just sharing our opinion and what we do and see what resonates.
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Obsidian vs Roam
+    - Jeff Bezos: what will remain the same not what changes (faster, cheaper, wider selection)
+        - Fixed end goal - tools are indifferent, you are free to innovate (drones, AVs, teleportation)
+    - Obsidian
+        - super nice people!
+        - but a vision containing specific tools (markdown format) is a hindrance
+        - eg block level stuff is forced vs Roam / RemNote it is native
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Easy customize Roam
+    - change font to `Lato` in [[roam/css]]
+    - customize themes like [[Azlen Elza]]'s Zenith
+    - [prev](block:parent,prev) | [next](block:parent,next) 
+- # Other Questions #block:lineabove
+    - Roam Foundation **application closes** on [[November 7th, 2020]] 
+        - https://go.limitlessroam.com/roam-foundation
+    - 
+    - Genius Edition Giveaway – entry closes tonight, November 4, at 11:59pm PT:
+        - https://doklist.typeform.com/to/oywDUGv2
+    - [prev](block:parent,prev) | [next](block:parent,next) 
