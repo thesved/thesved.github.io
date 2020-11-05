@@ -29,6 +29,7 @@ _note:_ this function is available on Android if you add the RoamResearch websit
 3. copy the content of this page to the code block:
 https://viktoroam.glitch.me/roamCSS-auto.css
 4. and it should work 😉
+5. bonus: example to [change font type to Lato in Roam](https://raw.githubusercontent.com/thesved/thesved.github.io/main/change-font-lato.css)
 
 ### Top plugins for Mobile Roam
 _see next section to how to install them_
