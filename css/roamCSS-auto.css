@@ -1,7 +1,22 @@
+/* 
+  code by @ViktorTabori
+  presented/demonstration in Frustration Free Roam webinar:
+    https://www.youtube.com/watch?v=5vXCZyjGFds
+*/
+
+
+/* How to install?
+ * - go to [[roam/css]] page
+ * - create a css code block by writing three `, then changing the type from javascript to css
+ * - copy and paste everything from here to the code block
+ * - now the design changes automatically based on your OS setting for dark/light mode ;)
+ */
+
+
 /* h/t @azlenelza, based on https://azlen.github.io/roam-themes/core.css */
 @import url('https://thesved.github.io/css/roamCSS.css');
 
-/* default: datk mode */
+/* default: dark mode */
 :root {
     --page-order: row;
     --page-width: 800px;
@@ -28,37 +43,9 @@
     --color-highlight: hsl(50,100%,20%);
 }
 
-
-/* code block styling only for dark mode */
-/* modified from https://codemirror.net/demo/theme.html#night */
-@media (prefers-color-scheme: dark) {
-  .CodeMirror { background: var(--bg-color) !important; color: #f8f8f8 !important; }
-  div.CodeMirror-selected { background: #447 !important;  }
-  .CodeMirror-line::selection, .CodeMirror-line > span::selection, .CodeMirror-line > span > span::selection { background: rgba(68, 68, 119, .99); }
-  .CodeMirror-line::-moz-selection, .CodeMirror-line > span::-moz-selection, .CodeMirror-line > span > span::-moz-selection { background: rgba(68, 68, 119, .99); }
-  .CodeMirror-gutters { background: var(--bg-color); border-right: 1px solid #252525; }
-  .CodeMirror-guttermarker { color: white !important; }
-  .CodeMirror-guttermarker-subtle { color: #bbb !important; }
-  .CodeMirror-linenumber { color: #f8f8f8; }
-  .CodeMirror-cursor { border-left: 1px solid white !important; }
-  span.cm-qualifier { color: #666666 !important; }
-  span.cm-comment { color: #C71FF9 !important; }
-  span.cm-atom { color: #B58AFD !important; }
-  span.cm-number, span.cm-attribute { color: #ffd500 !important; }
-  span.cm-keyword { color: #599eff !important; }
-  span.cm-string { color: #37f14a !important; }
-  span.cm-meta { color: #369BFF !important; }
-  span.cm-variable-2, span.cm-tag { color: #99b2ff !important; }
-  span.cm-variable-3, span.cm-def, span.cm-type { color: white !important; }
-  span.cm-bracket { color: #8da6ce !important; }
-  span.cm-builtin, pan.cm-special { color: #ff9e59 !important; }
-  span.cm-link { color: #845dc4 !important; }
-  span.cm-error { color: #F41000 !important; }
-  .CodeMirror-activeline-background { background: #1C005A !important; }
-  .CodeMirror-matchingbracket { outline:1px solid grey !important; color:white !important; }
-}
-
-/* if light mode */
+/* change colors for light mode preference 
+   h/t: @mg, Matt Galligan
+*/
 @media (prefers-color-scheme: light) {
   :root {
       --bg-color: #EEEEEE;
@@ -92,4 +79,34 @@
   .block-border-left {
       border-color: rgba(var(--bullet-color),0.6);
   }
+}
+
+
+/* code block styling only for dark mode */
+/* modified from https://codemirror.net/demo/theme.html#night */
+@media (prefers-color-scheme: dark) {
+  .CodeMirror { background: var(--bg-color) !important; color: #f8f8f8 !important; }
+  div.CodeMirror-selected { background: #447 !important;  }
+  .CodeMirror-line::selection, .CodeMirror-line > span::selection, .CodeMirror-line > span > span::selection { background: rgba(68, 68, 119, .99); }
+  .CodeMirror-line::-moz-selection, .CodeMirror-line > span::-moz-selection, .CodeMirror-line > span > span::-moz-selection { background: rgba(68, 68, 119, .99); }
+  .CodeMirror-gutters { background: var(--bg-color); border-right: 1px solid #252525; }
+  .CodeMirror-guttermarker { color: white !important; }
+  .CodeMirror-guttermarker-subtle { color: #bbb !important; }
+  .CodeMirror-linenumber { color: #f8f8f8; }
+  .CodeMirror-cursor { border-left: 1px solid white !important; }
+  span.cm-qualifier { color: #666666 !important; }
+  span.cm-comment { color: #C71FF9 !important; }
+  span.cm-atom { color: #B58AFD !important; }
+  span.cm-number, span.cm-attribute { color: #ffd500 !important; }
+  span.cm-keyword { color: #599eff !important; }
+  span.cm-string { color: #37f14a !important; }
+  span.cm-meta { color: #369BFF !important; }
+  span.cm-variable-2, span.cm-tag { color: #99b2ff !important; }
+  span.cm-variable-3, span.cm-def, span.cm-type { color: white !important; }
+  span.cm-bracket { color: #8da6ce !important; }
+  span.cm-builtin, pan.cm-special { color: #ff9e59 !important; }
+  span.cm-link { color: #845dc4 !important; }
+  span.cm-error { color: #F41000 !important; }
+  .CodeMirror-activeline-background { background: #1C005A !important; }
+  .CodeMirror-matchingbracket { outline:1px solid grey !important; color:white !important; }
 }
