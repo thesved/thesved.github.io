@@ -1,0 +1,482 @@
+/* IMPORT CORE THEME */
+@import url('https://azlen.github.io/roam-themes/core.css');
+
+/* GOOGLE FONTS */
+@import url('https://fonts.googleapis.com/css2?family=family=Source+Sans+Pro:ital,wght@0,400;0,700;1,400;1,700&display=swap');	
+
+canvas[data-id="layer2-node"] {	
+    filter: invert(1) hue-rotate(110deg) saturate(2.5);	
+}
+
+/* sidebar fix */
+#roam-right-sidebar-content > *, 
+{
+	max-width: var(--page-width-side)!important;
+	margin-left: 20px;
+}
+
+.sidebar-content > *, 
+#roam-right-sidebar-content .roam-block-container,
+.sidebar-content > :not(.rm-dnd-separator)
+{
+    max-width: var(--page-width-side)!important;
+}
+
+.sidebar-content > *:not(.rm-dnd-separator) > div:not(.rm-dnd-separator) > div:first-child:not(:last-child) {
+	min-width: auto;
+  	max-width: 100%;
+}
+
+.sidebar-content > div > div > div[style*="padding-bottom: 8px"] {
+    padding: 8px 10px 8px 40px !important;
+}
+
+.sidebar-content > *:not(.rm-dnd-separator) > div:not(.rm-dnd-separator) > div:last-child:not(:first-child) {
+	width: var(--page-width-side);
+    max-width:100%;
+}
+
+/* fix highlight */
+.roam-highlight {
+    background-color:var(--color-highlight)!important;
+}
+
+.block-highlight-yellow {
+  	background-color:var(--color-highlight)!important;
+}
+
+/* fix sync modal background */
+.rm-quick-capture-sync-modal {
+	background-color: var(--page-color) !important;
+}
+
+/* block tags */
+[data-tag^="block:"] {
+  display: none;
+}
+
+.topline:before {
+  content:"";
+  margin: 20px 0 20px 24px;
+  border-top: 2px solid var(--text-color);
+}
+
+/* data tags */
+[data-tag="5/5"] {
+    background-color:green;
+}
+
+[data-tag="4/5"] {
+    background-color:blue;
+}
+
+[data-tag="3/5"] {
+    background-color:gray;
+}
+
+[data-tag="2/5"] {
+    background-color:orange;
+}
+
+[data-tag="1/5"] {
+    background-color:red;
+}
+
+/* pin icon */
+#roam-right-sidebar-content > div .bp3-icon-minus ~ .bp3-button.bp3-icon-pin, 
+#roam-right-sidebar-content > div .bp3-icon-minus ~ .bp3-button.bp3-icon-unpin 
+{
+	right: 10px;
+}
+
+@media only screen and (max-width: 600px) {
+	#roam-right-sidebar-content > div .bp3-icon-minus ~ .bp3-button.bp3-icon-pin, 
+	#roam-right-sidebar-content > div .bp3-icon-minus ~ .bp3-button.bp3-icon-unpin 
+	{
+		top: 60px;
+	}	
+}
+
+/* ref count */
+#roam-right-sidebar-content .flex-h-box > .bp3-popover-wrapper,
+.roam-center .flex-h-box > .bp3-popover-wrapper
+{
+    position: absolute;
+    left: -20px;
+    top: 2px;
+}
+
+.block-bullet-view .bp3-button.block-ref-count-button {
+	border:none!important;
+  	font-weight: normal;
+}
+
+/* fix toolbar color */
+#rm-mobile-bar {
+  background-color:#666!important;
+}
+
+/* close menu fix */
+.roam-sidebar-content .bp3-icon-menu-closed {
+    opacity: 1!important;
+}
+
+/* input within filter */
+.bp3-input {
+	-webkit-box-shadow: 0 0 0 0 rgba(var(--input-shadow-color),0), 0 0 0 0 rgba(var(--input-shadow-color),0), inset 0 0 0 1px rgba(var(--box-shadow-color),0.15), inset 0 1px 1px rgba(var(--box-shadow-color),0.2);
+}
+
+/* fix popover arrow border */
+.bp3-popover-arrow .bp3-popover-arrow-border {
+	fill: rgb(var(--box-shadow-color))!important;
+}
+
+/* fix mobile card sizes */
+@media only screen and (max-width: 600px) {
+	.roam-article:after, #roam-right-sidebar-content > div:after {
+		min-height: 50vh;
+	    content: "";
+	    display: block;
+	}
+}
+
+/* mermaid background */
+div.rm-mermaid > div > svg div:not(.katex), div.rm-mermaid > div > svg span:not(.katex) {
+  background-color:transparent!important;
+  color:var(--bg-color)!important;
+}
+
+div.rm-mermaid > div > svg {
+  background-color:#eee;
+}
+
+.roam-center > div > div > div svg :not(.katex) {
+ background-color: transparent !important;
+}
+
+.rm-block-text svg :not(.katex) {
+ background-color: transparent !important;
+}
+
+svg div, svg span {
+    color: inherit!important;
+}
+
+/* fix js code block background */
+div[style*='background: rgb(255, 243, 205)'], div[style*='background: rgb(248, 215, 218)'] {
+    background-color:var(--bg-color)!important;
+}
+
+/* fixing block reference backgroun */
+.roam-block-container {
+    position:relative;
+    /*z-index:0;*/
+}
+
+.block-ref-count-button:after {
+    content:" ";
+    position:absolute;
+    top:0;
+    left:0;
+    right:0;
+    bottom:0;
+    z-index:-1;
+    background-color: rgba(var(--color-primary),0.05) !important;
+}
+
+/* db hover fix */
+.roam-sidebar-container .rm-db-title-container:hover {
+	color: var(--bg-color);
+	background-color: var(--text-color);
+}
+.bp3-heading {
+  font-weight:900!important;
+}
+
+/* query title fix */
+.rm-query .rm-query-title {
+    color: var(--primary-color)!important;
+    font-weight: bold;
+}
+
+/* help bar background color fix */
+#buffer > div {
+    background-color: var(--page-color)!important;
+}
+
+/* mobile fixes: scrollable left sidebar, no support button */
+@media only screen and (max-width: 600px) {
+  iframe#launcher-frame {
+    display:none;
+  }
+  
+  .roam-body .roam-app .roam-sidebar-container .roam-sidebar-content .starred-pages-wrapper .starred-pages {
+    height: 50vh!important;
+  }
+}
+
+/* roam toolkit iframe order */
+#roam-toolkit-iframe-preview {
+	z-index:9999!important;
+}
+
+/* stronger reference button */
+.block-ref-count-button {
+    opacity:1!important;
+}
+
+/* nicer bullet points */
+.controls .simple-bullet-outer.roam-bullet-closed {
+    border:2px solid rgb(var(--bullet-color)) !important;
+    background-color:transparent!important;
+}
+.controls .simple-bullet-outer.roam-bullet-closed .simple-bullet-inner {
+    background-color:transparent!important;
+}
+
+.simple-bullet-inner {
+    background-color: rgba(var(--bullet-color), 0.4)!important;
+}
+
+/* fix sidebar scroll background */
+.roam-sidebar-container > .roam-sidebar-content::before {
+	bottom: -50px!important;
+    height: auto!important;
+}
+
+/* filter icon color when selected */
+.bp3-icon-filter[style*="color"], .bp3-icon-filter[style*="color"]::before {
+    color: rgb(var(--color-primary)) !important;
+}
+
+/* fix date dropdown overflow on mobile */
+body > .bp3-portal .bp3-menu {
+	max-height: 100vh;
+	overflow-y: auto;
+}
+
+/* sidebar X to the left */
+#roam-right-sidebar-content > div .bp3-icon-minus ~ .bp3-button.bp3-icon-cross {
+	right:auto!important;
+	left:0!important;
+}
+
+@media only screen and (max-width: 600px) {
+	#roam-right-sidebar-content > * > .flex-h-box {
+	    padding-top: 35px!important;
+	}
+}
+
+/* sidebar h1 fix */
+#roam-right-sidebar-content > div .bp3-icon-plus ~ h1 {
+    margin-top: 0!important;
+}
+
+/* source code type selector z-index fix */
+.roam-block div[style*="z-index: 1000"], .roam-block div[style*="z-index:1000"] {
+    z-index:10!important;
+}
+
+/* color comment tag */
+.rm-page-ref-tag[data-tag='comment'] {
+    background-color: rgb(0, 128, 0);
+}
+
+/* link fix */
+a[href^='http'], .rm-alias-external {
+  text-decoration: underline;
+  color: rgb(var(--color-secondary))!important;
+  font-weight: inherit!important;
+}
+
+a[href^='http']:active, a[href^='http']:hover, a[href^='http']:focus {
+  text-decoration: none!important;
+  border-bottom:1px dashed;
+  color: rgb(var(--color-secondary))!important;
+}
+
+/* checkbox right margin */
+.check-container {
+    margin-right: 5px;
+}
+
+/* help z-index */
+#buffer {
+  	z-index:11;
+}
+
+/* normal weight page links */
+.rm-page-ref {
+    font-weight: bold!important;
+}
+
+/* left sidebar */
+.roam-body .roam-app .roam-sidebar-container {
+	bottom: 0!important;
+}
+
+/* svg */
+svg.rm-mermaid {
+  background-color: #eee;
+}
+
+/* left border */
+.block-border-left {
+    border-left: 1px solid hsl(204,4%,15%);
+}
+
+/* suggestion and popover box shadow */
+.bp3-popover, .bp3-elevation-3 {
+    -webkit-box-shadow: 0 0 0 1px rgba(var(--box-shadow-color),0.1), 0 2px 4px rgba(var(--box-shadow-color),0.2), 0 8px 24px rgba(var(--box-shadow-color),0.2);
+    box-shadow: 0 0 0 1px rgba(var(--box-shadow-color),0.1), 0 2px 4px rgba(var(--box-shadow-color),0.2), 0 8px 24px rgba(var(--box-shadow-color),0.2);
+}
+
+/* roam toolkit preview shadow */
+#roam-toolkit-iframe-preview {
+  	box-shadow: rgba(var(--box-shadow-color), 0.2) 0px 0px 5px 3px!important;
+}
+
+/* lighter highlight text */
+.roam-article, #roam-right-sidebar-content {
+    font-weight: 200;
+}
+
+/* font weight contrast fix */
+.roam-highlight {
+    font-weight: 200;
+}
+.roam-highlight strong {
+  	font-weight: 900;
+}
+strong {
+  	font-weight: 800;
+}
+
+/* fix search actual position*/
+.rm-find-or-create-wrapper .rm-menu-item[style*="background"] {
+    background-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+/* emoji mart fix */
+.emoji-mart, .emoji-mart input, .emoji-mart-category-label span {
+	color: inherit!important;
+	background: inherit!important;
+	border-color: inherit!important;
+}
+
+/* FIXING resizable interface */
+/* topbar fix */
+.roam-topbar {
+  position: absolute!important;
+}
+
+/* left sidebar fix */
+.roam-sidebar-container {
+  padding-left: 45px;
+}
+
+@media only screen and (max-width: 600px) {
+  .roam-sidebar-container {
+    padding-left: 0;
+  }
+}
+
+
+/* fix resizing */
+.roam-body .roam-app .roam-main {
+  overflow-x:hidden;
+  flex-direction: row !important;
+  max-width: var(--page-width) !important;
+}
+
+@media only screen and (max-width: 600px) {
+  .roam-body .roam-app .roam-main {
+    flex: 0 0 auto!important;
+  }
+  
+  .roam-body .roam-app .roam-body-main {
+    flex: 0 0 auto!important;
+  }
+}
+
+/* main panel size fix */
+.roam-body .roam-app .roam-body-main {
+  flex: 0 0 100%!important;
+  padding-left: 55px;
+}
+
+.roam-body .roam-app .roam-body-main > :first-child {
+  max-width: 100%!important;
+}
+
+/* make the main panel scroll */
+.roam-app > .flex-h-box {
+  overflow-x: scroll;
+}
+
+.roam-article {
+  max-width: 100%;!important;
+  overflow-x: hidden;
+}
+
+/* right sidebar fix */
+#right-sidebar {
+  flex: 0 0 auto!important;
+}
+
+#right-sidebar .rm-resize-handle {
+  left:-4px!important; /* in the original code this has set to -4 which is invalid */
+}
+
+#roam-right-sidebar-content {
+  flex: 0 0 auto!important;
+  overflow: scroll;
+}
+
+#roam-right-sidebar-content .sidebar-content > * {
+  max-width: 100%;
+  overflow-x: hidden;
+  padding-top: 45px;
+}
+
+/* right sidebar header fixes */
+#roam-right-sidebar-content .window-headers {
+  margin-left: 5px!important;
+  flex-direction: row !important;
+  align-items: center!important;
+  position: relative!important;
+}
+
+#roam-right-sidebar-content .window-headers .bp3-icon-cross {
+  order: 1!important;
+  margin-right: 10px;
+}
+
+#roam-right-sidebar-content .window-headers > :nth-child(1) {
+ order: 2;
+}
+
+#roam-right-sidebar-content .window-headers > :nth-child(2) {
+ order: 3;
+}
+
+#roam-right-sidebar-content .window-headers button.bp3-small {
+  color: var(--text-color);
+  order: 4;
+}
+
+#roam-right-sidebar-content .window-headers > [style*="0px"] {
+ order: 5;
+}
+
+#roam-right-sidebar-content .sidebar-content > * > * {
+  padding-right: 10px!important;
+}
+
+/* sidebar title editing */
+.rm-sidebar-outline .rm-title-editing-display {
+  display: inline-block;
+}
+.rm-sidebar-outline .rm-title-editing-display textarea {
+  margin-left: 0!important;
+}
