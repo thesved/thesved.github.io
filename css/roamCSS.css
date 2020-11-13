@@ -8,6 +8,15 @@ canvas[data-id="layer2-node"] {
     filter: invert(1) hue-rotate(110deg) saturate(2.5);	
 }
 
+/* fix pomodoro */
+.rm-pomodoro > * {
+  display: inline-block;
+}
+
+.rm-pomodoro > :first-child {
+  margin-right:2px;
+}
+
 /* sidebar fix */
 #roam-right-sidebar-content > *, 
 {
