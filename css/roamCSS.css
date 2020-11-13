@@ -405,7 +405,13 @@ strong {
   padding-left: 55px;
 }
 
-.roam-body .roam-app .roam-body-main > :first-child {
+.roam-body .roam-app .roam-body-main > [style*="padding-right"] {
+  max-width: 100%!important;
+  padding-left:unset!important;
+  padding-right:unset!important;
+}
+
+.rm-block-text {
   max-width: 100%!important;
 }
 
