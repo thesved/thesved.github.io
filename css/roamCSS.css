@@ -495,3 +495,17 @@ strong {
 .rm-sidebar-outline .rm-title-editing-display textarea {
   margin-left: 0!important;
 }
+
+/* fix Safari backdrop filter */
+.roam-sidebar-container,
+.rm-find-or-create-wrapper .bp3-popover,
+#buffer > div
+ {
+	-webkit-backdrop-filter: blur(5px);
+}
+
+@media only screen and (max-width: 600px) {
+    .roam-topbar {
+    	-webkit-backdrop-filter: blur(5px);
+    }
+}
