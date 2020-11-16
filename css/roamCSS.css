@@ -509,3 +509,8 @@ strong {
     	-webkit-backdrop-filter: blur(5px);
     }
 }
+
+/* fix image resize overflow */
+.rm-resize-img {
+    max-width: 100%;
+}
