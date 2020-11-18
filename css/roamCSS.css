@@ -521,3 +521,8 @@ strong {
 .rm-resize-img {
     max-width: 100%;
 }
+
+/* visualize the right sidebar resize-handle */
+.rm-resize-handle:hover, .rm-resize-handle:focus {
+    background-color: #66666640;
+}
