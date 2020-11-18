@@ -374,6 +374,13 @@ strong {
 }
 
 /* FIXING resizable interface */
+
+/* fix: collapsed sidebar windows by @_robertkirk */
+.window-headers:only-child {
+  text-orientation: mixed;
+  writing-mode: vertical-lr;
+}
+
 /* topbar fix */
 .roam-topbar {
   position: absolute!important;
