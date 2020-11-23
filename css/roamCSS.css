@@ -383,7 +383,7 @@ strong {
 
 /* topbar fix */
 .roam-topbar {
-  position: absolute!important;
+  position: fixed!important;
 }
 
 /* left sidebar fix */
