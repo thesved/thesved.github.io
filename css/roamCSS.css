@@ -517,9 +517,13 @@ strong {
     }
 }
 
-/* fix image resize overflow */
-.rm-resize-img {
-    max-width: 100%;
+/* image border */
+.react-resizable img {
+  border: 1px solid #666;
+  max-width:100%!important;
+}
+.rm-inline-img__resize, .react-resizable {
+  max-width:100%!important;
 }
 
 /* visualize the right sidebar resize-handle */
