@@ -123,6 +123,7 @@ canvas[data-id="layer2-node"] {
 /* fix toolbar color */
 #rm-mobile-bar {
   background-color:#666!important;
+  position: absolute!important;
 }
 
 /* close menu fix */
