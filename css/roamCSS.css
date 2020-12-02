@@ -236,15 +236,14 @@ div[style*='background: rgb(255, 243, 205)'], div[style*='background: rgb(248, 2
 }
 
 /* nicer bullet points */
-.controls .simple-bullet-outer.roam-bullet-closed {
-    border:2px solid rgb(var(--bullet-color)) !important;
-    background-color:transparent!important;
-}
-.controls .simple-bullet-outer.roam-bullet-closed .simple-bullet-inner {
-    background-color:transparent!important;
+.rm-bullet.rm-bullet--closed .rm-bullet__inner {
+    border: 2px solid rgb(var(--bullet-color)) !important;
+    background-color: transparent!important;
+    width: 8px;
+    height: 8px;
 }
 
-.simple-bullet-inner {
+.rm-bullet .rm-bullet__inner {
     background-color: rgba(var(--bullet-color), 0.4)!important;
 }
 
