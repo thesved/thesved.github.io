@@ -197,6 +197,7 @@ div[style*='background: rgb(255, 243, 205)'], div[style*='background: rgb(248, 2
 /* add different background to embedded blocks */
 .rm-embed-container {
   background-color: var(--bg-color) !important;
+  border-radius: 2px;
 }
 
 /* db hover fix */
