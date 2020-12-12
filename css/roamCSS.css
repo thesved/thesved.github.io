@@ -194,6 +194,12 @@ div[style*='background: rgb(255, 243, 205)'], div[style*='background: rgb(248, 2
     background-color: rgba(var(--color-primary),0.05) !important;
 }
 
+/* add different background to embedded blocks */
+.rm-embed-container {
+  background-color: var(--bg-color) !important;
+  border-radius: 2px;
+}
+
 /* db hover fix */
 .roam-sidebar-container .rm-db-title-container:hover {
 	color: var(--bg-color);
