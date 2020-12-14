@@ -536,3 +536,9 @@ strong {
 .rm-resize-handle:hover, .rm-resize-handle:focus {
     background-color: #66666640;
 }
+
+/* blockquote fix */
+.rm-bq {
+    background-color: var(--bg-color)!important;
+    border-color: var(--text-color)!important;
+}
