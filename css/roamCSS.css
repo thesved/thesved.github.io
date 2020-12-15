@@ -542,3 +542,13 @@ strong {
     background-color: var(--bg-color)!important;
     border-color: var(--text-color)!important;
 }
+
+/* parenthesis block fix */
+.rm-paren {
+    background-color: inherit!important;
+    border: none!important;
+}
+
+.rm-paren--closed:hover {
+    color: var(--icon-color)!important;
+}
