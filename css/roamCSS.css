@@ -552,3 +552,8 @@ strong {
 .rm-paren--closed:hover {
     color: var(--icon-color)!important;
 }
+
+/* page embed fix */
+[style*="background-color: rgb(235, 241, 245)"] {
+    background-color: var(--bg-color)!important;
+}
