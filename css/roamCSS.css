@@ -557,3 +557,7 @@ strong {
 [style*="background-color: rgb(235, 241, 245)"] {
     background-color: var(--bg-color)!important;
 }
+
+[style*="background-color: rgb(235, 241, 245)"] .bp3-button.bp3-minimal {
+	margin: 4px!important;
+}
