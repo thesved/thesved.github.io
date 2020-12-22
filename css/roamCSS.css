@@ -561,3 +561,8 @@ strong {
 [style*="background-color: rgb(235, 241, 245)"] .bp3-button.bp3-minimal {
 	margin: 4px!important;
 }
+
+/* all pages fix */
+#all-pages-search [style*="height: 0px"] {
+	height:unset!important;
+}
