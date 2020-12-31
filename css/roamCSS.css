@@ -297,6 +297,11 @@ body > .bp3-portal .bp3-menu {
     background-color: rgb(0, 128, 0);
 }
 
+/* fix color for alias */
+.rm-alias {
+    color: rgb(var(--color-primary))!important;
+}
+
 /* link fix */
 a[href^='http'], .rm-alias-external {
   text-decoration: underline;
