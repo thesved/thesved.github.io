@@ -571,3 +571,8 @@ strong {
 #all-pages-search [style*="height: 0px"] {
 	height:unset!important;
 }
+
+/* cloze roam logo fix */
+.rm-spacer svg path {
+    fill: var(--text-color) !important;
+}
