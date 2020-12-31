@@ -46,7 +46,7 @@ canvas[data-id="layer2-node"] {
 }
 
 /* fix highlight */
-.roam-highlight {
+.rm-highlight {
     background-color:var(--color-highlight)!important;
 }
 
@@ -357,14 +357,14 @@ svg.rm-mermaid {
 }
 
 /* font weight contrast fix */
-.roam-highlight {
+.rm-highlight {
     font-weight: 200;
 }
-.roam-highlight strong {
-  	font-weight: 900;
+.rm-highlight strong {
+    font-weight: 900;
 }
 strong {
-  	font-weight: 800;
+    font-weight: 800;
 }
 
 /* fix search actual position*/
