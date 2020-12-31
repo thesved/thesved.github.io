@@ -574,5 +574,5 @@ strong {
 
 /* cloze roam logo fix */
 .rm-spacer svg path {
-    fill: var(--text-color) !important;
+    fill: rgb(var(--color-primary)) !important;
 }
