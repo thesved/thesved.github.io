@@ -576,3 +576,8 @@ strong {
 .rm-spacer svg path {
     fill: rgb(var(--color-primary)) !important;
 }
+
+/* inline reference fix */
+.rm-inline-references {
+    background-color: var(--bg-color)!important;
+}
