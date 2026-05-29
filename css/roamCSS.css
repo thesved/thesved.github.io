@@ -412,7 +412,12 @@ strong {
 /* fix resizing */
 .roam-body .roam-app .roam-main {
   overflow-x:hidden;
-  flex-direction: row !important;
+  /* 2026-05-29: current Roam nests the topbar (.rm-files-dropzone) above
+     .roam-body-main inside .roam-main and lays it out as a COLUMN. The old
+     `row` here (built for the 2020 fixed topbar) collapsed the topbar wrapper
+     and crammed every menu icon into ~32px. Match Roam's native column.
+     This file is @import'd after azlen core.css, so this wins the cascade. */
+  flex-direction: column !important;
   max-width: var(--page-width) !important;
 }
 
@@ -428,7 +433,11 @@ strong {
 
 /* main panel size fix */
 .roam-body .roam-app .roam-body-main {
-  flex: 0 0 100%!important;
+  /* 2026-05-29: was `0 0 100%` (full WIDTH, for the old row layout). In the
+     restored column that means full HEIGHT and the article overflows/collapses.
+     Roam's native value: fill the height left after the 45px topbar. The
+     .rm-files-dropzone (topbar wrapper, height:100%) then flex-shrinks to 45px. */
+  flex: 0 0 calc(100% - 45px)!important;
   padding-left: 55px;
 }
 
@@ -580,4 +589,55 @@ strong {
 /* inline reference fix */
 .rm-inline-references {
     background-color: var(--bg-color)!important;
+}
+
+/* ============================================================
+   2024+ ROAM DOM FIXES  (added 2026-05-29)
+   Roam renamed/restructured the topbar (.roam-topbar -> .rm-topbar, now nested
+   in .rm-files-dropzone) and the search dropdown since this theme was written in
+   2021, so the old selectors stopped matching. Verified in the live logged-in
+   app (desktop dark/light + mobile) before shipping.
+
+   NOTE: the topbar/menu layout fix lives at the SOURCE rules above
+   (`.roam-main { flex-direction: column }` ~L413 and
+   `.roam-body-main { flex: 0 0 calc(100% - 45px) }` ~L430) rather than as an
+   override here, because both this file AND azlen core.css set those rules with
+   !important at the same specificity; editing them in place (this file loads
+   after azlen) wins reliably, whereas a higher-specificity override drops out of
+   the cascade when Roam re-renders the topbar.
+   ============================================================ */
+
+/* the old azlen core.css hides the topbar search box (width:20px / opacity:0) */
+#app .rm-topbar .rm-find-or-create-wrapper {
+  width: auto !important;
+}
+#app .rm-topbar #find-or-create-input {
+  opacity: 1 !important;
+}
+
+/* --- cmd+U search dropdown: white spots in dark mode ---
+   The 2021 theme styled .rm-menu-item[style*="background"]; current Roam uses
+   .bp3-menu-item.bp3-active for the highlighted row and a new
+   .rm-find-or-create-footer bar, neither of which got dark-themed. */
+.rm-find-or-create-footer {
+  background-color: var(--page-color) !important;
+  border-top: 1px solid rgba(var(--box-shadow-color), 0.15) !important;
+}
+.rm-find-or-create-footer, .rm-find-or-create-footer * {
+  color: var(--text-color) !important;
+}
+.rm-find-or-create-footer .bp3-button {
+  background-color: var(--bg-color) !important;
+}
+.rm-find-or-create-popover .bp3-menu-item.bp3-active,
+.rm-find-or-create-popover .bp3-menu-item:hover {
+  background-color: rgba(var(--color-primary), 0.25) !important;
+  color: var(--text-color) !important;
+}
+/* portal-safe fallback if Roam ever teleports the dropdown to a body-level portal
+   (then the descendant rule in azlen core.css that darkens the popover misses) */
+body > .bp3-portal .rm-find-or-create-popover,
+body > .bp3-portal .rm-find-or-create-popover .bp3-popover-content,
+body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
+  background-color: var(--page-color) !important;
 }
