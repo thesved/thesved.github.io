@@ -641,3 +641,46 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-popover-content,
 body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
   background-color: var(--page-color) !important;
 }
+
+/* --- mobile full-screen search overlay (dark mode) ---
+   On mobile the search icon opens a full-screen modal (.rm-modal-dialog--find-or-create),
+   a DIFFERENT DOM from the desktop .rm-find-or-create-popover above. Its container +
+   the × button background were white in dark mode (input/footer were already dark; text
+   is theme-inherited light, so only the container needs darkening). Added 2026-05-29. */
+.rm-modal-dialog--find-or-create,
+.rm-modal-dialog--find-or-create .rm-find-or-create-modal {
+  background-color: var(--page-color) !important;
+}
+
+/* --- Roam Help dialog (dark mode) ---
+   The ? button opens a Help dialog in a body-level portal (.rm-modal-portal--help,
+   container .rm-modal-dialog--help). It was fully un-themed (white) in dark mode:
+   white container/search box, light-blue resource icon tiles, light shortcut chips,
+   dark-navy title. All selectors are scoped to .rm-help* / --help so other Blueprint
+   dialogs are untouched. Added 2026-05-29. */
+.rm-modal-dialog--help {
+  background-color: var(--page-color) !important;
+}
+.rm-help-title,
+.rm-modal-dialog--help .rm-help-header,
+.rm-modal-dialog--help .rm-help-header * {
+  color: var(--text-color) !important;
+}
+.rm-help-search__input {
+  background-color: var(--bg-color) !important;
+  color: var(--text-color) !important;
+  border-color: rgba(var(--box-shadow-color), 0.2) !important;
+  box-shadow: none !important;
+}
+.rm-help-resource__icon {
+  background-color: rgba(var(--color-primary), 0.15) !important;
+}
+.rm-help-resource__icon .bp3-icon,
+.rm-help-resource__icon svg {
+  color: var(--text-color) !important;
+}
+.rm-help-component__notation {
+  background-color: var(--bg-color) !important;
+  color: var(--text-color) !important;
+  border-color: rgba(var(--box-shadow-color), 0.2) !important;
+}
