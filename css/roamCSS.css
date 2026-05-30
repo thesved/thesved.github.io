@@ -826,6 +826,45 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
   transform: translateX(-50%) !important;
 }
 
+/* COLLAPSED search when NOT focused: show only the magnifier (sized like the other topbar icons)
+   right before the filter icon; the input box + results only appear as the centered spotlight once
+   focused. The magnifier sits over a transparent 24px input, so clicking it focuses the input →
+   spotlight. The wrapper stays a fixed 24px slot so the right-hand icons don't shift on focus. */
+.rm-topbar .rm-find-or-create-wrapper {
+  flex: 0 0 24px !important;
+  width: 24px !important;
+}
+.rm-topbar .rm-find-or-create-wrapper:not(:focus-within) .bp3-popover-wrapper,
+.rm-topbar .rm-find-or-create-wrapper:not(:focus-within) .bp3-popover-target,
+.rm-topbar .rm-find-or-create-wrapper:not(:focus-within) .bp3-input-group {
+  width: 24px !important;
+  min-width: 24px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+.rm-topbar .rm-find-or-create-wrapper:not(:focus-within) #find-or-create-input {
+  width: 24px !important;
+  min-width: 24px !important;
+  padding: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  color: transparent !important;
+  cursor: pointer !important;
+}
+.rm-topbar .rm-find-or-create-wrapper:not(:focus-within) #find-or-create-input::placeholder {
+  color: transparent !important;
+}
+.rm-topbar .rm-find-or-create-wrapper:not(:focus-within) .bp3-input-group > .bp3-icon.search-icon {
+  left: 50% !important;
+  transform: translate(-50%, -50%) !important;
+  pointer-events: none !important;
+}
+.rm-topbar .rm-find-or-create-wrapper:not(:focus-within) .bp3-input-action {
+  display: none !important;
+}
+
 /* --- left sidebar top gap ---
    azlen core.css sets `.roam-sidebar-container { padding-top:70px }` to clear the 2021 *fixed*
    full-width topbar. The current topbar is static + centered and doesn't sit above the sidebar,
