@@ -200,10 +200,9 @@ div[style*='background: rgb(255, 243, 205)'], div[style*='background: rgb(248, 2
   border-radius: 2px;
 }
 
-/* db hover fix */
+/* db hover fix — subtle tint instead of inverting to a full light (white-in-dark) box */
 .roam-sidebar-container .rm-db-title-container:hover {
-	color: var(--bg-color);
-	background-color: var(--text-color);
+	background-color: rgba(var(--color-primary), 0.15);
 }
 .bp3-heading {
   font-weight:900!important;
