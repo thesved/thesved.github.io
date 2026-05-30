@@ -781,3 +781,31 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
     color: inherit !important;
   }
 }
+
+/* --- topbar search icon: vertically center it + stop it overlapping the placeholder ---
+   bp3's `.bp3-input-group > .bp3-icon { margin:7px }` centers a 16px icon in a 30px input,
+   but this input is 40px tall, so margin:7px sits the icon ~5px high; and input padding-left
+   was < the icon box, so the magnifier overlapped "Find or Create Page". */
+.rm-topbar .bp3-input-group > .bp3-icon.search-icon {
+  top: 50% !important;
+  margin: 0 !important;
+  transform: translateY(-50%) !important;
+  left: 10px !important;
+}
+.rm-topbar #find-or-create-input {
+  padding-left: 34px !important;
+}
+
+/* --- left sidebar top gap ---
+   azlen core.css sets `.roam-sidebar-container { padding-top:70px }` to clear the 2021 *fixed*
+   full-width topbar. The current topbar is static + centered and doesn't sit above the sidebar,
+   so on desktop that 70px is dead space above the first item. Keep a small clearance; on mobile
+   the topbar DOES overlay the sidebar, so keep ~the topbar's height there. */
+.roam-body .roam-app .roam-sidebar-container {
+  padding-top: 12px !important;
+}
+@media only screen and (max-width: 600px) {
+  .roam-body .roam-app .roam-sidebar-container {
+    padding-top: 50px !important;
+  }
+}
