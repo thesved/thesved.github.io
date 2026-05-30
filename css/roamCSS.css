@@ -684,3 +684,100 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
   color: var(--text-color) !important;
   border-color: rgba(var(--box-shadow-color), 0.2) !important;
 }
+
+/* ============================================================
+   2026-05-29 (session 2) — more current-DOM fixes
+   ============================================================ */
+
+/* --- desktop topbar search: keep the input in the topbar on focus ---
+   azlen core.css makes #find-or-create-input position:fixed; top:100px on :focus
+   (a 2021 "spotlight" search design). On current Roam that drops the input down over
+   the page title and collapses its .bp3-input-group to height 0, stranding the
+   search-icon (left:0) and the advanced-search button (right:0) far from the input.
+   azlen sets no !important here, so a higher-specificity rule wins deterministically. */
+#app .rm-topbar #find-or-create-input,
+#app .rm-topbar #find-or-create-input:focus {
+  position: relative !important;
+  top: auto !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  width: 100% !important;
+  max-width: none !important;
+  z-index: auto !important;
+  transform: none !important;
+}
+
+/* --- desktop full-screen search modal: dark-mode results list ---
+   The wide 2-pane find-or-create modal (.rm-modal-dialog--find-or-create, container
+   already darkened above) renders its results list (.bp3-menu) and rows white in dark
+   mode. Dark-theme the list + active/hover rows. */
+.rm-find-or-create-modal-body__list,
+.rm-find-or-create-modal-body__list.bp3-menu {
+  background-color: var(--page-color) !important;
+}
+.rm-find-or-create-modal-body__list .bp3-menu-item {
+  color: var(--text-color) !important;
+}
+.rm-find-or-create-modal-body__list .bp3-menu-item.bp3-active,
+.rm-find-or-create-modal-body__list .bp3-menu-item:hover {
+  background-color: rgba(var(--color-primary), 0.25) !important;
+  color: var(--text-color) !important;
+}
+
+/* --- code/plugin warning callout (dark mode) ---
+   Roam moved this callout from an inline-styled div to the class .rm-code-warning, so
+   the old `div[style*='background: rgb(255, 243, 205)']` rule (~L176) no longer matches
+   and the box stayed light-yellow with unreadable light text in dark mode. A translucent
+   amber tint reads as a warning in BOTH light and dark while keeping theme text readable. */
+.rm-code-warning,
+.rm-code-warning--active {
+  background-color: hsla(50, 100%, 50%, 0.14) !important;
+  color: var(--text-color) !important;
+  border: 1px solid hsla(50, 100%, 50%, 0.45);
+  border-radius: 4px;
+}
+.rm-code-warning .rm-code-warning__description,
+.rm-code-warning strong,
+.rm-code-warning a {
+  color: var(--text-color) !important;
+}
+
+/* --- left sidebar: pin the top nav and scroll the shortcuts ---
+   azlen core.css forces `.roam-sidebar-container > .roam-sidebar-content { display:block
+   !important }`, so the content grows to its natural height and the WHOLE sidebar (top
+   nav included) overflows the viewport as one block — the shortcuts run off the bottom
+   with no reachable scroll. Current Roam intends a flex column: content fills the
+   container, .starred-pages-wrapper (flex:1) takes the leftover, .starred-pages
+   (overflow:auto) scrolls. The CONTAINER must also be a flex column so the content has a
+   definite height to flex within (else the flex:1 children collapse to 0). */
+.roam-body .roam-app .roam-sidebar-container {
+  display: flex !important;
+  flex-direction: column !important;
+}
+.roam-body .roam-app .roam-sidebar-container > .roam-sidebar-content {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+}
+
+/* --- code-block text selection in dark mode (CodeMirror 6) ---
+   Roam migrated to CodeMirror 6 (.cm-editor / .cm-selectionBackground); the theme's
+   dark code styling in roamCSS-auto.css only covers CodeMirror 5 (.CodeMirror-selected).
+   CM6's default selection is light lavender (rgb 215,212,240) — washed out on dark — and
+   its drawSelection layer can leave the last partial line unhighlighted. Recolor the
+   selection layer AND re-enable native ::selection so every selected line, last included,
+   is highlighted. (Light mode keeps CM6's default, which is fine on a light background.) */
+@media (prefers-color-scheme: dark) {
+  .cm-editor .cm-selectionLayer .cm-selectionBackground {
+    background-color: #2f4a86 !important;
+  }
+  .cm-editor .cm-line::selection,
+  .cm-editor .cm-line ::selection,
+  .cm-editor .cm-content::selection,
+  .cm-editor .cm-content ::selection {
+    background-color: #2f4a86 !important;
+    color: inherit !important;
+  }
+}
