@@ -917,6 +917,21 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
     left: -16px;
     right: -4px;
   }
+
+  /* iOS long-press near the bullet was SELECTING the block line instead of opening the
+     context menu (the gray highlight in the bug report). The bullet gutter (.controls) is
+     already `noselect`, but the RENDERED block text (.rm-block__input--view) was
+     user-select:auto — so iOS treated the long-press as a text-selection gesture on the
+     adjacent line and never fired `contextmenu` (which is what opens Roam's block menu).
+     Make the rendered (non-editing) block text unselectable on mobile. The EDITING view is
+     a different element (.rm-block__input--active / .cm-editor) and stays fully selectable,
+     so tap-to-edit + in-editor selection are unaffected. */
+  .roam-article .rm-block__input--view,
+  .roam-article .rm-block__input--view * {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
 }
 
 /* --- tone down icon-button hover ---
