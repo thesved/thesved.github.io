@@ -1,7 +1,17 @@
 /*
  * Viktor's Roam Mobile Long tap → right-click on bullets + open-in-sidebar on pages/refs/filters
- * version: 0.5  (2026-05-30)
+ * version: 0.6  (2026-05-30)
  * author: @ViktorTabori
+ *
+ * WHY v0.5 → v0.6 (block-push under the menu, first-principles fix):
+ *   v0.5 opened the menu AT THE TOUCH POINT and pushed the block by (menu.right - block.left),
+ *   clamped to 0.6 * innerWidth. For a top-level (left-most) block that landed it perfectly clear
+ *   of the menu; but a NESTED block's bullet is further right, so the menu opened further right AND
+ *   the required push hit the clamp — the block stayed half-under the menu, unreadable. The real
+ *   fix isn't a bigger relative push: it's to make the menu's right edge CONSTANT. v0.6 opens the
+ *   menu pinned to a fixed left X (menuLeft) regardless of where you tapped, then slides each block
+ *   so its left lands at the same absolute X just past the menu — fixed target, per-block push, no
+ *   clamp. Every block, any indent level, ends up equally clear of the menu.
  *
  * WHY v0.4 → v0.5 (the real root cause, finally):
  *   v0.4 ASSUMED iOS Safari's native long-press emits a trusted `contextmenu` that Roam opens
@@ -42,6 +52,9 @@ window.ViktorLongtap = (function () {
 		MOBILE_MAX = 600,
 		highlightColor = 'rgba(255, 165, 0, 0.18)',
 		menuGap = 8,              // px gap between the menu's right edge and the pushed block
+		menuLeft = 6,             // px: open the block menu pinned this far from the screen's left edge,
+		                          // so its right edge — and thus the pushed block's landing X — is the
+		                          // SAME for every block regardless of its indent level
 		deduplicateSidebar = true,
 		added = false,
 		last = new Date(),
@@ -152,10 +165,14 @@ window.ViktorLongtap = (function () {
 			bp.fired = true;
 			last = new Date();
 			clearSelection();
-			// arm the push observer for this block, then open Roam's menu with a synthetic event
+			// arm the push observer for this block, then open Roam's menu with a synthetic event.
+			// Open the menu PINNED to the left (fixed clientX = menuLeft), NOT at the touch point, so
+			// the menu's right edge is constant and the block always lands at the same absolute X (see
+			// pushBlock). Roam/popper positions the menu via the event's clientX; the bullet target still
+			// selects the right block. clientY stays at the touch so the menu sits near the finger.
 			pendingBlock = bp.block;
 			pendingAt = Date.now();
-			openBlockMenu(bp.bullet, bp.x, bp.y);
+			openBlockMenu(bp.bullet, menuLeft, bp.y);
 			if (doLog) console.log('long-press → contextmenu on', bp.bullet);
 		}, LONG_PRESS_MS);
 	}
@@ -288,9 +305,13 @@ window.ViktorLongtap = (function () {
 		if (!el) return;
 		var b = el.getBoundingClientRect();
 		var m = menu.getBoundingClientRect();
-		// slide the block right so its left clears the menu's right edge (menu opens at the touch point)
-		var push = Math.round(m.right - b.left + menuGap);
-		push = Math.max(0, Math.min(push, Math.round(window.innerWidth * 0.6))); // keep it partly visible
+		// The menu is pinned to the left (openBlockMenu), so m.right is the SAME for every block. Land the
+		// block's left just past it: target = m.right + gap is a FIXED absolute X; the push (a relative
+		// shift) therefore differs per block (deeper blocks start further right → smaller push) but every
+		// block ends at the same X, clear of the menu. No upper clamp: the left-pinned menu already bounds
+		// the landing X on-screen, and clamping is exactly what left deep blocks stuck under the menu.
+		var target = Math.round(m.right + menuGap);
+		var push = Math.max(0, target - Math.round(b.left));
 		el.style.webkitTransform = 'translate3d(' + push + 'px, 0, 0)';
 		el.style.transform = 'translate3d(' + push + 'px, 0, 0)';
 		el.style.backgroundColor = highlightColor;
