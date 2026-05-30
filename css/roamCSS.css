@@ -801,48 +801,64 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
   transform: translateY(-50%) !important;
   right: 6px !important;
 }
-/* SPOTLIGHT search — only while focused, the input floats DOWN onto the centered results panel,
-   forming one centered command-palette (this is azlen's original look, but azlen floated just the
-   <input> which stranded the search icon + advanced-search button in the topbar; we float the whole
-   .bp3-input-group via :focus-within so they travel together). When NOT focused the input stays in
-   the topbar (the `position:relative` rule above keeps it in flow). */
-.rm-topbar .rm-find-or-create-wrapper .bp3-input-group:focus-within {
-  position: fixed !important;
-  top: 96px !important;
-  /* center with calc (NOT transform): a transformed ancestor would trap the pinned magnifier
-     below as position:absolute instead of letting it stay viewport-fixed in the topbar */
-  left: calc(50% - 300px) !important;
+/* SPOTLIGHT search — while focused, ONLY the <input> (and the advanced-search action) float down
+   to the centered results panel. The .bp3-input-group — and therefore the MAGNIFIER — STAY in
+   their 24px topbar slot in normal flow, so the magnifier never drifts or vanishes: it tracks the
+   topbar like every other topbar icon, regardless of sidebar state. (Floating the whole
+   input-group, as before, took the magnifier with it and left the topbar slot empty.) */
+#app .rm-topbar .rm-find-or-create-wrapper:focus-within .bp3-popover-wrapper,
+#app .rm-topbar .rm-find-or-create-wrapper:focus-within .bp3-popover-target,
+#app .rm-topbar .rm-find-or-create-wrapper:focus-within .bp3-input-group {
+  position: relative !important;
+  top: auto !important;
+  left: auto !important;
   right: auto !important;
-  transform: none !important;
-  width: 600px !important;
-  max-width: 92vw !important;
-  z-index: 21 !important;
-  background: var(--page-color) !important;
-  border-radius: 6px !important;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5) !important;
+  bottom: auto !important;
+  width: 24px !important;
+  min-width: 24px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
 }
-/* The magnifier RIDES INSIDE the floating spotlight box (left-aligned, command-palette style)
-   rather than being pinned back into the topbar. The old approach anchored it with a magic
-   `left: calc(50% + 154px)` that assumed the topbar is viewport-centered — but the topbar
-   centers on the CONTENT area, which shifts whenever the left/right sidebar opens, so the
-   box (viewport-centered) and the pinned icon (viewport+154) visually detached ("icon out of
-   place"). Keeping the icon as a normal-flow absolute child of the floated .bp3-input-group
-   makes box + icon ONE unit that can never drift apart, on any sidebar/window layout. The
-   24px topbar wrapper slot is preserved (right-hand icons don't shift); it just sits empty
-   while the spotlight is open. */
-.rm-topbar .rm-find-or-create-wrapper .bp3-input-group:focus-within > .bp3-icon.search-icon {
+/* magnifier stays centered in the 24px topbar slot — identical to the collapsed state */
+#app .rm-topbar .rm-find-or-create-wrapper:focus-within .bp3-input-group > .bp3-icon.search-icon {
   position: absolute !important;
   top: 50% !important;
-  left: 14px !important;
+  left: 50% !important;
   right: auto !important;
-  transform: translateY(-50%) !important;
+  transform: translate(-50%, -50%) !important;
   margin: 0 !important;
   color: var(--icon-color) !important;
   pointer-events: none !important;
 }
-/* leave room for the in-box magnifier */
-.rm-topbar .rm-find-or-create-wrapper .bp3-input-group:focus-within #find-or-create-input {
-  padding-left: 40px !important;
+/* the INPUT floats to the centered spotlight box (#app beats our own azlen-override at line ~697
+   which forces the input position:relative/width:100% on :focus) */
+#app .rm-topbar .rm-find-or-create-wrapper:focus-within #find-or-create-input,
+#app .rm-topbar .rm-find-or-create-wrapper:focus-within #find-or-create-input:focus {
+  position: fixed !important;
+  top: 96px !important;
+  left: calc(50% - 300px) !important;
+  right: auto !important;
+  width: 600px !important;
+  max-width: 92vw !important;
+  height: 44px !important;
+  padding: 0 44px 0 16px !important;
+  z-index: 21 !important;
+  background: var(--page-color) !important;
+  color: var(--text-color) !important;
+  border-radius: 6px !important;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5) !important;
+  cursor: text !important;
+}
+/* advanced-search button rides to the right edge of the floating box */
+#app .rm-topbar .rm-find-or-create-wrapper:focus-within .bp3-input-action {
+  position: fixed !important;
+  top: 104px !important;
+  left: calc(50% + 256px) !important;
+  right: auto !important;
+  margin: 0 !important;
+  z-index: 22 !important;
+  display: block !important;
 }
 /* the results panel: centered, just below the floating input box (azlen's top:142 stays, we only
    center it horizontally to line up with the box). #app beats azlen's specificity. */
@@ -997,6 +1013,12 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
   background: rgba(255, 255, 255, 0.04) !important;
   border-bottom: 2px solid rgba(var(--color-primary), 0.5) !important;
   color: var(--text-color) !important;
+  /* native header carries a min-width (= full column-scroll width) that makes it overhang the
+     body rows on the right; clamp it to fill the table like the body rows do */
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
 }
 #app .rm-pages-row-header * {
   color: var(--text-color) !important;
@@ -1012,7 +1034,7 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
   position: fixed !important;
   inset: auto !important;
   top: 64px !important;
-  left: 24px !important;
+  left: calc(50% - 256px) !important; /* 512px-wide card, centered horizontally */
   transform: none !important;
 }
 #app .rm-help-popup,
