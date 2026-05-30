@@ -809,14 +809,33 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
 .rm-topbar .rm-find-or-create-wrapper .bp3-input-group:focus-within {
   position: fixed !important;
   top: 96px !important;
-  left: 50% !important;
-  transform: translateX(-50%) !important;
+  /* center with calc (NOT transform): a transformed ancestor would trap the pinned magnifier
+     below as position:absolute instead of letting it stay viewport-fixed in the topbar */
+  left: calc(50% - 300px) !important;
+  right: auto !important;
+  transform: none !important;
   width: 600px !important;
   max-width: 92vw !important;
   z-index: 21 !important;
   background: var(--page-color) !important;
   border-radius: 6px !important;
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5) !important;
+}
+/* keep the magnifier in its TOPBAR slot (don't ride it into the floating box), so the topbar has
+   no empty gap. The topbar is centered, so anchor to the window center + the slot's constant
+   offset (~154px, verified stable across window widths). */
+.rm-topbar .rm-find-or-create-wrapper .bp3-input-group:focus-within > .bp3-icon.search-icon {
+  position: fixed !important;
+  top: 23px !important;
+  left: calc(50% + 154px) !important;
+  right: auto !important;
+  transform: translate(-50%, -50%) !important;
+  margin: 0 !important;
+  pointer-events: none !important;
+}
+/* with no icon inside the box, the placeholder/text shifts left */
+.rm-topbar .rm-find-or-create-wrapper .bp3-input-group:focus-within #find-or-create-input {
+  padding-left: 14px !important;
 }
 /* the results panel: centered, just below the floating input box (azlen's top:142 stays, we only
    center it horizontally to line up with the box). #app beats azlen's specificity. */
