@@ -837,3 +837,22 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
     right: -4px;
   }
 }
+
+/* --- graph-switcher dropdown (.rm-graph-dropdown) dark mode ---
+   The "Graphs and Settings" row (.bp3-menu-item.setting) had a hard-coded light bg
+   (rgb 235,241,245), and the graph entries are real https://roamresearch.com/... links so the
+   theme's external-link rule (a[href^='http'], ~L306) painted them magenta+underline. Give the
+   row a subtle theme tint and make the links read like normal nav links (works in both modes). */
+.rm-graph-dropdown .bp3-menu-item.setting {
+  background-color: rgba(var(--color-primary), 0.12) !important;
+}
+.rm-graph-dropdown a[href^='http'],
+.rm-graph-dropdown a {
+  color: rgb(var(--color-primary)) !important;
+  text-decoration: none !important;
+  border-bottom: none !important;
+}
+.rm-graph-dropdown a[href^='http']:hover {
+  text-decoration: underline !important;
+  border-bottom: none !important;
+}
