@@ -801,6 +801,13 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
   transform: translateY(-50%) !important;
   right: 6px !important;
 }
+/* search RESULTS overlay: azlen pins `.rm-find-or-create-wrapper .bp3-overlay` to a fixed
+   top:142px (its 2021 spotlight spot), so with the input back in the topbar the results detached
+   ~100px below it. Anchor the results right under the input (topbar is 45px tall). #app beats
+   azlen's specificity. */
+#app .rm-find-or-create-wrapper .bp3-overlay {
+  top: 46px !important;
+}
 
 /* --- left sidebar top gap ---
    azlen core.css sets `.roam-sidebar-container { padding-top:70px }` to clear the 2021 *fixed*
