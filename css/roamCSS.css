@@ -1064,3 +1064,42 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
   background: var(--bg-color) !important;
   color: var(--text-color) !important;
 }
+/* search box: the icon-container and the input carry DIFFERENT native borders (light-gray vs faint
+   blue) and different bg, so the box looks half-bordered. Give both the same neutral border + bg. */
+#app .rm-help-popup .rm-help-search__icon-container,
+#app .rm-help-popup .rm-help-search__input {
+  border-color: rgba(180, 183, 187, 0.6) !important;
+  background: var(--bg-color) !important;
+}
+/* left category menu + resource links: native :hover/selected paints a light/white bg (built for
+   light mode) → unreadable on dark. Dark-theme those states and keep the text legible. */
+#app .rm-help-popup .rm-help-category-menu-item:hover,
+#app .rm-help-popup .rm-help-category-menu-item.active,
+#app .rm-help-popup .rm-help-category-menu-item.selected {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: var(--text-color) !important;
+}
+#app .rm-help-popup .rm-help-resource:hover,
+#app .rm-help-popup .rm-help-resource.selected,
+#app .rm-help-popup .rm-help-resource.active {
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+/* scroll: the native popup is a fixed 700px tall, so on a short screen it overflows the viewport and
+   its bottom is unreachable. Cap the popup to the viewport and let the content region scroll. */
+#app .rm-help-popup,
+#app .rm-help-popup__drag-handle,
+#app .rm-help-popup .react-resizable {
+  max-height: calc(100vh - 80px) !important;
+}
+#app .rm-help-popup .react-resizable {
+  display: flex !important;
+  flex-direction: column !important;
+}
+#app .rm-help-popup .rm-help-results {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+}
+#app .rm-help-popup .rm-help-functions {
+  overflow-y: auto !important;
+  max-height: 100% !important;
+}
