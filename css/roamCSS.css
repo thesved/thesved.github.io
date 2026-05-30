@@ -838,21 +838,29 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
   }
 }
 
+/* --- tone down icon-button hover ---
+   azlen sets `.bp3-button:hover` / `.bp3-button.bp3-minimal:hover` to rgba(--color-primary,0.4–0.5)
+   — too aggressive on every icon button (e.g. the sidebar toggle). The `#app` prefix beats azlen's
+   specificity so this sticks even when Roam re-injects the theme on re-render. */
+#app .bp3-button:hover,
+#app .bp3-button.bp3-minimal:hover {
+  background-color: rgba(var(--color-primary), 0.15) !important;
+}
+
 /* --- graph-switcher dropdown (.rm-graph-dropdown) dark mode ---
-   The "Graphs and Settings" row (.bp3-menu-item.setting) had a hard-coded light bg
-   (rgb 235,241,245), and the graph entries are real https://roamresearch.com/... links so the
-   theme's external-link rule (a[href^='http'], ~L306) painted them magenta+underline. Give the
-   row a subtle theme tint and make the links read like normal nav links (works in both modes). */
+   The dropdown renders INSIDE .roam-sidebar-content, so azlen's
+   `.roam-sidebar-content * { color: var(--icon-color) !important }` dimmed the whole thing to
+   barely-legible gray; the graph entries are <li> menu-items (not <a>), so an <a>-only rule
+   missed them, and the "Graphs and Settings" row had a hard-coded light bg (rgb 235,241,245).
+   Make the entries legible, keep the settings row as the blue action with a subtle tint. */
+.roam-sidebar-content .rm-graph-dropdown .bp3-menu-item,
+.roam-sidebar-content .rm-graph-dropdown .bp3-menu-item * {
+  color: var(--text-color) !important;
+}
+.roam-sidebar-content .rm-graph-dropdown .bp3-menu-item.setting,
+.roam-sidebar-content .rm-graph-dropdown .bp3-menu-item.setting * {
+  color: rgb(var(--color-primary)) !important;
+}
 .rm-graph-dropdown .bp3-menu-item.setting {
   background-color: rgba(var(--color-primary), 0.12) !important;
-}
-.rm-graph-dropdown a[href^='http'],
-.rm-graph-dropdown a {
-  color: rgb(var(--color-primary)) !important;
-  text-decoration: none !important;
-  border-bottom: none !important;
-}
-.rm-graph-dropdown a[href^='http']:hover {
-  text-decoration: underline !important;
-  border-bottom: none !important;
 }
