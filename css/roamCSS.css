@@ -801,12 +801,29 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
   transform: translateY(-50%) !important;
   right: 6px !important;
 }
-/* search RESULTS overlay: azlen pins `.rm-find-or-create-wrapper .bp3-overlay` to a fixed
-   top:142px (its 2021 spotlight spot), so with the input back in the topbar the results detached
-   ~100px below it. Anchor the results right under the input (topbar is 45px tall). #app beats
-   azlen's specificity. */
-#app .rm-find-or-create-wrapper .bp3-overlay {
-  top: 46px !important;
+/* SPOTLIGHT search — only while focused, the input floats DOWN onto the centered results panel,
+   forming one centered command-palette (this is azlen's original look, but azlen floated just the
+   <input> which stranded the search icon + advanced-search button in the topbar; we float the whole
+   .bp3-input-group via :focus-within so they travel together). When NOT focused the input stays in
+   the topbar (the `position:relative` rule above keeps it in flow). */
+.rm-topbar .rm-find-or-create-wrapper .bp3-input-group:focus-within {
+  position: fixed !important;
+  top: 96px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  width: 600px !important;
+  max-width: 92vw !important;
+  z-index: 21 !important;
+  background: var(--page-color) !important;
+  border-radius: 6px !important;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5) !important;
+}
+/* the results panel: centered, just below the floating input box (azlen's top:142 stays, we only
+   center it horizontally to line up with the box). #app beats azlen's specificity. */
+#app .rm-topbar .rm-find-or-create-wrapper .bp3-overlay {
+  top: 140px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
 }
 
 /* --- left sidebar top gap ---
