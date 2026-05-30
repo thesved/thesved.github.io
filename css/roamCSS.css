@@ -795,6 +795,13 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
 .rm-topbar #find-or-create-input {
   padding-left: 34px !important;
 }
+/* the advanced-search ("open advanced search") button has the same 40px-input centering issue */
+.rm-topbar .bp3-input-group > .bp3-input-action {
+  top: 50% !important;
+  margin-top: 0 !important;
+  transform: translateY(-50%) !important;
+  right: 6px !important;
+}
 
 /* --- left sidebar top gap ---
    azlen core.css sets `.roam-sidebar-container { padding-top:70px }` to clear the 2021 *fixed*
@@ -805,7 +812,28 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
   padding-top: 12px !important;
 }
 @media only screen and (max-width: 600px) {
+  /* native Roam starts the mobile sidebar at the very top (padding-top:0); only clear the iOS
+     safe-area so it isn't under the notch on viewport-fit=cover (0 on a normal PWA). */
   .roam-body .roam-app .roam-sidebar-container {
-    padding-top: 50px !important;
+    padding-top: env(safe-area-inset-top, 0px) !important;
+  }
+}
+
+/* --- mobile bullet long-press hit area ---
+   Roam opens the block context menu only when the (long-press →) contextmenu target is the
+   ~13px `.rm-bullet` (it delegates contextmenu at #app and matches target.closest('.rm-bullet')).
+   That dot is a tiny target on a phone. Enlarge the touch zone with a transparent ::before —
+   events on the pseudo still target `.rm-bullet`, so a near-miss long-press still opens the menu.
+   Expanded mostly LEFT (empty margin) + a little vertically; minimal RIGHT so it doesn't swallow
+   taps on the block text. */
+@media only screen and (max-width: 600px) {
+  .roam-article .rm-bullet { position: relative; }
+  .roam-article .rm-bullet::before {
+    content: '';
+    position: absolute;
+    top: -7px;
+    bottom: -7px;
+    left: -16px;
+    right: -4px;
   }
 }
