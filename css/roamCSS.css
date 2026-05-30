@@ -801,64 +801,78 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
   transform: translateY(-50%) !important;
   right: 6px !important;
 }
-/* SPOTLIGHT search — while focused, ONLY the <input> (and the advanced-search action) float down
-   to the centered results panel. The .bp3-input-group — and therefore the MAGNIFIER — STAY in
-   their 24px topbar slot in normal flow, so the magnifier never drifts or vanishes: it tracks the
-   topbar like every other topbar icon, regardless of sidebar state. (Floating the whole
-   input-group, as before, took the magnifier with it and left the topbar slot empty.) */
-#app .rm-topbar .rm-find-or-create-wrapper:focus-within .bp3-popover-wrapper,
-#app .rm-topbar .rm-find-or-create-wrapper:focus-within .bp3-popover-target,
+/* SPOTLIGHT search — while focused, the whole .bp3-input-group floats down to form the centered
+   command-palette box, so it keeps its native internals (magnifier on the left, input, and the
+   advanced-search action on the right) all correctly laid out as ONE unit by the base rules above.
+   That takes the real magnifier out of the topbar, so a ::after magnifier (below) is painted into
+   the now-empty 24px topbar slot — meaning a magnifier is ALWAYS visible in the topbar AND it tracks
+   the topbar like any icon (no magic offset → no drift, no vanish), on any sidebar state. */
 #app .rm-topbar .rm-find-or-create-wrapper:focus-within .bp3-input-group {
-  position: relative !important;
-  top: auto !important;
-  left: auto !important;
-  right: auto !important;
-  bottom: auto !important;
-  width: 24px !important;
-  min-width: 24px !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  border: none !important;
-}
-/* magnifier stays centered in the 24px topbar slot — identical to the collapsed state */
-#app .rm-topbar .rm-find-or-create-wrapper:focus-within .bp3-input-group > .bp3-icon.search-icon {
-  position: absolute !important;
-  top: 50% !important;
-  left: 50% !important;
-  right: auto !important;
-  transform: translate(-50%, -50%) !important;
-  margin: 0 !important;
-  color: var(--icon-color) !important;
-  pointer-events: none !important;
-}
-/* the INPUT floats to the centered spotlight box (#app beats our own azlen-override at line ~697
-   which forces the input position:relative/width:100% on :focus) */
-#app .rm-topbar .rm-find-or-create-wrapper:focus-within #find-or-create-input,
-#app .rm-topbar .rm-find-or-create-wrapper:focus-within #find-or-create-input:focus {
   position: fixed !important;
   top: 96px !important;
   left: calc(50% - 300px) !important;
   right: auto !important;
+  bottom: auto !important;
+  transform: none !important;
   width: 600px !important;
   max-width: 92vw !important;
   height: 44px !important;
-  padding: 0 44px 0 16px !important;
   z-index: 21 !important;
   background: var(--page-color) !important;
-  color: var(--text-color) !important;
   border-radius: 6px !important;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5) !important;
-  cursor: text !important;
+  box-shadow:
+    0 0 0 1px rgb(var(--color-primary)),
+    0 0 0 3px rgba(var(--color-primary), 0.2),
+    0 8px 24px rgba(0, 0, 0, 0.6) !important;
 }
-/* advanced-search button rides to the right edge of the floating box */
-#app .rm-topbar .rm-find-or-create-wrapper:focus-within .bp3-input-action {
-  position: fixed !important;
-  top: 104px !important;
-  left: calc(50% + 256px) !important;
+/* the input fills the floated box, transparent so the .bp3-input-group box bg/ring shows; padding
+   clears the left magnifier (34px) and the right advanced-search action (40px) */
+#app .rm-topbar .rm-find-or-create-wrapper:focus-within #find-or-create-input,
+#app .rm-topbar .rm-find-or-create-wrapper:focus-within #find-or-create-input:focus {
+  position: relative !important;
+  top: auto !important;
+  left: auto !important;
   right: auto !important;
+  width: 100% !important;
+  height: 44px !important;
+  padding: 0 40px 0 34px !important;
+  background: transparent !important;
+  color: var(--text-color) !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+/* explicitly place the box internals (azlen/bp3 base rules don't lay them out correctly when the
+   group is floated): magnifier at the left, advanced-search action at the right, both v-centered */
+#app .rm-topbar .rm-find-or-create-wrapper:focus-within .bp3-input-group > .bp3-icon.search-icon {
+  position: absolute !important;
+  top: 50% !important;
+  left: 14px !important;
+  right: auto !important;
+  transform: translateY(-50%) !important;
   margin: 0 !important;
-  z-index: 22 !important;
-  display: block !important;
+  color: var(--icon-color) !important;
+}
+#app .rm-topbar .rm-find-or-create-wrapper:focus-within .bp3-input-group > .bp3-input-action {
+  position: absolute !important;
+  top: 50% !important;
+  right: 8px !important;
+  left: auto !important;
+  transform: translateY(-50%) !important;
+  margin: 0 !important;
+}
+/* magnifier painted into the (now-empty) 24px topbar slot while focused — always-visible topbar
+   search icon that tracks the topbar; the wrapper is position:relative (below) so this anchors to
+   the slot */
+#app .rm-topbar .rm-find-or-create-wrapper:focus-within::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="%23888888" stroke-width="1.6" stroke-linecap="round"><circle cx="6.7" cy="6.7" r="4.5"/><line x1="10.2" y1="10.2" x2="14" y2="14"/></svg>') no-repeat center / contain;
 }
 /* the results panel: centered, just below the floating input box (azlen's top:142 stays, we only
    center it horizontally to line up with the box). #app beats azlen's specificity. */
@@ -875,6 +889,7 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
 .rm-topbar .rm-find-or-create-wrapper {
   flex: 0 0 24px !important;
   width: 24px !important;
+  position: relative !important; /* anchors the :focus-within ::after magnifier to the slot */
 }
 .rm-topbar .rm-find-or-create-wrapper:not(:focus-within) .bp3-popover-wrapper,
 .rm-topbar .rm-find-or-create-wrapper:not(:focus-within) .bp3-popover-target,
