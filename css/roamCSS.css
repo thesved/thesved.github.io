@@ -835,22 +835,16 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
   right: auto !important;
   width: 100% !important;
   height: 44px !important;
-  padding: 0 40px 0 34px !important;
+  padding: 0 40px 0 16px !important;
   background: transparent !important;
   color: var(--text-color) !important;
   border: none !important;
   box-shadow: none !important;
 }
-/* explicitly place the box internals (azlen/bp3 base rules don't lay them out correctly when the
-   group is floated): magnifier at the left, advanced-search action at the right, both v-centered */
+/* no magnifier INSIDE the box — the topbar ::after magnifier already covers it; the advanced-search
+   action stays at the right, vertically centered (azlen/bp3 base rules misplace it once floated) */
 #app .rm-topbar .rm-find-or-create-wrapper:focus-within .bp3-input-group > .bp3-icon.search-icon {
-  position: absolute !important;
-  top: 50% !important;
-  left: 14px !important;
-  right: auto !important;
-  transform: translateY(-50%) !important;
-  margin: 0 !important;
-  color: var(--icon-color) !important;
+  display: none !important;
 }
 #app .rm-topbar .rm-find-or-create-wrapper:focus-within .bp3-input-group > .bp3-input-action {
   position: absolute !important;
