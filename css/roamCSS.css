@@ -821,21 +821,28 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
   border-radius: 6px !important;
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5) !important;
 }
-/* keep the magnifier in its TOPBAR slot (don't ride it into the floating box), so the topbar has
-   no empty gap. The topbar is centered, so anchor to the window center + the slot's constant
-   offset (~154px, verified stable across window widths). */
+/* The magnifier RIDES INSIDE the floating spotlight box (left-aligned, command-palette style)
+   rather than being pinned back into the topbar. The old approach anchored it with a magic
+   `left: calc(50% + 154px)` that assumed the topbar is viewport-centered — but the topbar
+   centers on the CONTENT area, which shifts whenever the left/right sidebar opens, so the
+   box (viewport-centered) and the pinned icon (viewport+154) visually detached ("icon out of
+   place"). Keeping the icon as a normal-flow absolute child of the floated .bp3-input-group
+   makes box + icon ONE unit that can never drift apart, on any sidebar/window layout. The
+   24px topbar wrapper slot is preserved (right-hand icons don't shift); it just sits empty
+   while the spotlight is open. */
 .rm-topbar .rm-find-or-create-wrapper .bp3-input-group:focus-within > .bp3-icon.search-icon {
-  position: fixed !important;
-  top: 23px !important;
-  left: calc(50% + 154px) !important;
+  position: absolute !important;
+  top: 50% !important;
+  left: 14px !important;
   right: auto !important;
-  transform: translate(-50%, -50%) !important;
+  transform: translateY(-50%) !important;
   margin: 0 !important;
+  color: var(--icon-color) !important;
   pointer-events: none !important;
 }
-/* with no icon inside the box, the placeholder/text shifts left */
+/* leave room for the in-box magnifier */
 .rm-topbar .rm-find-or-create-wrapper .bp3-input-group:focus-within #find-or-create-input {
-  padding-left: 14px !important;
+  padding-left: 40px !important;
 }
 /* the results panel: centered, just below the floating input box (azlen's top:142 stays, we only
    center it horizontally to line up with the box). #app beats azlen's specificity. */
@@ -959,4 +966,70 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
 }
 .rm-graph-dropdown .bp3-menu-item.setting {
   background-color: rgba(var(--color-primary), 0.12) !important;
+}
+
+/* --- graph-overview control panel (.rm-graph-view-control-panel) dark mode ---
+   On /graph the floating Controls card is a native white bp3-card with black text +
+   a light-gray "Whole Graph" select button — unreadable in dark mode. Dark-theme the
+   surface, all text/icons, and the select button. The toggle indicators stay primary blue. */
+#app .rm-graph-view-control-panel {
+  background: var(--page-color) !important;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5) !important;
+}
+#app .rm-graph-view-control-panel,
+#app .rm-graph-view-control-panel * {
+  color: var(--text-color) !important;
+}
+#app .rm-graph-view-control-panel .bp3-button {
+  background: var(--bg-color) !important;
+  color: var(--text-color) !important;
+  box-shadow: none !important;
+}
+#app .rm-graph-view-control-panel .bp3-icon {
+  color: var(--icon-color) !important;
+}
+
+/* --- All Pages (/search) table header row ---
+   Native header is a bright rgba(primary, 0.4) band with a white divider — it clashes
+   with the dark, faintly-tinted body rows. Tone it down to a subtle dark header that sits
+   in the same palette as the body, keeping a primary-color underline as the only accent. */
+#app .rm-pages-row-header {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-bottom: 2px solid rgba(var(--color-primary), 0.5) !important;
+  color: var(--text-color) !important;
+}
+#app .rm-pages-row-header * {
+  color: var(--text-color) !important;
+}
+
+/* --- Roam Help popup (.rm-help-popup, a react-draggable card) ---
+   Two native bugs in dark mode: (1) it opens partly OFF-SCREEN to the left because Roam's
+   react-draggable seeds an inline `transform: translate(-146px, …)` calibrated for a wider
+   window; (2) it's a white bp3-card with black text. Pin it on-screen with a fixed position
+   (overriding the inline transform — this trades draggability for always-visible, the right
+   call for a reference panel) and dark-theme the surface, text, links and search input. */
+#app .rm-help-popup {
+  position: fixed !important;
+  inset: auto !important;
+  top: 64px !important;
+  left: 24px !important;
+  transform: none !important;
+}
+#app .rm-help-popup,
+#app .rm-help-popup__drag-handle,
+#app .rm-help-popup .bp3-card {
+  background: var(--page-color) !important;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.55) !important;
+}
+#app .rm-help-popup,
+#app .rm-help-popup * {
+  color: var(--text-color) !important;
+}
+#app .rm-help-popup a,
+#app .rm-help-popup a * {
+  color: rgb(var(--color-primary)) !important;
+}
+#app .rm-help-popup input {
+  background: var(--bg-color) !important;
+  color: var(--text-color) !important;
 }
