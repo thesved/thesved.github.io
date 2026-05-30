@@ -1,37 +1,43 @@
 /*
  * Viktor's Roam Mobile Long tap → right-click on bullets + open-in-sidebar on pages/refs/filters
- * version: 0.4  (2026-05-30)
+ * version: 0.5  (2026-05-30)
  * author: @ViktorTabori
  *
- * WHY THIS WAS REWRITTEN (v0.3 → v0.4):
- *   v0.3 tried to OPEN Roam's context menu itself by dispatching a synthetic `contextmenu`
- *   event, and shoved the block aside immediately. Current Roam (2026) ignores synthetic
- *   contextmenu events (its menu handler only fires on TRUSTED events), so the menu never
- *   opened. Worse, v0.3 actively BROKE the browser's own long-press: it dispatched a synthetic
- *   `touchend` (cancelling the native long-press gesture) and its click-blocker
- *   `preventDefault`-ed the real `contextmenu` — so even the native menu was suppressed, the
- *   block stayed shoved, and the revert (which waited for `body` to lose `bp3-overlay-open`,
- *   a class that was now never added) never fired. Net: block pushed + highlighted, no menu,
- *   never reverts. Exactly the reported bug.
+ * WHY v0.4 → v0.5 (the real root cause, finally):
+ *   v0.4 ASSUMED iOS Safari's native long-press emits a trusted `contextmenu` that Roam opens
+ *   its block menu from, so v0.4 did NOTHING on touch and only observed. That assumption is
+ *   FALSE on a real iPhone Safari PWA: a long-press there is a TEXT-SELECTION gesture, which
+ *   wins the race — you get a gray line highlight and NO menu. (The "verified live" in the old
+ *   handoff was desktop-Chrome touch-emulation, where long-press DOES fire `contextmenu`.)
  *
- * WHAT v0.4 DOES:
- *   Verified live: on mobile a real long-press already makes the browser emit a trusted
- *   `contextmenu`, and Roam DOES open its block menu from it (body gains `bp3-overlay-open`).
- *   So we stop fighting it:
- *     - BULLET (mobile only): do NOTHING on touch — let the native long-press open the menu.
- *       We only OBSERVE: when `body` gains `bp3-overlay-open` shortly after a bullet touch and a
- *       block context menu is open, slide that block clear of the menu + highlight it; revert
- *       when the menu closes. The menu sits in a fixed portal, so moving the block doesn't move
- *       the menu. Desktop never pushes (the menu opens beside the bullet and there's no touch).
- *     - PAGE REF / PAGE TITLE / SEARCH RESULT / FILTER (mobile): long-tap → shift-click to open
- *       in the right sidebar (unchanged behaviour; these use normal click which Roam still honors).
- *   We never block the native `contextmenu` anymore.
+ *   The other v0.4 premise — "current Roam ignores SYNTHETIC `contextmenu`" — is ALSO false.
+ *   Tested directly on the live build: `el.dispatchEvent(new MouseEvent('contextmenu',…))` on a
+ *   `.rm-bullet` DOES open the menu (body gains `bp3-overlay-open`), and a synthetic click on a
+ *   bullet zooms into the block. v0.3 only *looked* broken because its own click-guard
+ *   `preventDefault`-ed the real contextmenu and it fired a bogus synthetic `touchend`.
+ *
+ * WHAT v0.5 DOES (mobile bullet path — full ownership, no reliance on iOS gestures):
+ *   On touchstart on a bullet/`.controls`, we `preventDefault()` (this is the fix: it KILLS the
+ *   iOS text-selection + callout AND the native synthesized click) and start our OWN long-press
+ *   timer:
+ *     - hold ≥ LONG_PRESS_MS without moving  → clear any selection + dispatch a synthetic
+ *       `contextmenu` on the bullet → Roam opens its block menu → the body-class observer slides
+ *       the block clear of the menu + highlights it (revert on close). Reliable on iOS.
+ *     - short tap (released before the timer) → dispatch a synthetic click on what was tapped →
+ *       Roam zooms into the block (the normal bullet action we replaced by preventing default).
+ *     - finger moves > MOVE_TOL          → it was a scroll/drag: cancel, do nothing.
+ *   Desktop is untouched (no touch events; real right-click still opens the native menu).
+ *
+ *   PAGE REF / PAGE TITLE / SEARCH RESULT / FILTER (mobile): long-tap → shift-click to open in
+ *   the right sidebar (unchanged from v0.4; uses normal click which Roam honors).
  */
 if (window.ViktorLongtap && window.ViktorLongtap.stop) window.ViktorLongtap.stop();
 window.ViktorLongtap = (function () {
 	var doLog = false,
 		minWaitTime = 200,        // ms a touch must be held to count as a long-tap (page/ref/filter path)
-		clickBlockTime = 800,     // ms after a long-tap during which the follow-up click is swallowed
+		clickBlockTime = 800,     // ms after a page/ref long-tap during which the follow-up click is swallowed
+		LONG_PRESS_MS = 500,      // ms a bullet must be held to fire the context menu
+		MOVE_TOL = 10,            // px of finger movement that aborts a bullet long-press (= it's a scroll)
 		animTime = 400,
 		MOBILE_MAX = 600,
 		highlightColor = 'rgba(255, 165, 0, 0.18)',
@@ -40,9 +46,11 @@ window.ViktorLongtap = (function () {
 		added = false,
 		last = new Date(),
 		tapStatus = { status: false, target: null, latestLongTap: null },
+		// bullet long-press state (we drive it ourselves)
+		bp = null,                // { x, y, target, bullet, block, timer, fired, moved }
 		// bullet-menu push state
-		pendingBlock = null,      // .roam-block-container last touched on a bullet
-		pendingAt = 0,            // timestamp of that touch
+		pendingBlock = null,      // .roam-block-container whose menu we just opened
+		pendingAt = 0,            // timestamp of that long-press
 		pushedEl = null,          // block currently shifted (so we always revert exactly one)
 		bodyObserver = null,
 		css = document.createElement('style');
@@ -73,7 +81,7 @@ window.ViktorLongtap = (function () {
 
 	return {
 		isAdded: () => added, start: start, stop: stop,
-		_state: function () { return { pendingBlock: !!pendingBlock, pushedEl: !!pushedEl, mobile: isMobile(), agoMs: Date.now() - pendingAt }; }
+		_state: function () { return { holding: !!bp, fired: !!(bp && bp.fired), pushedEl: !!pushedEl, mobile: isMobile(), agoMs: Date.now() - pendingAt }; }
 	};
 
 	function isMobile() { return window.innerWidth <= MOBILE_MAX; }
@@ -81,31 +89,112 @@ window.ViktorLongtap = (function () {
 	function start() {
 		if (added) return;
 		added = true;
-		// NOTE: 'contextmenu' is intentionally NOT blocked anymore — the native long-press menu needs it.
-		'click mousedown mouseup touchstart touchmove touchend selectionchange'.split(' ').forEach(function (type) {
+		// general arming/disarming for the page-ref/title/filter long-tap path (passive is fine)
+		'click mousedown mouseup touchmove touchend selectionchange'.split(' ').forEach(function (type) {
 			document.addEventListener(type, process, { passive: true, capture: true });
 		});
-		// the click-swallow needs to actually cancel, so attach a non-passive click guard too
+		document.addEventListener('touchstart', process, { passive: true, capture: true });
+		// bullet long-press needs to CANCEL the native gesture (selection/callout/click), so its
+		// touch handlers must be NON-passive (preventDefault) and run at capture, before Roam/iOS.
+		document.addEventListener('touchstart', bulletTouchStart, { passive: false, capture: true });
+		document.addEventListener('touchmove', bulletTouchMove, { passive: false, capture: true });
+		document.addEventListener('touchend', bulletTouchEnd, { passive: false, capture: true });
+		document.addEventListener('touchcancel', bulletTouchEnd, { passive: false, capture: true });
+		// swallow the click that follows a page/ref/filter long-tap (so it doesn't ALSO navigate)
 		document.addEventListener('click', clickGuard, { passive: false, capture: true });
 		// observe the block context menu opening/closing to drive the push/revert
 		bodyObserver = new MutationObserver(onBodyClass);
 		bodyObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
 		document.head.appendChild(css);
-		if (doLog) console.log('** long tap v0.4 installed **');
+		if (doLog) console.log('** long tap v0.5 installed **');
 	}
 
 	function stop() {
 		if (!added) return;
 		added = false;
-		'click mousedown mouseup touchstart touchmove touchend selectionchange'.split(' ').forEach(function (type) {
+		'click mousedown mouseup touchmove touchend selectionchange'.split(' ').forEach(function (type) {
 			document.removeEventListener(type, process, { passive: true, capture: true });
 		});
+		document.removeEventListener('touchstart', process, { passive: true, capture: true });
+		document.removeEventListener('touchstart', bulletTouchStart, { passive: false, capture: true });
+		document.removeEventListener('touchmove', bulletTouchMove, { passive: false, capture: true });
+		document.removeEventListener('touchend', bulletTouchEnd, { passive: false, capture: true });
+		document.removeEventListener('touchcancel', bulletTouchEnd, { passive: false, capture: true });
 		document.removeEventListener('click', clickGuard, { passive: false, capture: true });
 		if (bodyObserver) { bodyObserver.disconnect(); bodyObserver = null; }
+		clearBullet();
 		revert();
 		if (css.parentNode) css.parentNode.removeChild(css);
-		if (doLog) console.log('** long tap v0.4 STOPPED **');
+		if (doLog) console.log('** long tap v0.5 STOPPED **');
 	}
+
+	// ---------- BULLET long-press (mobile only) ----------
+
+	function clearBullet() { if (bp && bp.timer) clearTimeout(bp.timer); bp = null; }
+
+	function bulletTouchStart(e) {
+		if (!isMobile() || !e.target || !e.target.closest) return;
+		var controls = e.target.closest('.controls');
+		if (!controls) return;                       // not a bullet/gutter touch — leave it alone
+		if (e.touches && e.touches.length > 1) { clearBullet(); return; } // multi-touch → ignore
+		var bullet = controls.querySelector('.rm-bullet') || controls;
+		var t = (e.targetTouches && e.targetTouches[0]) || e;
+		// THE FIX: cancel the native long-press gesture (iOS text-selection + callout) AND the
+		// synthesized click. We replicate whichever one the user meant (zoom vs. menu) ourselves.
+		e.preventDefault();
+		clearBullet();
+		bp = {
+			x: t.clientX, y: t.clientY, target: e.target, bullet: bullet,
+			block: controls.closest('.roam-block-container'), timer: null, fired: false, moved: false
+		};
+		bp.timer = setTimeout(function () {
+			if (!bp || bp.moved) return;
+			bp.fired = true;
+			last = new Date();
+			clearSelection();
+			// arm the push observer for this block, then open Roam's menu with a synthetic event
+			pendingBlock = bp.block;
+			pendingAt = Date.now();
+			openBlockMenu(bp.bullet, bp.x, bp.y);
+			if (doLog) console.log('long-press → contextmenu on', bp.bullet);
+		}, LONG_PRESS_MS);
+	}
+
+	function bulletTouchMove(e) {
+		if (!bp) return;
+		var t = (e.targetTouches && e.targetTouches[0]) || e;
+		if (Math.abs(t.clientX - bp.x) > MOVE_TOL || Math.abs(t.clientY - bp.y) > MOVE_TOL) {
+			bp.moved = true;                         // it's a scroll/drag, not a long-press
+			if (bp.timer) { clearTimeout(bp.timer); bp.timer = null; }
+		}
+	}
+
+	function bulletTouchEnd(e) {
+		if (!bp) return;
+		var b = bp;
+		clearBullet();
+		if (b.fired) {                               // long-press already opened the menu — swallow
+			if (e.cancelable) e.preventDefault();
+			return;
+		}
+		if (b.moved) return;                         // was a drag — do nothing
+		// short tap: replicate the native bullet action (zoom into the block) we preventDefault-ed
+		simulateClick(b.target, ['mousedown', 'mouseup', 'click'], true);
+	}
+
+	function openBlockMenu(el, x, y) {
+		if (!el) return;
+		var ev = new MouseEvent('contextmenu', {
+			view: window, bubbles: true, cancelable: true, button: 2, buttons: 2, clientX: x, clientY: y
+		});
+		el.dispatchEvent(ev);
+	}
+
+	function clearSelection() {
+		try { var s = window.getSelection(); if (s && s.rangeCount) s.removeAllRanges(); } catch (_) { }
+	}
+
+	// ---------- PAGE REF / TITLE / SEARCH / FILTER long-tap → open in sidebar (unchanged) ----------
 
 	// Swallow the normal tap/click that follows a page/ref/filter long-tap (so it doesn't ALSO navigate).
 	function clickGuard(e) {
@@ -113,17 +202,13 @@ window.ViktorLongtap = (function () {
 		if (tapStatus.latestLongTap && (Date.now() - tapStatus.latestLongTap.getTime()) < clickBlockTime) {
 			e.preventDefault();
 			e.stopPropagation();
-			if (window.getSelection().rangeCount) window.getSelection().removeAllRanges();
+			clearSelection();
 		}
 	}
 
 	function process(e) {
 		last = new Date();
 		var target = e.target;
-		var location = {
-			x: e.clientX || (e.targetTouches && e.targetTouches.length && e.targetTouches[0].clientX),
-			y: e.clientY || (e.targetTouches && e.targetTouches.length && e.targetTouches[0].clientY),
-		};
 
 		// a moved/ended touch aborts a pending page/ref/filter long-tap
 		if (e.type == 'touchmove' || e.type == 'touchend') { tapStatus.status = false; return; }
@@ -133,15 +218,8 @@ window.ViktorLongtap = (function () {
 
 		if (e.type != 'touchstart') return;
 
-		// ---- BULLET path (mobile only): let the native long-press open the menu; we just record the block ----
-		var controls = target.closest && target.closest('.controls');
-		if (controls) {
-			if (isMobile()) {
-				pendingBlock = controls.closest('.roam-block-container');
-				pendingAt = Date.now();
-			}
-			return; // no synthetic events, no preventDefault — the browser drives the long-press
-		}
+		// bullets are handled by the dedicated non-passive handler above — skip here
+		if (target.closest && target.closest('.controls')) return;
 
 		// ---- PAGE REF / TITLE / SEARCH / FILTER path: long-tap → shift-click to open in sidebar ----
 		var action = null;
@@ -178,6 +256,8 @@ window.ViktorLongtap = (function () {
 			action();
 		}, minWaitTime);
 	}
+
+	// ---------- block push/revert under the open menu (mobile only) ----------
 
 	// Driven by body's class flipping bp3-overlay-open on/off (a block menu opening/closing).
 	function onBodyClass() {
