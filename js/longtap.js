@@ -51,7 +51,7 @@ window.ViktorLongtap = (function () {
 		animTime = 400,
 		MOBILE_MAX = 600,
 		highlightColor = 'rgba(255, 165, 0, 0.18)',
-		menuGap = 8,              // px gap between the menu's right edge and the pushed block
+		menuGap = -22,            // px gap between the menu's right edge and the pushed block
 		menuLeft = 6,             // px: open the block menu pinned this far from the screen's left edge,
 		                          // so its right edge — and thus the pushed block's landing X — is the
 		                          // SAME for every block regardless of its indent level
