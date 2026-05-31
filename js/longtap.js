@@ -97,7 +97,7 @@ window.ViktorLongtap = (function () {
 		_state: function () { return { holding: !!bp, fired: !!(bp && bp.fired), pushedEl: !!pushedEl, mobile: isMobile(), agoMs: Date.now() - pendingAt }; }
 	};
 
-	function isMobile() { return window.innerWidth <= MOBILE_MAX; }
+	function isMobile() { return true; /* for touch we dont care about size return window.innerWidth <= MOBILE_MAX; */ }
 
 	function start() {
 		if (added) return;
