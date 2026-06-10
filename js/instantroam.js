@@ -1,7 +1,12 @@
 /*
  * Viktor's Instant Roam — instant, dark, cursor-ready capture on every open.
- * version: 0.3  (2026-06-11)
+ * version: 0.3.1  (2026-06-11)
  * author: @ViktorTabori
+ *
+ * v0.3.1: keyboard-continuity fix — the handoff now waits until Roam's editor has CONFIRMED focus
+ *   before removing the overlay (no focus gap), so on iOS the soft keyboard never closes during the
+ *   swap; the block stays synced with anything typed in the gap. (v0.3 removed the overlay on a
+ *   fixed timer, which could race Roam's focus in the log view and drop the keyboard.)
  *
  * THE TRICK (proven on desktop CDP 2026-06-11, see instant-roam/):
  *   Roam boots from a Workbox-precached index.html and its OWN service worker serves that cached
@@ -83,23 +88,16 @@ window.ViktorInstantroam = (function () {
 			function clearBuf() { try { localStorage.removeItem(LS); } catch (e) { } }
 			function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
-			function focusBlock(a, uid, caretPos, tries) {
-				try { a.ui.setBlockFocusAndSelection({ location: { 'block-uid': uid, 'window-id': 'main-window' }, selection: { start: caretPos } }); } catch (e) { }
-				if (tries > 0) setTimeout(function () {
-					var f = null; try { f = a.ui.getFocusedBlock(); } catch (e) { }
-					if (!f || f['block-uid'] !== uid) focusBlock(a, uid, caretPos, tries - 1);
-				}, 130);
-			}
-
-			// Ensure today's DNP has an empty top block (reuse/insert), put any typed text there, focus
-			// it IN PLACE (no navigation — we stay on the Daily Notes log).
+			// Ensure today's DNP has an empty top block (reuse/insert), put any typed text there, and
+			// hand the keyboard to Roam's real editor WITHOUT a focus gap so iOS never closes it. We
+			// stay on the Daily Notes log (no navigation).
 			function hydrate(a) {
 				if (CAP.hydrated || CAP.dismissed) return; CAP.hydrated = true;
 				(async function () {
 					try {
 						var dnp = a.util.dateToPageUid(new Date());
 						if (!a.pull('[:db/id]', [':block/uid', dnp])) { try { await a.createPage({ page: { title: a.util.dateToPageTitle(new Date()), uid: dnp } }); } catch (e) { } }
-						await sleep(40);
+						await sleep(30);
 						var text = (ta.value || '').replace(/\s+$/, '');     // read as late as possible
 						var p = a.pull('[{:block/children [:block/string :block/uid :block/order]}]', [':block/uid', dnp]);
 						var kids = (p && p[':block/children']) || [];
@@ -109,11 +107,19 @@ window.ViktorInstantroam = (function () {
 						if (topUid && topEmpty) { target = topUid; if (text) { try { await a.updateBlock({ block: { uid: topUid, string: text } }); } catch (e) { } } }
 						else { target = a.util.generateUID(); try { await a.createBlock({ location: { 'parent-uid': dnp, order: 0 }, block: { uid: target, string: text } }); } catch (e) { } }
 						clearBuf();
-						await sleep(50);
-						var latest = (ta.value || '').replace(/\s+$/, '');   // reconcile keystrokes typed mid-hydrate
-						if (latest !== text) { try { await a.updateBlock({ block: { uid: target, string: latest } }); } catch (e) { } text = latest; }
-						focusBlock(a, target, text.length, 6);
-						await sleep(90);
+						// Keep OUR textarea focused (keyboard up) and poll Roam's focus until its editor
+						// actually holds the block, syncing anything typed in the gap. ONLY THEN remove the
+						// overlay — there is never an instant with nothing focused, so the keyboard stays up
+						// and the user just keeps typing into the real top block without noticing the swap.
+						var written = text, caret = text.length, settled = false;
+						for (var i = 0; i < 40 && !CAP.dismissed; i++) {
+							var cur = (ta.value || '').replace(/\s+$/, '');
+							if (cur !== written) { try { await a.updateBlock({ block: { uid: target, string: cur } }); } catch (e) { } written = cur; caret = cur.length; }
+							try { a.ui.setBlockFocusAndSelection({ location: { 'block-uid': target, 'window-id': 'main-window' }, selection: { start: caret } }); } catch (e) { }
+							await sleep(70);
+							var f = null; try { f = a.ui.getFocusedBlock(); } catch (e) { }
+							if (f && f['block-uid'] === target) { settled = true; break; }
+						}
 						fadeRemove();
 					} catch (e) { fadeRemove(); }
 				})();
