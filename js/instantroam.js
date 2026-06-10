@@ -1,6 +1,6 @@
 /*
  * Viktor's Instant Roam — instant, dark, cursor-ready capture on every open.
- * version: 0.2  (2026-06-11)
+ * version: 0.3  (2026-06-11)
  * author: @ViktorTabori
  *
  * THE TRICK (proven on desktop CDP 2026-06-11, see instant-roam/):
@@ -8,33 +8,34 @@
  *   shell for the top-level navigation on every load. We can't register our own SW on
  *   roamresearch.com, but from this in-graph module (runs AFTER boot) we REWRITE the cached
  *   index.html in place. Roam's own SW then serves OUR shell at T=0 on the NEXT load — before any
- *   ClojureScript runs — painting dark instantly and rendering a focused capture box.
+ *   ClojureScript runs — painting instantly and rendering a focused capture box.
  *
- * v0.2 changes (from Viktor's feedback):
- *   - System-themed (prefers-color-scheme) dark shell; the overlay stays up until Roam is truly
- *     ready, so there's no white Roam-loader flash on entry OR exit.
- *   - Also poisons the manifest background_color (#FFF -> #182026) to kill the iOS native white
- *     splash. NOTE: iOS caches the splash at install time, so this only takes effect after you
- *     REMOVE + RE-ADD Roam to the Home Screen.
- *   - Seamless engage-gated handoff:
- *       (a) user never engages the box  -> overlay just melts to reveal Roam (no forced focus).
- *       (b) user taps but types nothing -> on ready, ensure an EMPTY top block on today's DNP is
- *           focused (reuse the empty top block, else insert one), ready to type.
- *       (c) user types during the boot  -> same, but the typed text is already in that top block
- *           with the caret at the end, so typing continues into the real editor unnoticed.
- *   Keystrokes are mirrored to localStorage throughout — nothing is ever lost.
+ * v0.3 changes (Viktor's feedback):
+ *   - Stays on the Daily Notes LOG (the default view) — no navigation to today's single page.
+ *     The handoff focuses today's (topmost day's) top block in place.
+ *   - The capture screen mirrors the graph's ACTUAL theme: each boot we sample the real
+ *     background/text/accent colors and persist them, so next open's overlay matches whatever
+ *     theme the graph uses (not just OS prefers-color-scheme). Falls back to OS theme on first run.
+ *   - Enable/disable from Roam's Command Palette (Cmd/Ctrl-P, also in the ⋯ menu):
+ *       "Instant Roam: disable …" / "Instant Roam: enable …". (Hard uninstall is still removing the
+ *       roam/js loader key.)
  *
- * iOS caveat: iOS won't open the soft keyboard from a programmatic focus() without a gesture, so
- * the caret blinks but the first TAP opens the keyboard (tapping the overlay focuses the box).
+ * Handoff states:
+ *   (a) user never engages  -> overlay melts the moment Roam is painted; nothing forced.
+ *   (b) taps, types nothing  -> focuses an EMPTY top block of today's DNP (reuse/insert), ready.
+ *   (c) types during boot    -> that text is already in the top block, caret at end, focused —
+ *                               typing continues into the real editor with no visible seam.
+ *   Keystrokes mirror to localStorage throughout — nothing is ever lost.
  *
- * UNINSTALL: window.ViktorInstantroam.stop() (restores Roam's shell + manifest), then remove the
- * `instantroam` key from the roam/js loader's alphaChannel and reload.
+ * iOS: programmatic focus() won't open the soft keyboard without a gesture, so the caret blinks
+ * but the first TAP opens the keyboard. The manifest splash is darkened too, but iOS only reads
+ * that at install — REMOVE + RE-ADD to the Home Screen to apply it.
  */
 if (window.ViktorInstantroam && window.ViktorInstantroam.stop) window.ViktorInstantroam.stop();
 window.ViktorInstantroam = (function () {
-	var SALT = '2';                 // bump only if you change the injected <style> (capture-app changes auto-bump)
+	var SALT = '3';                 // bump only if you change the injected <style> (capture-app changes auto-bump)
 	var DARK = '#182026';
-	var LSO = 'IR_orig_shell', LSM = 'IR_orig_manifest';
+	var LSO = 'IR_orig_shell', LSM = 'IR_orig_manifest', LST = 'IR_theme', LSD = 'IR_disabled';
 
 	// ---------- the instant-capture app (serialized into the shell; must be self-contained) ----------
 	function __IR_capture() {
@@ -44,8 +45,12 @@ window.ViktorInstantroam = (function () {
 			var CAP = { ts: Date.now(), done: false, engaged: false, hydrated: false, dismissed: false };
 			W.__IR_CAPTURE = CAP;
 
-			var light = false; try { light = W.matchMedia && W.matchMedia('(prefers-color-scheme: light)').matches; } catch (e) { }
-			var bg = light ? '#ffffff' : '#182026', fg = light ? '#1a1a1a' : '#e8eaed', dim = light ? 'rgba(0,0,0,.45)' : 'rgba(255,255,255,.4)';
+			// Theme: mirror the graph's real colors (persisted by the module last boot); else OS theme.
+			function alpha(c, a) { var m = (c || '').match(/(\d+)[,\s]+(\d+)[,\s]+(\d+)/); return m ? 'rgba(' + m[1] + ',' + m[2] + ',' + m[3] + ',' + a + ')' : c; }
+			var bg, fg, dim, caret, th = null;
+			try { th = JSON.parse(localStorage.getItem('IR_theme') || 'null'); } catch (e) { }
+			if (th && th.bg && th.fg) { bg = th.bg; fg = th.fg; dim = alpha(fg, 0.45); caret = th.accent || fg; }
+			else { var lt = false; try { lt = W.matchMedia && W.matchMedia('(prefers-color-scheme: light)').matches; } catch (e) { } bg = lt ? '#ffffff' : '#182026'; fg = lt ? '#1a1a1a' : '#e8eaed'; dim = lt ? 'rgba(0,0,0,.45)' : 'rgba(255,255,255,.4)'; caret = '#4c9aff'; }
 
 			var ov = D.createElement('div'); ov.id = 'IR_overlay';
 			ov.style.cssText = 'position:fixed;inset:0;z-index:2147483600;background:' + bg + ';color:' + fg + ';display:flex;flex-direction:column;font-family:Inter,system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;opacity:1;transition:opacity .16s ease';
@@ -59,7 +64,7 @@ window.ViktorInstantroam = (function () {
 
 			var ta = D.createElement('textarea'); ta.id = 'IR_input';
 			ta.placeholder = 'Type your idea…'; ta.setAttribute('autocapitalize', 'sentences'); ta.setAttribute('autocorrect', 'on');
-			ta.style.cssText = 'flex:1;width:100%;box-sizing:border-box;background:transparent;color:inherit;border:none;outline:none;resize:none;font-size:21px;line-height:1.5;padding:8px 18px calc(18px + env(safe-area-inset-bottom));caret-color:#4c9aff;font-family:inherit';
+			ta.style.cssText = 'flex:1;width:100%;box-sizing:border-box;background:transparent;color:inherit;border:none;outline:none;resize:none;font-size:21px;line-height:1.5;padding:8px 18px calc(18px + env(safe-area-inset-bottom));caret-color:' + caret + ';font-family:inherit';
 			try { var prev = localStorage.getItem(LS); if (prev) { ta.value = prev; if (prev.trim()) CAP.engaged = true; } } catch (e) { }
 
 			ov.appendChild(head); ov.appendChild(ta);
@@ -78,22 +83,23 @@ window.ViktorInstantroam = (function () {
 			function clearBuf() { try { localStorage.removeItem(LS); } catch (e) { } }
 			function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
-			function focusBlock(a, uid, caret, tries) {
-				try { a.ui.setBlockFocusAndSelection({ location: { 'block-uid': uid, 'window-id': 'main-window' }, selection: { start: caret } }); } catch (e) { }
+			function focusBlock(a, uid, caretPos, tries) {
+				try { a.ui.setBlockFocusAndSelection({ location: { 'block-uid': uid, 'window-id': 'main-window' }, selection: { start: caretPos } }); } catch (e) { }
 				if (tries > 0) setTimeout(function () {
 					var f = null; try { f = a.ui.getFocusedBlock(); } catch (e) { }
-					if (!f || f['block-uid'] !== uid) focusBlock(a, uid, caret, tries - 1);
+					if (!f || f['block-uid'] !== uid) focusBlock(a, uid, caretPos, tries - 1);
 				}, 130);
 			}
 
+			// Ensure today's DNP has an empty top block (reuse/insert), put any typed text there, focus
+			// it IN PLACE (no navigation — we stay on the Daily Notes log).
 			function hydrate(a) {
 				if (CAP.hydrated || CAP.dismissed) return; CAP.hydrated = true;
 				(async function () {
 					try {
 						var dnp = a.util.dateToPageUid(new Date());
 						if (!a.pull('[:db/id]', [':block/uid', dnp])) { try { await a.createPage({ page: { title: a.util.dateToPageTitle(new Date()), uid: dnp } }); } catch (e) { } }
-						try { await a.ui.mainWindow.openPage({ page: { uid: dnp } }); } catch (e) { }
-						await sleep(60);
+						await sleep(40);
 						var text = (ta.value || '').replace(/\s+$/, '');     // read as late as possible
 						var p = a.pull('[{:block/children [:block/string :block/uid :block/order]}]', [':block/uid', dnp]);
 						var kids = (p && p[':block/children']) || [];
@@ -104,8 +110,7 @@ window.ViktorInstantroam = (function () {
 						else { target = a.util.generateUID(); try { await a.createBlock({ location: { 'parent-uid': dnp, order: 0 }, block: { uid: target, string: text } }); } catch (e) { } }
 						clearBuf();
 						await sleep(50);
-						// reconcile any keystrokes typed during hydrate, then focus caret at the end
-						var latest = (ta.value || '').replace(/\s+$/, '');
+						var latest = (ta.value || '').replace(/\s+$/, '');   // reconcile keystrokes typed mid-hydrate
 						if (latest !== text) { try { await a.updateBlock({ block: { uid: target, string: latest } }); } catch (e) { } text = latest; }
 						focusBlock(a, target, text.length, 6);
 						await sleep(90);
@@ -122,8 +127,8 @@ window.ViktorInstantroam = (function () {
 				return !spinnerVisible;
 			}
 
-			// Poll for Roam readiness. Engaged -> seamless handoff. Not engaged -> wait until Roam has
-			// actually painted, then melt away (so we never reveal a half-loaded/white screen).
+			// Engaged -> seamless handoff. Not engaged -> wait until Roam has painted, then melt (so we
+			// never reveal a half-loaded/white screen).
 			var tries = 0;
 			var poll = setInterval(function () {
 				tries++;
@@ -176,12 +181,12 @@ window.ViktorInstantroam = (function () {
 			var poisoned = orig.replace('</head>', styleTag + '</head>').replace(/<body[^>]*>/, function (m) { return m + scriptTag; });
 			if (poisoned.indexOf('IR_boot') === -1 || poisoned.indexOf('IR_style') === -1) return;   // never write a broken shell
 			await e.cache.put(e.req, htmlResp(poisoned));
-			if (doLog) console.log('** instant-roam: index poisoned (v' + VERSION + ') **');
+			if (doLog) console.log('** instant-roam: index poisoned (' + VERSION + ') **');
 		} catch (_) { }
 	}
 
-	// Manifest: kill the iOS native white splash (background_color #FFF -> dark). Takes effect only
-	// after the PWA is removed + re-added to the Home Screen (iOS caches the splash at install).
+	// Kill the iOS native white splash (manifest background_color #FFF -> dark). Applies only after
+	// the PWA is removed + re-added to the Home Screen (iOS caches the splash at install).
 	async function poisonManifest() {
 		try {
 			var e = await cacheEntry(isManifest); if (!e) return;
@@ -191,7 +196,6 @@ window.ViktorInstantroam = (function () {
 			try { if (!localStorage.getItem(LSM)) localStorage.setItem(LSM, txt); } catch (_) { }
 			m.background_color = DARK;
 			await e.cache.put(e.req, new Response(JSON.stringify(m), { status: 200, headers: { 'Content-Type': 'application/manifest+json' } }));
-			if (doLog) console.log('** instant-roam: manifest splash darkened (re-add to Home Screen) **');
 		} catch (_) { }
 	}
 
@@ -207,19 +211,57 @@ window.ViktorInstantroam = (function () {
 			}
 			var mraw = null; try { mraw = localStorage.getItem(LSM); } catch (_) { }
 			if (mraw) { var me = await cacheEntry(isManifest); if (me) await me.cache.put(me.req, new Response(mraw, { status: 200, headers: { 'Content-Type': 'application/manifest+json' } })); }
-			if (doLog) console.log('** instant-roam: restored Roam shell + manifest **');
 		} catch (_) { }
 	}
 
+	// Sample the graph's actual theme so next open's overlay matches it (not just OS theme).
+	function captureTheme() {
+		try {
+			var tries = 0;
+			var iv = setInterval(function () {
+				tries++;
+				var txtEl = document.querySelector('.rm-block-text, .roam-article .rm-block, .roam-article');
+				if (!txtEl && tries <= 50) return;
+				clearInterval(iv);
+				try {
+					var fg = getComputedStyle(txtEl || document.body).color;
+					var el = txtEl || document.querySelector('.roam-article, .roam-body-main, .roam-app, #app') || document.body, bg = null;
+					while (el) { var c = getComputedStyle(el).backgroundColor; if (c && c !== 'rgba(0, 0, 0, 0)' && c !== 'transparent') { bg = c; break; } el = el.parentElement; }
+					if (!bg) bg = getComputedStyle(document.body).backgroundColor || '#ffffff';
+					var accent = null, lk = document.querySelector('.rm-page-ref--link, .rm-page-ref, .roam-article a'); if (lk) accent = getComputedStyle(lk).color;
+					localStorage.setItem(LST, JSON.stringify({ bg: bg, fg: fg, accent: accent }));
+				} catch (e) { }
+			}, 200);
+		} catch (_) { }
+	}
+
+	// ---------- enable / disable (Command Palette) ----------
+	var CMD_OFF = 'Instant Roam: disable (instant dark capture)';
+	var CMD_ON = 'Instant Roam: enable (instant dark capture)';
+	function toast(msg) {
+		try { var d = document.createElement('div'); d.textContent = msg; d.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#182026;color:#fff;padding:10px 16px;border-radius:8px;font:14px Inter,system-ui,sans-serif;z-index:2147483647;box-shadow:0 4px 16px rgba(0,0,0,.4)'; document.body.appendChild(d); setTimeout(function () { try { d.remove(); } catch (e) { } }, 2400); } catch (e) { }
+	}
+	function isDisabled() { try { return localStorage.getItem(LSD) === '1'; } catch (e) { return false; } }
+	function disable() { try { localStorage.setItem(LSD, '1'); } catch (e) { } unpoison(); var o = document.getElementById('IR_overlay'); if (o) o.remove(); toast('Instant Roam disabled — back to normal Roam on next open.'); }
+	function enable() { try { localStorage.removeItem(LSD); } catch (e) { } poison(); poisonManifest(); captureTheme(); toast('Instant Roam enabled — reopen Roam to see it.'); }
+	function addCommands() { try { var cp = window.roamAlphaAPI.ui.commandPalette; cp.addCommand({ label: CMD_OFF, callback: disable }); cp.addCommand({ label: CMD_ON, callback: enable }); } catch (e) { } }
+	function removeCommands() { try { var cp = window.roamAlphaAPI.ui.commandPalette; cp.removeCommand({ label: CMD_OFF }); cp.removeCommand({ label: CMD_ON }); } catch (e) { } }
+
 	var doLog = false, added = false;
-	function start() { if (added) return; added = true; poison(); poisonManifest(); }
+	function start() {
+		if (added) return; added = true;
+		addCommands();
+		if (isDisabled()) { unpoison(); return; }
+		poison(); poisonManifest(); captureTheme();
+	}
 	function stop() {
 		added = false;
+		removeCommands();
 		unpoison();
 		var o = document.getElementById('IR_overlay'); if (o) o.remove();
 		try { delete window.__IR_CAPTURE; } catch (_) { window.__IR_CAPTURE = undefined; }
 	}
 
 	start();
-	return { start: start, stop: stop, poison: poison, poisonManifest: poisonManifest, unpoison: unpoison, version: VERSION };
+	return { start: start, stop: stop, poison: poison, poisonManifest: poisonManifest, unpoison: unpoison, captureTheme: captureTheme, enable: enable, disable: disable, version: VERSION };
 })();
