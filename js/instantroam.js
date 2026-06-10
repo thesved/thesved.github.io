@@ -114,7 +114,13 @@ window.ViktorInstantroam = (function () {
 				})();
 			}
 
-			function painted() { var app = D.getElementById('app'); var spin = D.querySelector('[class*="astrolabe"],img[src*="astrolabe"],.loading-astrolabe'); return !!(app && app.children.length > 0 && !spin); }
+			function painted() {
+				var app = D.getElementById('app');
+				if (!(app && app.children.length > 0)) return false;
+				var spin = D.querySelector('[class*="astrolabe"],img[src*="astrolabe"],.loading-astrolabe');
+				var spinnerVisible = spin && spin.getClientRects().length > 0;   // a HIDDEN astrolabe lingers post-boot — ignore it
+				return !spinnerVisible;
+			}
 
 			// Poll for Roam readiness. Engaged -> seamless handoff. Not engaged -> wait until Roam has
 			// actually painted, then melt away (so we never reveal a half-loaded/white screen).
