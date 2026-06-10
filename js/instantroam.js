@@ -32,7 +32,7 @@
  */
 if (window.ViktorInstantroam && window.ViktorInstantroam.stop) window.ViktorInstantroam.stop();
 window.ViktorInstantroam = (function () {
-	var VERSION = '2';
+	var SALT = '2';                 // bump only if you change the injected <style> (capture-app changes auto-bump)
 	var DARK = '#182026';
 	var LSO = 'IR_orig_shell', LSM = 'IR_orig_manifest';
 
@@ -138,6 +138,8 @@ window.ViktorInstantroam = (function () {
 	}
 
 	var CAPTURE_SRC = '(' + __IR_capture.toString() + ')();';
+	function hashStr(s) { var h = 5381, i = s.length; while (i) h = (h * 33) ^ s.charCodeAt(--i); return (h >>> 0).toString(36); }
+	var VERSION = SALT + '-' + hashStr(CAPTURE_SRC);   // auto-bumps whenever the capture app changes -> forces a re-poison
 
 	// ---------- installer ----------
 	function strip(html) {
