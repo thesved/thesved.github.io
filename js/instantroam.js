@@ -114,7 +114,7 @@ window.ViktorInstantroam = (function () {
 				})();
 			}
 
-			function painted() { return !!D.querySelector('.roam-article .rm-block, .rm-block-text, textarea.rm-block-input, [id^="block-input"]'); }
+			function painted() { var app = D.getElementById('app'); var spin = D.querySelector('[class*="astrolabe"],img[src*="astrolabe"],.loading-astrolabe'); return !!(app && app.children.length > 0 && !spin); }
 
 			// Poll for Roam readiness. Engaged -> seamless handoff. Not engaged -> wait until Roam has
 			// actually painted, then melt away (so we never reveal a half-loaded/white screen).
