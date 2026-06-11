@@ -56,7 +56,9 @@ window.ViktorInstantroam = (function () {
 			var DBG = true; try { DBG = localStorage.getItem('IR_debug') !== '0'; } catch (e) { }
 			var IRV = ''; try { var bt = D.getElementById('IR_boot'); IRV = (bt && bt.getAttribute('data-irv')) || ''; } catch (e) { }
 			var labKey = 'IR_lab_done_' + IRV;
-			var LAB = false; try { LAB = DBG && !localStorage.getItem(labKey); } catch (e) { }
+			// Auto-LAB is OPT-IN (keyboard retention already proven on device) — arm via localStorage.IR_lab='1'
+			// or triple-tap the header. Keeps the dashed test box out of the way during real captures.
+			var LAB = false; try { LAB = DBG && localStorage.getItem('IR_lab') === '1' && !localStorage.getItem(labKey); } catch (e) { }
 			var labFinished = false;
 			var T0 = Date.now(), LOG = [], flushQ = false;
 			if (DBG) W.__IR_LOG = LOG;
@@ -152,7 +154,7 @@ window.ViktorInstantroam = (function () {
 			var tapN = 0, tapAt = 0;
 			label.addEventListener('pointerdown', function () {
 				var now = Date.now(); if (now - tapAt > 900) tapN = 0; tapAt = now;
-				if (++tapN >= 3) { tapN = 0; try { localStorage.removeItem(labKey); } catch (e) { } label.textContent = 'lab re-armed — kill app & reopen'; L('lab re-armed by triple-tap'); }
+				if (++tapN >= 3) { tapN = 0; try { localStorage.setItem('IR_lab', '1'); localStorage.removeItem(labKey); } catch (e) { } label.textContent = 'lab re-armed — kill app & reopen'; L('lab re-armed by triple-tap'); }
 			});
 
 			// AUTO-LAB (once per poisoned version, needs a real engagement = keyboard up): proves the
