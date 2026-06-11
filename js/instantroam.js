@@ -1,5 +1,7 @@
 /*
  * Viktor's Instant Roam — instant, dark, cursor-ready capture on every open.
+ * version: 0.5.3  (2026-06-11) — dim the placeholder (.33, .25 on focus) so it doesn't read like
+ *                                  already-typed text. (0.5.2/0.5.0 below.)
  * version: 0.5.2  (2026-06-11) — desktop horizontal alignment: fixed 25% side margin (centered middle
  *                                  50%), skin/page-width-independent; mobile stays full-width. (0.5.0 below.)
  * version: 0.5.0  (2026-06-11) — themed to the user's real skin + balanced layout. Captures the live
@@ -174,7 +176,7 @@ window.ViktorInstantroam = (function () {
 			try { var pp = JSON.parse(localStorage.getItem('IR_pos') || '{}'); if (typeof pp[form] === 'number') pos = pp[form]; } catch (e) { }
 			// captured colors are always computed "rgb(r, g, b)" → derive a 50%-alpha caption color from
 			// them (color-mix isn't reliable cross-engine). Hex defaults fall back to a scheme-based dim.
-			function dimOf(c) { var m = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/.exec(c); return m ? 'rgba(' + m[1] + ',' + m[2] + ',' + m[3] + ',.5)' : (light ? 'rgba(0,0,0,.45)' : 'rgba(255,255,255,.45)'); }
+			function dimOf(c, a) { a = a == null ? .5 : a; var m = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/.exec(c); return m ? 'rgba(' + m[1] + ',' + m[2] + ',' + m[3] + ',' + a + ')' : (light ? 'rgba(0,0,0,' + a + ')' : 'rgba(255,255,255,' + a + ')'); }
 			var bg = col.bg, fg = col.text, dim = dimOf(fg);
 			try { var vh0 = W.innerHeight || 800; pos = Math.max(72, Math.min(pos, Math.round(vh0 * 0.6))); } catch (e) { }
 
@@ -199,6 +201,13 @@ window.ViktorInstantroam = (function () {
 			ta.placeholder = 'Type your idea…'; ta.setAttribute('autocapitalize', 'sentences'); ta.setAttribute('autocorrect', 'on');
 			ta.style.cssText = 'flex:1;width:100%;box-sizing:border-box;background:transparent;color:inherit;border:none;outline:none;resize:none;font-size:21px;line-height:1.5;padding:4px ' + sidePad + ' calc(18px + env(safe-area-inset-bottom));caret-color:#4c9aff;font-family:inherit';
 			try { var prev = localStorage.getItem(LS); if (prev) { ta.value = prev; if (prev.trim()) CAP.engaged = true; } } catch (e) { }
+
+			// Dim the placeholder well below the real text color (default UA placeholder is a fairly bright
+			// gray that reads like already-typed text). Dim it a touch more on focus, so clicking in makes
+			// it obviously a hint, not content. opacity:1 stops Firefox re-fading our explicit color.
+			var phStyle = D.createElement('style');
+			phStyle.textContent = '#IR_input::placeholder{color:' + dimOf(fg, .33) + ' !important;opacity:1}#IR_input:focus::placeholder{color:' + dimOf(fg, .25) + ' !important}';
+			(D.head || D.documentElement).appendChild(phStyle);
 
 			ov.appendChild(spacer); ov.appendChild(head); ov.appendChild(ta);
 			(D.body || D.documentElement).appendChild(ov);
