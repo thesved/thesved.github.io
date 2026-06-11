@@ -522,6 +522,12 @@ strong {
   margin-left: 0!important;
 }
 
+/* page title: kill azlen core.css's margin-left:20px (#app = higher specificity wins) */
+#app h1.rm-title-display,
+#app .rm-title-textarea {
+  margin-left: 0;
+}
+
 /* fix Safari backdrop filter */
 .roam-sidebar-container,
 .rm-find-or-create-wrapper .bp3-popover,
