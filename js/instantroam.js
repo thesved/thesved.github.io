@@ -1,5 +1,14 @@
 /*
  * Viktor's Instant Roam — instant, dark, cursor-ready capture on every open.
+ * version: 0.5.4  (2026-06-11) — FIX stale-buffer-on-reopen (capture box kept the previous text). iOS
+ *                                  commits pending autocorrect/composition on BLUR and fires a late
+ *                                  `input` on our textarea — which fired AFTER clearBuf and re-saved
+ *                                  IR_buffer. Now: focus the real block FIRST (forces the blur-commit),
+ *                                  do a post-blur reconcile (folds the committed text into the block),
+ *                                  SEAL the mirror (CAP.sealed → input listener ignores all further
+ *                                  events), THEN read-back + clearBuf (with one 150ms retry so a lagging
+ *                                  a.pull can't false-keep). Stale-buffer replay is now idempotent (a top
+ *                                  block already holding the text writes nothing → no duplicate). (0.5.3 below.)
  * version: 0.5.3  (2026-06-11) — dim the placeholder (.33, .25 on focus) so it doesn't read like
  *                                  already-typed text. (0.5.2/0.5.0 below.)
  * version: 0.5.2  (2026-06-11) — desktop horizontal alignment: fixed 25% side margin (centered middle
@@ -62,7 +71,7 @@ window.ViktorInstantroam = (function () {
 		try {
 			if (window.__IR_CAPTURE) return;
 			var W = window, D = document, LS = 'IR_buffer';
-			var CAP = { ts: Date.now(), done: false, engaged: false, hydrated: false, dismissed: false };
+			var CAP = { ts: Date.now(), done: false, engaged: false, hydrated: false, dismissed: false, sealed: false };
 			W.__IR_CAPTURE = CAP;
 			var DEFER_BOOT = false;   // see module-scope note — deferred boot disabled (breaks iOS Roam boot)
 
@@ -227,7 +236,7 @@ window.ViktorInstantroam = (function () {
 				L('baton reclaim (rt=' + cls(e.relatedTarget) + ') vv=' + vvh());
 				try { ta.focus({ preventScroll: true }); } catch (e2) { }
 			});
-			ta.addEventListener('input', function () { engage('input'); L('input len=' + ta.value.length + ' vv=' + vvh()); try { localStorage.setItem(LS, ta.value); } catch (e) { } if (DEFER_BOOT && !booted) { if (pauseT) clearTimeout(pauseT); pauseT = setTimeout(function () { bootRoam('typing-pause'); }, 700); } });
+			ta.addEventListener('input', function () { if (CAP.sealed) { L('input IGNORED (sealed) len=' + ta.value.length); return; } engage('input'); L('input len=' + ta.value.length + ' vv=' + vvh()); try { localStorage.setItem(LS, ta.value); } catch (e) { } if (DEFER_BOOT && !booted) { if (pauseT) clearTimeout(pauseT); pauseT = setTimeout(function () { bootRoam('typing-pause'); }, 700); } });
 			ta.addEventListener('keydown', function (e) { engage('keydown'); if (e.key === 'Escape') { e.preventDefault(); dismiss(); } });
 			ta.addEventListener('pointerdown', function () { engage('tap-ta'); });
 			ov.addEventListener('pointerdown', function () { engage('tap-ov'); focusBox(); });   // whole screen taps to focus (mobile: opens the keyboard)
@@ -342,15 +351,26 @@ window.ViktorInstantroam = (function () {
 						var top = kids[0], topUid = top ? top[':block/uid'] : null, topEmpty = top ? !((top[':block/string'] || '').trim()) : false;
 						var target, wrote = has ? text : '';
 						if (topUid && topEmpty) { target = topUid; if (has) { try { await a.updateBlock({ block: { uid: topUid, string: wrote } }); } catch (e) { } } }
+						else if (topUid && has && (top[':block/string'] || '') === wrote) { target = topUid; L('top block already holds the text (stale-buffer replay) — no write'); }
 						else { target = a.util.generateUID(); try { await a.createBlock({ location: { 'parent-uid': dnp, order: 0 }, block: { uid: target, string: wrote } }); } catch (e) { } }
 						L('target uid=' + target + ' (' + (topUid && topEmpty ? 'reused-top' : 'new-block') + ') len=' + wrote.length);
 						// reconcile keystrokes typed during the awaits (verbatim)
 						var latest = (ta.value || '');
 						if (latest !== wrote && (latest.trim() || wrote)) { L('reconcile len ' + wrote.length + '->' + latest.length); try { await a.updateBlock({ block: { uid: target, string: latest } }); } catch (e) { } wrote = latest; }
+						var ok = await focusTarget(a, target, wrote.length);
+						// FINAL reconcile AFTER focus left IR_input: iOS commits pending autocorrect/composition
+						// on blur and fires a late `input` on ta — fold that committed text into the block too,
+						// else the buffer (now ahead of the block) survives the read-back and resurrects on reopen.
+						var fin = (ta.value || '');
+						if (fin !== wrote && (fin.trim() || wrote)) { L('post-blur reconcile len ' + wrote.length + '->' + fin.length); try { await a.updateBlock({ block: { uid: target, string: fin } }); } catch (e) { } wrote = fin; if (endsWithUid(D.activeElement, target)) { try { D.activeElement.setSelectionRange(wrote.length, wrote.length); } catch (e) { } } }
+						CAP.sealed = true;   // mirror is dead from here — no late input event can repopulate the buffer
 						// clear the crash-buffer ONLY after a read-back confirms the block holds the text
-						try { var chk = a.pull('[:block/string]', [':block/uid', target]); if (chk && chk[':block/string'] === wrote) clearBuf(); else L('buffer kept (read-back mismatch)'); } catch (e) { }
-						var caretPos = wrote.length;
-						var ok = await focusTarget(a, target, caretPos);
+						// (one retry: a.pull can lag the awaited transact by a beat — don't false-keep)
+						try {
+							var chk = a.pull('[:block/string]', [':block/uid', target]);
+							if (!(chk && chk[':block/string'] === wrote)) { await sleep(150); chk = a.pull('[:block/string]', [':block/uid', target]); }
+							if (chk && chk[':block/string'] === wrote) clearBuf(); else L('buffer kept (read-back mismatch)');
+						} catch (e) { }
 						if (ok) await new Promise(function (r) { requestAnimationFrame(function () { r(); }); });   // hold ≥1 frame before teardown
 						var confirmed = ok && endsWithUid(D.activeElement, target);
 						L('handoff ' + (confirmed ? 'CONFIRMED' : 'NOT-confirmed') + ' active=' + cls(D.activeElement) + ' vv=' + vvh());
