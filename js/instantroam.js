@@ -1,6 +1,6 @@
 /*
  * Viktor's Instant Roam — instant, dark, cursor-ready capture on every open.
- * version: 0.3-dbg  (2026-06-11) — NO-NAV handoff (stays on the Daily Notes log) + debug layer
+ * version: 0.4-dbg  (2026-06-11) — deferred Roam boot (smooth typing) + no-nav handoff + debug layer
  * author: @ViktorTabori
  *
  * THE TRICK (proven on desktop CDP 2026-06-11, see instant-roam/):
@@ -80,9 +80,33 @@ window.ViktorInstantroam = (function () {
 				LOG.push((Date.now() - T0) + ' ' + m);
 				if (!flushQ) { flushQ = true; setTimeout(function () { flushQ = false; try { localStorage.setItem('IR_log', LOG.join('\n')); } catch (e) { } }, 150); }
 			}
+			// ---------- deferred Roam boot (keeps typing smooth; see poison() note) ----------
+			var booted = false, pauseT = null, capT = null;
+			function bootRoam(why) {
+				if (booted) return; booted = true;
+				if (pauseT) clearTimeout(pauseT); if (capT) clearTimeout(capT);
+				L('bootRoam(' + why + ') t=' + (Date.now() - T0) + ' active=' + cls(D.activeElement));
+				try {
+					var defs = D.querySelectorAll('script[type="text/x-ir-deferred"]');
+					L('bootRoam inject ' + defs.length + ' deferred script(s)');
+					for (var i = 0; i < defs.length; i++) {
+						var old = defs[i], s = D.createElement('script');
+						for (var j = 0; j < old.attributes.length; j++) { var at = old.attributes[j]; if (at.name === 'type' || at.name === 'data-ir-src') continue; s.setAttribute(at.name, at.value); }
+						s.src = old.getAttribute('data-ir-src'); s.async = false;   // async=false preserves shared.js -> main.js order
+						old.parentNode.insertBefore(s, old); old.parentNode.removeChild(old);
+					}
+				} catch (e) { L('bootRoam ERR ' + (e && e.message)); }
+			}
+			function armBoot(ta) {   // called AFTER the textarea exists
+				try {
+					setTimeout(function () { if (!CAP.engaged) bootRoam('idle-no-type'); }, 1500);   // reader (no typing) -> boot soon
+					setTimeout(function () { bootRoam('backstop'); }, 4000);                          // fail-safe: boot no matter what
+					ta.addEventListener('blur', function () { if (!CAP.done && !CAP.dismissed && !booted) bootRoam('blur'); });
+				} catch (e) { bootRoam('arm-failsafe'); }
+			}
+
 			function engage(src) {
-				if (!CAP.engaged) L('ENGAGED via ' + src + ' vv=' + vvh());
-				CAP.engaged = true;
+				if (!CAP.engaged) { L('ENGAGED via ' + src + ' vv=' + vvh()); CAP.engaged = true; if (!capT) capT = setTimeout(function () { bootRoam('cap'); }, 2500); }   // cap typing window after first engage
 				scheduleLab();
 			}
 			if (DBG) {
@@ -132,6 +156,7 @@ window.ViktorInstantroam = (function () {
 
 			function focusBox() { try { ta.focus(); var n = ta.value.length; ta.setSelectionRange(n, n); } catch (e) { } }
 			focusBox();
+			armBoot(ta);   // arm deferred-boot triggers now that the textarea exists
 
 			// Baton guard (active only during the no-nav handoff): if focus leaves IR_input to a
 			// NON-editable while the overlay is still alive, reclaim it in the SAME run-loop turn so
@@ -144,7 +169,7 @@ window.ViktorInstantroam = (function () {
 				L('baton reclaim (rt=' + cls(e.relatedTarget) + ') vv=' + vvh());
 				try { ta.focus({ preventScroll: true }); } catch (e2) { }
 			});
-			ta.addEventListener('input', function () { engage('input'); L('input len=' + ta.value.length + ' vv=' + vvh()); try { localStorage.setItem(LS, ta.value); } catch (e) { } });
+			ta.addEventListener('input', function () { engage('input'); L('input len=' + ta.value.length + ' vv=' + vvh()); try { localStorage.setItem(LS, ta.value); } catch (e) { } if (!booted) { if (pauseT) clearTimeout(pauseT); pauseT = setTimeout(function () { bootRoam('typing-pause'); }, 700); } });
 			ta.addEventListener('keydown', function (e) { engage('keydown'); if (e.key === 'Escape') { e.preventDefault(); dismiss(); } });
 			ta.addEventListener('pointerdown', function () { engage('tap-ta'); });
 			ov.addEventListener('pointerdown', function (e) { if (e.target === x) return; engage('tap-ov'); focusBox(); });
@@ -339,6 +364,14 @@ window.ViktorInstantroam = (function () {
 			var styleTag = '<style id="IR_style" data-irv="' + VERSION + '">html,body{background:' + DARK + ' !important;}@media (prefers-color-scheme: light){html,body{background:#ffffff !important;}}</style>';
 			var scriptTag = '<script id="IR_boot" data-irv="' + VERSION + '">' + CAPTURE_SRC + '<\/script>';
 			var poisoned = orig.replace('</head>', styleTag + '</head>').replace(/<body[^>]*>/, function (m) { return m + scriptTag; });
+			// Defer Roam's heavy ClojureScript bundle so the capture textarea stays responsive while the
+			// user types (main.js's synchronous eval blocks the main thread → input freezes). We neutralize
+			// the <script src> tags (parser ignores type="text/x-ir-deferred"); the capture app re-injects
+			// them (async=false → ordered) once typing pauses / on blur / after a cap. Best-effort: if the
+			// paths ever change and the regex misses, the scripts load normally (no smoothing, never broken).
+			poisoned = poisoned.replace(/<script\s+src="(js\/compiled\/(?:shared|main)\.js)"([^>]*)>/g, function (m, src, rest) {
+				return '<script type="text/x-ir-deferred" data-ir-src="' + src + '"' + rest + '>';
+			});
 			if (poisoned.indexOf('IR_boot') === -1 || poisoned.indexOf('IR_style') === -1) return;   // never write a broken shell
 			await e.cache.put(e.req, htmlResp(poisoned));
 			if (doLog) console.log('** instant-roam: index poisoned (v' + VERSION + ') **');
