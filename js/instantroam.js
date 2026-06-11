@@ -1,8 +1,7 @@
 /*
  * Viktor's Instant Roam — instant, dark, cursor-ready capture on every open.
- * version: 0.5.1  (2026-06-11) — + desktop horizontal alignment: the input now matches the real
- *                                  block's left edge + column width (cached per form factor); mobile
- *                                  stays full-width. (0.5.0 below.)
+ * version: 0.5.2  (2026-06-11) — desktop horizontal alignment: fixed 25% side margin (centered middle
+ *                                  50%), skin/page-width-independent; mobile stays full-width. (0.5.0 below.)
  * version: 0.5.0  (2026-06-11) — themed to the user's real skin + balanced layout. Captures the live
  *                                  theme colors (per scheme) and the real first-block Y (per form factor)
  *                                  on each boot → the T=0 capture screen matches the skin and lands the
@@ -179,13 +178,11 @@ window.ViktorInstantroam = (function () {
 			var bg = col.bg, fg = col.text, dim = dimOf(fg);
 			try { var vh0 = W.innerHeight || 800; pos = Math.max(72, Math.min(pos, Math.round(vh0 * 0.6))); } catch (e) { }
 
-			// Horizontal column (DESKTOP only): on desktop Roam centers its content, so a full-width
-			// left-aligned input looks wrong. Align the caption + input to the real block's left edge +
-			// width (cached per form factor). Mobile is already full-width and stays as-is.
-			var xLeft = 18, xRight = 18, colMax = '';
-			if (form === 'd') {
-				try { var xx = JSON.parse(localStorage.getItem('IR_x') || '{}'); if (xx.d && xx.d.left > 0 && xx.d.width > 100) { xLeft = xx.d.left; xRight = 0; colMax = ';max-width:' + (xx.d.left + xx.d.width) + 'px'; } } catch (e) { }
-			}
+			// Horizontal margin: on desktop Roam centers its content, so a full-width left-aligned input
+			// looks wrong. Use a fixed 25% side margin (content = centered middle 50%) — skin- and
+			// page-width-independent (Roam's wider/narrower page setting + custom CSS don't affect it).
+			// Mobile is already full-width and stays as-is (18px).
+			var sidePad = (form === 'd') ? '25%' : '18px';
 
 			var ov = D.createElement('div'); ov.id = 'IR_overlay';
 			ov.style.cssText = 'position:fixed;inset:0;z-index:2147483600;background:' + bg + ';color:' + fg + ';display:flex;flex-direction:column;font-family:Inter,system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;opacity:1;transition:opacity .16s ease;cursor:text';
@@ -193,14 +190,14 @@ window.ViktorInstantroam = (function () {
 			// spacer pushes the caption + input down so the input's first line lands at the cached block Y
 			var spacer = D.createElement('div'); spacer.style.cssText = 'flex:none;height:' + Math.max(0, pos - 30) + 'px';
 			var head = D.createElement('div');
-			head.style.cssText = 'padding:0 ' + xRight + 'px 0 ' + xLeft + 'px;margin-bottom:8px;font-size:13px;flex:none;line-height:1.5' + colMax;
+			head.style.cssText = 'padding:0 ' + sidePad + ';margin-bottom:8px;font-size:13px;flex:none;line-height:1.5';
 			var label = D.createElement('span'); label.textContent = 'Jot to today’s Daily Notes';
 			label.style.color = dim;   // dim set on the text element itself (survives any inherited-color override)
 			head.appendChild(label);   // no close ✕ — there's nothing to close to (less is more)
 
 			var ta = D.createElement('textarea'); ta.id = 'IR_input';
 			ta.placeholder = 'Type your idea…'; ta.setAttribute('autocapitalize', 'sentences'); ta.setAttribute('autocorrect', 'on');
-			ta.style.cssText = 'flex:1;width:100%;box-sizing:border-box;background:transparent;color:inherit;border:none;outline:none;resize:none;font-size:21px;line-height:1.5;padding:4px ' + xRight + 'px calc(18px + env(safe-area-inset-bottom)) ' + xLeft + 'px;caret-color:#4c9aff;font-family:inherit' + colMax;
+			ta.style.cssText = 'flex:1;width:100%;box-sizing:border-box;background:transparent;color:inherit;border:none;outline:none;resize:none;font-size:21px;line-height:1.5;padding:4px ' + sidePad + ' calc(18px + env(safe-area-inset-bottom));caret-color:#4c9aff;font-family:inherit';
 			try { var prev = localStorage.getItem(LS); if (prev) { ta.value = prev; if (prev.trim()) CAP.engaged = true; } } catch (e) { }
 
 			ov.appendChild(spacer); ov.appendChild(head); ov.appendChild(ta);
@@ -494,23 +491,14 @@ window.ViktorInstantroam = (function () {
 						try { localStorage.setItem('IR_colors', JSON.stringify(cc)); } catch (e) { }
 					}
 				}
-				// position: first block's text top + left + width (vertical land point + horizontal column).
-				// Only when at the top of the page + sane range.
-				var rect = blk.getBoundingClientRect();
-				var top = Math.round(rect.top);
+				// position: first block's text top (vertical land point). Horizontal alignment is a fixed
+				// 25% side margin on desktop (skin/page-width independent), so no x capture needed.
+				var top = Math.round(blk.getBoundingClientRect().top);
 				var vh = window.innerHeight || 800;
 				var form = (window.matchMedia && window.matchMedia('(max-width: 767px)').matches) ? 'm' : 'd';
 				if (top > 60 && top < vh * 0.6) {
 					var pp = {}; try { pp = JSON.parse(localStorage.getItem('IR_pos') || '{}'); } catch (e) { }
 					if (pp[form] !== top) { pp[form] = top; try { localStorage.setItem('IR_pos', JSON.stringify(pp)); } catch (e) { } }
-				}
-				var left = Math.round(rect.left), width = Math.round(rect.width);
-				if (left > 0 && width > 100) {   // horizontal column = where the real block text sits
-					var xx = {}; try { xx = JSON.parse(localStorage.getItem('IR_x') || '{}'); } catch (e) { }
-					if (!xx[form] || xx[form].left !== left || xx[form].width !== width) {
-						xx[form] = { left: left, width: width };
-						try { localStorage.setItem('IR_x', JSON.stringify(xx)); } catch (e) { }
-					}
 				}
 				clearInterval(iv);
 				poison();   // colors may have changed → re-bake the T=0 shell bg
