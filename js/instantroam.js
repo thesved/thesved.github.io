@@ -1,6 +1,6 @@
 /*
  * Viktor's Instant Roam — instant, dark, cursor-ready capture on every open.
- * version: 0.2  (2026-06-11)
+ * version: 0.2.1-dbg  (2026-06-11) — v0.2 handoff EXACTLY (still navigates) + on-device debug layer
  * author: @ViktorTabori
  *
  * THE TRICK (proven on desktop CDP 2026-06-11, see instant-roam/):
@@ -27,6 +27,14 @@
  * iOS caveat: iOS won't open the soft keyboard from a programmatic focus() without a gesture, so
  * the caret blinks but the first TAP opens the keyboard (tapping the overlay focuses the box).
  *
+ * DEBUG BUILD (v0.2.1-dbg): logging ON by default (off: localStorage.IR_debug='0'). Traces focus
+ * custody + visualViewport (keyboard oracle) with ms timestamps into window.__IR_LOG, mirrored to
+ * localStorage.IR_log (prev boot rotated to IR_log_prev). The ⧉ button (bottom-right, survives the
+ * overlay teardown) copies the trace to the clipboard. Once per poisoned version an auto-LAB runs
+ * ~3s after the first real engagement: mounts a second textarea in the overlay and does an ASYNC
+ * editable→editable focus transfer (no gesture) — "LAB VERDICT PASS" in the trace = iOS keeps the
+ * keyboard across the transfer (the crux fact of the no-nav handoff). Re-arm: triple-tap the header.
+ *
  * UNINSTALL: window.ViktorInstantroam.stop() (restores Roam's shell + manifest), then remove the
  * `instantroam` key from the roam/js loader's alphaChannel and reload.
  */
@@ -43,6 +51,61 @@ window.ViktorInstantroam = (function () {
 			var W = window, D = document, LS = 'IR_buffer';
 			var CAP = { ts: Date.now(), done: false, engaged: false, hydrated: false, dismissed: false };
 			W.__IR_CAPTURE = CAP;
+
+			// ---------- debug layer (default ON in this build; disable: localStorage.IR_debug='0') ----------
+			var DBG = true; try { DBG = localStorage.getItem('IR_debug') !== '0'; } catch (e) { }
+			var IRV = ''; try { var bt = D.getElementById('IR_boot'); IRV = (bt && bt.getAttribute('data-irv')) || ''; } catch (e) { }
+			var labKey = 'IR_lab_done_' + IRV;
+			var LAB = false; try { LAB = DBG && !localStorage.getItem(labKey); } catch (e) { }
+			var labFinished = false;
+			var T0 = Date.now(), LOG = [], flushQ = false;
+			if (DBG) W.__IR_LOG = LOG;
+			function vvh() { try { return Math.round(W.visualViewport ? W.visualViewport.height : W.innerHeight); } catch (e) { return -1; } }
+			function cls(el) {
+				if (!el) return 'null';
+				if (el === D.body) return 'body';
+				if (el === D.documentElement) return 'html';
+				var id = el.id || '', tag = (el.tagName || '').toLowerCase();
+				if (id === 'IR_input') return 'IR_input';
+				if (id === 'IR_lab_b') return 'IR_lab_b';
+				var cn = (typeof el.className === 'string' && el.className) ? el.className : '';
+				if (tag === 'textarea' && /rm-block-input/.test(cn)) return 'ROAM-TA#' + id;
+				var edit = tag === 'textarea' || tag === 'input' || el.isContentEditable;
+				return (edit ? 'EDIT:' : '') + tag + (id ? '#' + id : '') + (cn ? '.' + cn.split(/\s+/).slice(0, 2).join('.') : '');
+			}
+			function L(m) {
+				if (!DBG) return;
+				LOG.push((Date.now() - T0) + ' ' + m);
+				if (!flushQ) { flushQ = true; setTimeout(function () { flushQ = false; try { localStorage.setItem('IR_log', LOG.join('\n')); } catch (e) { } }, 150); }
+			}
+			function engage(src) {
+				if (!CAP.engaged) L('ENGAGED via ' + src + ' vv=' + vvh());
+				CAP.engaged = true;
+				scheduleLab();
+			}
+			if (DBG) {
+				try { var pv = localStorage.getItem('IR_log'); if (pv) localStorage.setItem('IR_log_prev', pv); localStorage.removeItem('IR_log'); } catch (e) { }
+				L('boot irv=' + IRV + ' lab=' + (LAB ? 'armed' : 'off') + ' vv=' + vvh() + ' ih=' + W.innerHeight + ' ua=' + (W.navigator && W.navigator.userAgent));
+				D.addEventListener('focusin', function (e) { L('focusin  ' + cls(e.target) + '  (from ' + cls(e.relatedTarget) + ') vv=' + vvh()); }, true);
+				D.addEventListener('focusout', function (e) { L('focusout ' + cls(e.target) + '  (to ' + cls(e.relatedTarget) + ') vv=' + vvh()); }, true);
+				try { if (W.visualViewport) W.visualViewport.addEventListener('resize', function () { L('vv-resize ' + vvh() + ' ot=' + Math.round(W.visualViewport.offsetTop) + ' active=' + cls(D.activeElement)); }); } catch (e) { }
+				var lastA = '', lastV = -1;
+				setInterval(function () {           // catches SILENT drops: a focused element removed from the DOM fires NO focusout
+					var a = cls(D.activeElement), v = vvh();
+					if (a !== lastA || Math.abs(v - lastV) > 2) { L('tick active=' + a + ' vv=' + v); lastA = a; lastV = v; }
+				}, 200);
+				var cb = D.createElement('button'); cb.id = 'IR_dbgbtn'; cb.textContent = '⧉'; cb.setAttribute('aria-label', 'copy IR trace');
+				cb.style.cssText = 'position:fixed;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));z-index:2147483647;width:34px;height:34px;border-radius:17px;border:1px solid rgba(127,127,127,.45);background:rgba(32,38,46,.88);color:#9ecbff;font-size:15px;line-height:1;padding:0';
+				cb.addEventListener('mousedown', function (e) { e.preventDefault(); });   // never steal focus (keeps the keyboard)
+				cb.addEventListener('click', function (e) {
+					e.preventDefault(); e.stopPropagation();
+					var txt = LOG.join('\n'); try { var pp = localStorage.getItem('IR_log_prev'); if (pp) txt += '\n--- prev boot ---\n' + pp; } catch (e2) { }
+					function fb() { try { var t = D.createElement('textarea'); t.value = txt; t.readOnly = true; t.style.cssText = 'position:fixed;left:5%;right:5%;top:10%;height:60%;z-index:2147483647;font-size:11px;background:#fff;color:#000'; (D.body || D.documentElement).appendChild(t); t.onblur = function () { t.remove(); }; t.focus(); t.select(); } catch (e3) { } }
+					function ok() { cb.textContent = '✓'; setTimeout(function () { cb.textContent = '⧉'; }, 1200); }
+					try { W.navigator.clipboard.writeText(txt).then(ok, fb); } catch (e4) { fb(); }
+				});
+				(D.body || D.documentElement).appendChild(cb);
+			}
 
 			var light = false; try { light = W.matchMedia && W.matchMedia('(prefers-color-scheme: light)').matches; } catch (e) { }
 			var bg = light ? '#ffffff' : '#182026', fg = light ? '#1a1a1a' : '#e8eaed', dim = light ? 'rgba(0,0,0,.45)' : 'rgba(255,255,255,.4)';
@@ -67,32 +130,79 @@ window.ViktorInstantroam = (function () {
 
 			function focusBox() { try { ta.focus(); var n = ta.value.length; ta.setSelectionRange(n, n); } catch (e) { } }
 			focusBox();
-			ta.addEventListener('input', function () { CAP.engaged = true; try { localStorage.setItem(LS, ta.value); } catch (e) { } });
-			ta.addEventListener('keydown', function (e) { CAP.engaged = true; if (e.key === 'Escape') { e.preventDefault(); dismiss(); } });
-			ta.addEventListener('pointerdown', function () { CAP.engaged = true; });
-			ov.addEventListener('pointerdown', function (e) { if (e.target === x) return; CAP.engaged = true; focusBox(); });
+			ta.addEventListener('input', function () { engage('input'); L('input len=' + ta.value.length + ' vv=' + vvh()); try { localStorage.setItem(LS, ta.value); } catch (e) { } });
+			ta.addEventListener('keydown', function (e) { engage('keydown'); if (e.key === 'Escape') { e.preventDefault(); dismiss(); } });
+			ta.addEventListener('pointerdown', function () { engage('tap-ta'); });
+			ov.addEventListener('pointerdown', function (e) { if (e.target === x) return; engage('tap-ov'); focusBox(); });
 			x.addEventListener('click', function (e) { e.stopPropagation(); dismiss(); });
 
-			function fadeRemove() { CAP.done = true; try { ov.style.opacity = '0'; } catch (e) { } setTimeout(function () { try { ov.remove(); } catch (e) { } }, 210); }
-			function dismiss() { CAP.dismissed = true; fadeRemove(); }     // keep buffer; never force focus
+			// triple-tap the header label -> re-arm the auto-LAB for the next boot
+			var tapN = 0, tapAt = 0;
+			label.addEventListener('pointerdown', function () {
+				var now = Date.now(); if (now - tapAt > 900) tapN = 0; tapAt = now;
+				if (++tapN >= 3) { tapN = 0; try { localStorage.removeItem(labKey); } catch (e) { } label.textContent = 'lab re-armed — kill app & reopen'; L('lab re-armed by triple-tap'); }
+			});
+
+			// AUTO-LAB (once per poisoned version, needs a real engagement = keyboard up): proves the
+			// crux fact in ISOLATION on this exact device — async editable→editable focus transfer with
+			// NO gesture, ~3s after the tap. PASS = keyboard survives (vv flat, focus lands) both ways.
+			var labT = null;
+			function scheduleLab() { if (!LAB || labT) return; labT = setTimeout(runLab, 3000); }
+			function labStep(ms, f) { setTimeout(function () { if (CAP.done || CAP.dismissed) { L('LAB aborted (overlay gone)'); labFinished = true; return; } f(); }, ms); }
+			function runLab() {
+				if (CAP.done || CAP.dismissed || CAP.hydrated || labFinished) { L('LAB skipped'); labFinished = true; return; }
+				var base = vvh();
+				L('LAB start base-vv=' + base + ' active=' + cls(D.activeElement));
+				var tb = D.createElement('textarea'); tb.id = 'IR_lab_b'; tb.placeholder = 'LAB B';
+				tb.setAttribute('autocapitalize', 'sentences'); tb.setAttribute('autocorrect', 'on');
+				tb.style.cssText = 'flex:none;height:44px;margin:0 18px 8px;box-sizing:border-box;background:rgba(127,127,127,.12);color:inherit;border:1px dashed rgba(127,127,127,.5);border-radius:6px;outline:none;resize:none;font-size:16px;padding:10px;font-family:inherit';
+				ov.appendChild(tb);
+				labStep(700, function () {
+					L('LAB A->B (async focus, no gesture) vv=' + vvh());
+					try { tb.focus({ preventScroll: true }); } catch (e) { try { tb.focus(); } catch (e2) { } }
+					labStep(700, function () {
+						var v1 = vvh(), a1 = cls(D.activeElement);
+						L('LAB after A->B active=' + a1 + ' vv=' + v1 + ' => ' + (Math.abs(v1 - base) < 60 && a1 === 'IR_lab_b' ? 'KEPT' : 'PROBLEM'));
+						L('LAB B->A vv=' + vvh());
+						try { ta.focus({ preventScroll: true }); } catch (e) { try { ta.focus(); } catch (e2) { } }
+						try { var n = ta.value.length; ta.setSelectionRange(n, n); } catch (e) { }
+						labStep(700, function () {
+							var v2 = vvh(), a2 = cls(D.activeElement);
+							var pass = Math.abs(v2 - base) < 60 && a2 === 'IR_input';
+							L('LAB VERDICT ' + (pass ? 'PASS — keyboard survives async editable->editable' : 'FAIL') + ' active=' + a2 + ' vv=' + v2 + ' base=' + base);
+							try { tb.remove(); } catch (e) { }
+							L('LAB B removed active=' + cls(D.activeElement) + ' vv=' + vvh());
+							try { localStorage.setItem(labKey, '1'); } catch (e) { }
+							labFinished = true;
+						});
+					});
+				});
+			}
+
+			function fadeRemove() { CAP.done = true; L('overlay-fade active=' + cls(D.activeElement) + ' vv=' + vvh()); try { ov.style.opacity = '0'; } catch (e) { } setTimeout(function () { try { ov.remove(); } catch (e) { } L('overlay-removed active=' + cls(D.activeElement) + ' vv=' + vvh()); }, 210); }
+			function dismiss() { CAP.dismissed = true; L('dismiss'); fadeRemove(); }     // keep buffer; never force focus
 			function clearBuf() { try { localStorage.removeItem(LS); } catch (e) { } }
 			function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
 			function focusBlock(a, uid, caret, tries) {
-				try { a.ui.setBlockFocusAndSelection({ location: { 'block-uid': uid, 'window-id': 'main-window' }, selection: { start: caret } }); } catch (e) { }
+				L('focusBlock call uid=' + uid + ' tries-left=' + tries + ' rm-ta=' + (D.querySelector('textarea.rm-block-input') ? 'mounted' : 'none') + ' active=' + cls(D.activeElement));
+				try { a.ui.setBlockFocusAndSelection({ location: { 'block-uid': uid, 'window-id': 'main-window' }, selection: { start: caret } }); } catch (e) { L('focusBlock api ERR ' + (e && e.message)); }
 				if (tries > 0) setTimeout(function () {
 					var f = null; try { f = a.ui.getFocusedBlock(); } catch (e) { }
+					L('focusBlock check api-uid=' + (f ? f['block-uid'] : 'null') + ' active=' + cls(D.activeElement) + ' vv=' + vvh());
 					if (!f || f['block-uid'] !== uid) focusBlock(a, uid, caret, tries - 1);
 				}, 130);
 			}
 
 			function hydrate(a) {
 				if (CAP.hydrated || CAP.dismissed) return; CAP.hydrated = true;
+				L('hydrate start vv=' + vvh() + ' active=' + cls(D.activeElement));
 				(async function () {
 					try {
 						var dnp = a.util.dateToPageUid(new Date());
 						if (!a.pull('[:db/id]', [':block/uid', dnp])) { try { await a.createPage({ page: { title: a.util.dateToPageTitle(new Date()), uid: dnp } }); } catch (e) { } }
 						try { await a.ui.mainWindow.openPage({ page: { uid: dnp } }); } catch (e) { }
+						L('openPage done active=' + cls(D.activeElement) + ' vv=' + vvh());
 						await sleep(60);
 						var text = (ta.value || '').replace(/\s+$/, '');     // read as late as possible
 						var p = a.pull('[{:block/children [:block/string :block/uid :block/order]}]', [':block/uid', dnp]);
@@ -102,15 +212,16 @@ window.ViktorInstantroam = (function () {
 						var target;
 						if (topUid && topEmpty) { target = topUid; if (text) { try { await a.updateBlock({ block: { uid: topUid, string: text } }); } catch (e) { } } }
 						else { target = a.util.generateUID(); try { await a.createBlock({ location: { 'parent-uid': dnp, order: 0 }, block: { uid: target, string: text } }); } catch (e) { } }
+						L('target uid=' + target + ' (' + (topUid && topEmpty ? 'reused-top' : 'new-block') + ') len=' + text.length);
 						clearBuf();
 						await sleep(50);
 						// reconcile any keystrokes typed during hydrate, then focus caret at the end
 						var latest = (ta.value || '').replace(/\s+$/, '');
-						if (latest !== text) { try { await a.updateBlock({ block: { uid: target, string: latest } }); } catch (e) { } text = latest; }
+						if (latest !== text) { L('reconcile +' + (latest.length - text.length) + ' chars'); try { await a.updateBlock({ block: { uid: target, string: latest } }); } catch (e) { } text = latest; }
 						focusBlock(a, target, text.length, 6);
 						await sleep(90);
 						fadeRemove();
-					} catch (e) { fadeRemove(); }
+					} catch (e) { L('hydrate ERROR ' + (e && e.message)); fadeRemove(); }
 				})();
 			}
 
@@ -129,10 +240,11 @@ window.ViktorInstantroam = (function () {
 				tries++;
 				var a = W.roamAlphaAPI;
 				var ready = a && a.util && a.createBlock && a.ui && a.ui.mainWindow;
+				if (ready && !CAP.readyAt) { CAP.readyAt = Date.now() - T0; L('roam-ready at ' + CAP.readyAt + 'ms engaged=' + CAP.engaged); }
 				if (CAP.done || CAP.dismissed) { clearInterval(poll); return; }
-				if (ready && CAP.engaged) { clearInterval(poll); hydrate(a); }
-				else if (ready && painted()) { clearInterval(poll); fadeRemove(); }
-				else if (tries > 1500) { clearInterval(poll); fadeRemove(); }   // ~150s hard safety
+				if (ready && CAP.engaged && (!labT || labFinished)) { clearInterval(poll); hydrate(a); }   // lab (if running) finishes first
+				else if (ready && !CAP.engaged && painted()) { clearInterval(poll); L('painted -> melt (not engaged)'); fadeRemove(); }
+				else if (tries > 1500) { clearInterval(poll); L('hard-timeout melt'); fadeRemove(); }   // ~150s hard safety
 			}, 100);
 		} catch (e) { }
 	}
@@ -217,6 +329,7 @@ window.ViktorInstantroam = (function () {
 		added = false;
 		unpoison();
 		var o = document.getElementById('IR_overlay'); if (o) o.remove();
+		var b = document.getElementById('IR_dbgbtn'); if (b) b.remove();
 		try { delete window.__IR_CAPTURE; } catch (_) { window.__IR_CAPTURE = undefined; }
 	}
 
