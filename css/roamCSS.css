@@ -465,6 +465,20 @@ strong {
   flex: 0 0 auto!important;
 }
 
+/* Tablet (601-899px): a CLOSED right sidebar still carries azlen core.css's
+   `#right-sidebar{padding-right:100px}` rail, which (with `flex:0 0 auto` above and
+   box-sizing:border-box) makes the closed sidebar 100px wide. main(800) + 100 = 900,
+   so the `.roam-app>.flex-h-box{overflow-x:scroll}` row scrolls horizontally on any
+   viewport < 900. Collapse the rail ONLY when closed (no #roam-right-sidebar-content)
+   and ONLY in the broken range — mobile (<601, drawer) and desktop (>899, fits) keep
+   their working layouts untouched. :not(:has()) = higher specificity, beats azlen. */
+@media only screen and (min-width: 601px) and (max-width: 899px) {
+  #right-sidebar:not(:has(#roam-right-sidebar-content)) {
+    flex: 0 0 0px !important;
+    padding-right: 0 !important;
+  }
+}
+
 #right-sidebar .rm-resize-handle {
   left:-4px!important; /* in the original code this has set to -4 which is invalid */
 }
