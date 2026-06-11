@@ -1,6 +1,7 @@
 /*
  * Viktor's Instant Roam — instant, dark, cursor-ready capture on every open.
- * version: 0.4-dbg  (2026-06-11) — deferred Roam boot (smooth typing) + no-nav handoff + debug layer
+ * version: 0.4.1-dbg  (2026-06-11) — deferred boot (smooth typing) + T=0 date-formatter (no flash)
+ *                                    + no-nav handoff + debug layer
  * author: @ViktorTabori
  *
  * THE TRICK (proven on desktop CDP 2026-06-11, see instant-roam/):
@@ -132,6 +133,21 @@ window.ViktorInstantroam = (function () {
 				});
 				(D.body || D.documentElement).appendChild(cb);
 			}
+
+			// Zero date-flash: if the user runs Viktor's date-formatter (its config was cached on a prior
+			// boot), early-load it NOW at T=0 so its MutationObserver is already watching before Roam
+			// paints the daily-note dates → no native-format flash. The normal post-boot loader re-load
+			// is a no-op (the plugin is idempotent and keeps this running instance). Gated on the cache so
+			// non-dateformatter users never pull it.
+			try {
+				if (localStorage.getItem('Viktor_dfcfg') && !W.ViktorDateformatter) {
+					var dfs = D.createElement('script');
+					dfs.src = 'https://thesved.github.io/js/dateformatter.js';   // no cache-bust → browser-cached, fast
+					dfs.async = false; dfs.id = 'IR_dateformatter_early';
+					(D.head || D.documentElement).appendChild(dfs);
+					L('date-formatter early-loaded (T=0)');
+				}
+			} catch (e) { }
 
 			var light = false; try { light = W.matchMedia && W.matchMedia('(prefers-color-scheme: light)').matches; } catch (e) { }
 			var bg = light ? '#ffffff' : '#182026', fg = light ? '#1a1a1a' : '#e8eaed', dim = light ? 'rgba(0,0,0,.45)' : 'rgba(255,255,255,.4)';
