@@ -477,6 +477,13 @@ strong {
     flex: 0 0 0px !important;
     padding-right: 0 !important;
   }
+  /* `.roam-body-main` has `padding-left:55px` (left-rail offset) but no right counterpart, so once
+     the right rail is collapsed the content sits hard against the right edge (left 55, right 0).
+     Mirror it: a matching right padding centers the article (main either fills the viewport or is
+     centered at 800px → symmetric margins at every tablet width). Desktop >899 keeps its own look. */
+  .roam-body .roam-app .roam-body-main {
+    padding-right: 55px !important;
+  }
 }
 
 #right-sidebar .rm-resize-handle {
