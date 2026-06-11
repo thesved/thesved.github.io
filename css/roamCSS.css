@@ -484,14 +484,20 @@ strong {
   .roam-body .roam-app .roam-body-main {
     padding-right: 55px !important;
   }
-  /* CLOSED left sidebar covers the top-left hamburger on tablet ONLY. azlen forces
-     `.roam-sidebar-container{width:300px!important}` + `:not([style*="top: 0px"]){left:-245px!important}`
-     → right edge +55px (z-999) peeking over the topbar. On desktop the hamburger is at x≈286 (clears
-     the peek); on mobile the sidebar is hidden (width 232 → right edge -13); only on the narrow tablet
-     topbar is the hamburger at x≈16, inside the 55px peek → covered. Park the CLOSED sidebar fully
-     off-canvas (-310px overshoots box-shadow/outline bleed). Open state has inline `top: 0px` (azlen's
-     own discriminator), so `:not([style*="top: 0px"])` excludes it → slide-open is untouched. `#app`
-     prefix = ID specificity, beats azlen's !important and is immune to ancestor-class changes. */
+}
+
+/* CLOSED left sidebar covers the top-left hamburger. azlen forces
+   `.roam-sidebar-container{width:300px!important}` + `:not([style*="top: 0px"]){left:-245px!important}`
+   → right edge +55px (z-999) peeking over the topbar. The topbar centers within max-width:800, so the
+   hamburger sits at ~(vw-800)/2+16 and slips UNDER the 55px peek in TWO bands (~601-877 and ~900-977,
+   the latter because the right rail returns at ≥900 and re-shifts centering) — so scope by the cause,
+   not one band: park the CLOSED sidebar fully off-canvas for ALL ≥601. Mobile (<601) already hides it
+   natively (Roam's width:232/left:-232); on wide desktop the 55px peek is an invisible empty strip
+   (sidebar bg ≈ app bg), so hiding it changes nothing visible. Open state has inline `top: 0px`
+   (azlen's own discriminator) → `:not([style*="top: 0px"])` excludes it, slide-open untouched. `#app`
+   = ID specificity, beats azlen's !important and is immune to ancestor-class changes. (-310px overshoots
+   any box-shadow/outline bleed past x=0.) */
+@media only screen and (min-width: 601px) {
   #app .roam-sidebar-container:not([style*="top: 0px"]) {
     left: -310px !important;
   }
