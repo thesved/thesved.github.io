@@ -484,6 +484,17 @@ strong {
   .roam-body .roam-app .roam-body-main {
     padding-right: 55px !important;
   }
+  /* CLOSED left sidebar covers the top-left hamburger on tablet ONLY. azlen forces
+     `.roam-sidebar-container{width:300px!important}` + `:not([style*="top: 0px"]){left:-245px!important}`
+     → right edge +55px (z-999) peeking over the topbar. On desktop the hamburger is at x≈286 (clears
+     the peek); on mobile the sidebar is hidden (width 232 → right edge -13); only on the narrow tablet
+     topbar is the hamburger at x≈16, inside the 55px peek → covered. Park the CLOSED sidebar fully
+     off-canvas (-310px overshoots box-shadow/outline bleed). Open state has inline `top: 0px` (azlen's
+     own discriminator), so `:not([style*="top: 0px"])` excludes it → slide-open is untouched. `#app`
+     prefix = ID specificity, beats azlen's !important and is immune to ancestor-class changes. */
+  #app .roam-sidebar-container:not([style*="top: 0px"]) {
+    left: -310px !important;
+  }
 }
 
 #right-sidebar .rm-resize-handle {
