@@ -1,6 +1,6 @@
 /*
  * Viktor's Instant Roam — instant, dark, cursor-ready capture on every open.
- * version: 0.2.1-dbg  (2026-06-11) — v0.2 handoff EXACTLY (still navigates) + on-device debug layer
+ * version: 0.3-dbg  (2026-06-11) — NO-NAV handoff (stays on the Daily Notes log) + debug layer
  * author: @ViktorTabori
  *
  * THE TRICK (proven on desktop CDP 2026-06-11, see instant-roam/):
@@ -130,6 +130,18 @@ window.ViktorInstantroam = (function () {
 
 			function focusBox() { try { ta.focus(); var n = ta.value.length; ta.setSelectionRange(n, n); } catch (e) { } }
 			focusBox();
+
+			// Baton guard (active only during the no-nav handoff): if focus leaves IR_input to a
+			// NON-editable while the overlay is still alive, reclaim it in the SAME run-loop turn so
+			// activeElement never lands on body (which kills the iOS keyboard). If focus leaves to a
+			// Roam editable, that's the legit handoff — let it go.
+			var batonOn = false;
+			ta.addEventListener('focusout', function (e) {
+				if (!batonOn || CAP.done) return;
+				if (roamEditable(e.relatedTarget)) { L('baton release -> ' + cls(e.relatedTarget)); return; }
+				L('baton reclaim (rt=' + cls(e.relatedTarget) + ') vv=' + vvh());
+				try { ta.focus({ preventScroll: true }); } catch (e2) { }
+			});
 			ta.addEventListener('input', function () { engage('input'); L('input len=' + ta.value.length + ' vv=' + vvh()); try { localStorage.setItem(LS, ta.value); } catch (e) { } });
 			ta.addEventListener('keydown', function (e) { engage('keydown'); if (e.key === 'Escape') { e.preventDefault(); dismiss(); } });
 			ta.addEventListener('pointerdown', function () { engage('tap-ta'); });
@@ -184,44 +196,83 @@ window.ViktorInstantroam = (function () {
 			function clearBuf() { try { localStorage.removeItem(LS); } catch (e) { } }
 			function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
-			function focusBlock(a, uid, caret, tries) {
-				L('focusBlock call uid=' + uid + ' tries-left=' + tries + ' rm-ta=' + (D.querySelector('textarea.rm-block-input') ? 'mounted' : 'none') + ' active=' + cls(D.activeElement));
-				try { a.ui.setBlockFocusAndSelection({ location: { 'block-uid': uid, 'window-id': 'main-window' }, selection: { start: caret } }); } catch (e) { L('focusBlock api ERR ' + (e && e.message)); }
-				if (tries > 0) setTimeout(function () {
-					var f = null; try { f = a.ui.getFocusedBlock(); } catch (e) { }
-					L('focusBlock check api-uid=' + (f ? f['block-uid'] : 'null') + ' active=' + cls(D.activeElement) + ' vv=' + vvh());
-					if (!f || f['block-uid'] !== uid) focusBlock(a, uid, caret, tries - 1);
-				}, 130);
+			function roamEditable(el) {
+				if (!el || el === ta || el.id === 'IR_lab_b') return false;
+				var tag = (el.tagName || '').toLowerCase();
+				return tag === 'textarea' || tag === 'input' || el.isContentEditable === true;
+			}
+			function endsWithUid(el, uid) {
+				return !!(el && el.id && el.id.indexOf('block-input-') === 0 && el.id.slice(-(uid.length + 1)) === '-' + uid);
+			}
+			// No-nav focus: try the log window-id ('log-outline' — a Roam constant for the DNP log,
+			// route-app.js), then 'main-window', then a DOM fallback (synthetic click to mount edit
+			// mode + direct focus). Gate on the REAL DOM editable (document.activeElement), never on
+			// getFocusedBlock (React state flips before the textarea is mounted+focused). Resolves
+			// true once activeElement is the target's editable. Roam ignores isTrusted on the click.
+			function focusTarget(a, uid, caretPos) {
+				return new Promise(function (resolve) {
+					var wins = ['log-outline', 'main-window'], wi = 0;
+					function attempt() {
+						var win = wins[wi];
+						L('focusTarget try win=' + win + ' uid=' + uid + ' active=' + cls(D.activeElement));
+						try { a.ui.setBlockFocusAndSelection({ location: { 'block-uid': uid, 'window-id': win }, selection: { start: caretPos } }); } catch (e) { L('focusTarget api ERR ' + (e && e.message)); }
+						var n = 0;
+						(function poll() {
+							if (endsWithUid(D.activeElement, uid)) { L('focusTarget LANDED win=' + win + ' ' + cls(D.activeElement) + ' vv=' + vvh()); return resolve(true); }
+							if (++n < 4) return setTimeout(poll, 50);
+							if (++wi < wins.length) return attempt();
+							domFallback();
+						})();
+					}
+					function domFallback() {
+						L('focusTarget DOM fallback uid=' + uid + ' active=' + cls(D.activeElement));
+						var node = D.querySelector('[id$="-' + uid + '"]');
+						if (node) { ['mousedown', 'mouseup', 'click'].forEach(function (t) { try { node.dispatchEvent(new MouseEvent(t, { bubbles: true })); } catch (e) { } }); }
+						var n = 0;
+						(function poll() {
+							if (endsWithUid(D.activeElement, uid)) { L('focusTarget DOM landed ' + cls(D.activeElement)); return resolve(true); }
+							var t2 = D.querySelector('textarea[id$="-' + uid + '"]');
+							if (t2 && t2 !== D.activeElement) { try { t2.focus({ preventScroll: true }); t2.setSelectionRange(caretPos, caretPos); } catch (e) { } }
+							if (++n < 6) return setTimeout(poll, 60);
+							L('focusTarget FAILED uid=' + uid + ' active=' + cls(D.activeElement));
+							resolve(false);
+						})();
+					}
+					attempt();
+				});
 			}
 
 			function hydrate(a) {
 				if (CAP.hydrated || CAP.dismissed) return; CAP.hydrated = true;
-				L('hydrate start vv=' + vvh() + ' active=' + cls(D.activeElement));
+				batonOn = true;
+				L('hydrate start (NO-NAV) vv=' + vvh() + ' active=' + cls(D.activeElement));
 				(async function () {
 					try {
 						var dnp = a.util.dateToPageUid(new Date());
 						if (!a.pull('[:db/id]', [':block/uid', dnp])) { try { await a.createPage({ page: { title: a.util.dateToPageTitle(new Date()), uid: dnp } }); } catch (e) { } }
-						try { await a.ui.mainWindow.openPage({ page: { uid: dnp } }); } catch (e) { }
-						L('openPage done active=' + cls(D.activeElement) + ' vv=' + vvh());
-						await sleep(60);
-						var text = (ta.value || '').replace(/\s+$/, '');     // read as late as possible
+						// NO openPage — stay on the Daily Notes LOG. Text stored VERBATIM (keep trailing space).
+						var text = (ta.value || ''), has = text.trim().length > 0;
 						var p = a.pull('[{:block/children [:block/string :block/uid :block/order]}]', [':block/uid', dnp]);
-						var kids = (p && p[':block/children']) || [];
+						var kids = ((p && p[':block/children']) || []).slice();
 						kids.sort(function (m, n) { return (m[':block/order'] || 0) - (n[':block/order'] || 0); });
 						var top = kids[0], topUid = top ? top[':block/uid'] : null, topEmpty = top ? !((top[':block/string'] || '').trim()) : false;
-						var target;
-						if (topUid && topEmpty) { target = topUid; if (text) { try { await a.updateBlock({ block: { uid: topUid, string: text } }); } catch (e) { } } }
-						else { target = a.util.generateUID(); try { await a.createBlock({ location: { 'parent-uid': dnp, order: 0 }, block: { uid: target, string: text } }); } catch (e) { } }
-						L('target uid=' + target + ' (' + (topUid && topEmpty ? 'reused-top' : 'new-block') + ') len=' + text.length);
-						clearBuf();
-						await sleep(50);
-						// reconcile any keystrokes typed during hydrate, then focus caret at the end
-						var latest = (ta.value || '').replace(/\s+$/, '');
-						if (latest !== text) { L('reconcile +' + (latest.length - text.length) + ' chars'); try { await a.updateBlock({ block: { uid: target, string: latest } }); } catch (e) { } text = latest; }
-						focusBlock(a, target, text.length, 6);
-						await sleep(90);
+						var target, wrote = has ? text : '';
+						if (topUid && topEmpty) { target = topUid; if (has) { try { await a.updateBlock({ block: { uid: topUid, string: wrote } }); } catch (e) { } } }
+						else { target = a.util.generateUID(); try { await a.createBlock({ location: { 'parent-uid': dnp, order: 0 }, block: { uid: target, string: wrote } }); } catch (e) { } }
+						L('target uid=' + target + ' (' + (topUid && topEmpty ? 'reused-top' : 'new-block') + ') len=' + wrote.length);
+						// reconcile keystrokes typed during the awaits (verbatim)
+						var latest = (ta.value || '');
+						if (latest !== wrote && (latest.trim() || wrote)) { L('reconcile len ' + wrote.length + '->' + latest.length); try { await a.updateBlock({ block: { uid: target, string: latest } }); } catch (e) { } wrote = latest; }
+						// clear the crash-buffer ONLY after a read-back confirms the block holds the text
+						try { var chk = a.pull('[:block/string]', [':block/uid', target]); if (chk && chk[':block/string'] === wrote) clearBuf(); else L('buffer kept (read-back mismatch)'); } catch (e) { }
+						var caretPos = wrote.length;
+						var ok = await focusTarget(a, target, caretPos);
+						if (ok) await new Promise(function (r) { requestAnimationFrame(function () { r(); }); });   // hold ≥1 frame before teardown
+						var confirmed = ok && endsWithUid(D.activeElement, target);
+						L('handoff ' + (confirmed ? 'CONFIRMED' : 'NOT-confirmed') + ' active=' + cls(D.activeElement) + ' vv=' + vvh());
+						batonOn = false;
 						fadeRemove();
-					} catch (e) { L('hydrate ERROR ' + (e && e.message)); fadeRemove(); }
+					} catch (e) { L('hydrate ERROR ' + (e && e.message)); batonOn = false; fadeRemove(); }
 				})();
 			}
 
