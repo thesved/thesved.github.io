@@ -1,7 +1,11 @@
 /*
  * Viktor's Instant Roam — instant, dark, cursor-ready capture on every open.
- * version: 0.4.2-dbg  (2026-06-11) — no-nav handoff + T=0 date-formatter (no flash) + debug layer.
- *                                    Deferred-boot REVERTED (broke iOS boot); typing freeze returns.
+ * version: 0.5.0  (2026-06-11) — themed to the user's real skin + balanced layout. Captures the live
+ *                                  theme colors (per scheme) and the real first-block Y (per form factor)
+ *                                  on each boot → the T=0 capture screen matches the skin and lands the
+ *                                  input where the real block sits (no jump on handoff). Whole screen is a
+ *                                  tap-to-focus target (mobile keyboard); desktop autofocuses. Removed the
+ *                                  close ✕ and turned the debug ⧉ copy layer OFF by default (IR_debug='1').
  * author: @ViktorTabori
  *
  * THE TRICK (proven on desktop CDP 2026-06-11, see instant-roam/):
@@ -59,7 +63,7 @@ window.ViktorInstantroam = (function () {
 			var DEFER_BOOT = false;   // see module-scope note — deferred boot disabled (breaks iOS Roam boot)
 
 			// ---------- debug layer (default ON in this build; disable: localStorage.IR_debug='0') ----------
-			var DBG = true; try { DBG = localStorage.getItem('IR_debug') !== '0'; } catch (e) { }
+			var DBG = false; try { DBG = localStorage.getItem('IR_debug') === '1'; } catch (e) { }   // debug + ⧉ copy button OFF by default (opt-in: IR_debug='1')
 			var IRV = ''; try { var bt = D.getElementById('IR_boot'); IRV = (bt && bt.getAttribute('data-irv')) || ''; } catch (e) { }
 			var labKey = 'IR_lab_done_' + IRV;
 			// Auto-LAB is OPT-IN (keyboard retention already proven on device) — arm via localStorage.IR_lab='1'
@@ -154,25 +158,41 @@ window.ViktorInstantroam = (function () {
 				}
 			} catch (e) { }
 
+			// Colors + vertical position come from the user's REAL theme, captured on a prior boot
+			// (cacheEnv, below) and stashed in localStorage — so the capture screen matches any custom
+			// skin (light/dark) and drops the input where the real first block sits (per form factor:
+			// desktop 'd' vs mobile 'm'). Roam defaults are used only on the very first boot.
 			var light = false; try { light = W.matchMedia && W.matchMedia('(prefers-color-scheme: light)').matches; } catch (e) { }
-			var bg = light ? '#ffffff' : '#182026', fg = light ? '#1a1a1a' : '#e8eaed', dim = light ? 'rgba(0,0,0,.45)' : 'rgba(255,255,255,.4)';
+			var scheme = light ? 'light' : 'dark';
+			var form = (W.matchMedia && W.matchMedia('(max-width: 767px)').matches) ? 'm' : 'd';
+			var DEFC = { dark: { bg: '#182026', text: '#e8eaed' }, light: { bg: '#ffffff', text: '#1a1a1a' } };
+			var DEFP = { d: 230, m: 285 };
+			var col = DEFC[scheme], pos = DEFP[form];
+			try { var cc = JSON.parse(localStorage.getItem('IR_colors') || '{}'); if (cc[scheme] && cc[scheme].bg && cc[scheme].text) col = cc[scheme]; } catch (e) { }
+			try { var pp = JSON.parse(localStorage.getItem('IR_pos') || '{}'); if (typeof pp[form] === 'number') pos = pp[form]; } catch (e) { }
+			// captured colors are always computed "rgb(r, g, b)" → derive a 50%-alpha caption color from
+			// them (color-mix isn't reliable cross-engine). Hex defaults fall back to a scheme-based dim.
+			function dimOf(c) { var m = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/.exec(c); return m ? 'rgba(' + m[1] + ',' + m[2] + ',' + m[3] + ',.5)' : (light ? 'rgba(0,0,0,.45)' : 'rgba(255,255,255,.45)'); }
+			var bg = col.bg, fg = col.text, dim = dimOf(fg);
+			try { var vh0 = W.innerHeight || 800; pos = Math.max(72, Math.min(pos, Math.round(vh0 * 0.6))); } catch (e) { }
 
 			var ov = D.createElement('div'); ov.id = 'IR_overlay';
-			ov.style.cssText = 'position:fixed;inset:0;z-index:2147483600;background:' + bg + ';color:' + fg + ';display:flex;flex-direction:column;font-family:Inter,system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;opacity:1;transition:opacity .16s ease';
+			ov.style.cssText = 'position:fixed;inset:0;z-index:2147483600;background:' + bg + ';color:' + fg + ';display:flex;flex-direction:column;font-family:Inter,system-ui,-apple-system,sans-serif;-webkit-font-smoothing:antialiased;opacity:1;transition:opacity .16s ease;cursor:text';
 
+			// spacer pushes the caption + input down so the input's first line lands at the cached block Y
+			var spacer = D.createElement('div'); spacer.style.cssText = 'flex:none;height:' + Math.max(0, pos - 30) + 'px';
 			var head = D.createElement('div');
-			head.style.cssText = 'padding:16px 18px 4px;font-size:13px;color:' + dim + ';flex:none;display:flex;justify-content:space-between;align-items:center';
+			head.style.cssText = 'padding:0 18px;margin-bottom:8px;font-size:13px;flex:none;line-height:1.5';
 			var label = D.createElement('span'); label.textContent = 'Jot to today’s Daily Notes';
-			var x = D.createElement('button'); x.textContent = '✕'; x.setAttribute('aria-label', 'close');
-			x.style.cssText = 'background:none;border:none;color:' + dim + ';font-size:16px;cursor:pointer;padding:2px 6px;line-height:1';
-			head.appendChild(label); head.appendChild(x);
+			label.style.color = dim;   // dim set on the text element itself (survives any inherited-color override)
+			head.appendChild(label);   // no close ✕ — there's nothing to close to (less is more)
 
 			var ta = D.createElement('textarea'); ta.id = 'IR_input';
 			ta.placeholder = 'Type your idea…'; ta.setAttribute('autocapitalize', 'sentences'); ta.setAttribute('autocorrect', 'on');
-			ta.style.cssText = 'flex:1;width:100%;box-sizing:border-box;background:transparent;color:inherit;border:none;outline:none;resize:none;font-size:21px;line-height:1.5;padding:8px 18px calc(18px + env(safe-area-inset-bottom));caret-color:#4c9aff;font-family:inherit';
+			ta.style.cssText = 'flex:1;width:100%;box-sizing:border-box;background:transparent;color:inherit;border:none;outline:none;resize:none;font-size:21px;line-height:1.5;padding:4px 18px calc(18px + env(safe-area-inset-bottom));caret-color:#4c9aff;font-family:inherit';
 			try { var prev = localStorage.getItem(LS); if (prev) { ta.value = prev; if (prev.trim()) CAP.engaged = true; } } catch (e) { }
 
-			ov.appendChild(head); ov.appendChild(ta);
+			ov.appendChild(spacer); ov.appendChild(head); ov.appendChild(ta);
 			(D.body || D.documentElement).appendChild(ov);
 
 			function focusBox() { try { ta.focus(); var n = ta.value.length; ta.setSelectionRange(n, n); } catch (e) { } }
@@ -193,8 +213,7 @@ window.ViktorInstantroam = (function () {
 			ta.addEventListener('input', function () { engage('input'); L('input len=' + ta.value.length + ' vv=' + vvh()); try { localStorage.setItem(LS, ta.value); } catch (e) { } if (DEFER_BOOT && !booted) { if (pauseT) clearTimeout(pauseT); pauseT = setTimeout(function () { bootRoam('typing-pause'); }, 700); } });
 			ta.addEventListener('keydown', function (e) { engage('keydown'); if (e.key === 'Escape') { e.preventDefault(); dismiss(); } });
 			ta.addEventListener('pointerdown', function () { engage('tap-ta'); });
-			ov.addEventListener('pointerdown', function (e) { if (e.target === x) return; engage('tap-ov'); focusBox(); });
-			x.addEventListener('click', function (e) { e.stopPropagation(); dismiss(); });
+			ov.addEventListener('pointerdown', function () { engage('tap-ov'); focusBox(); });   // whole screen taps to focus (mobile: opens the keyboard)
 
 			// triple-tap the header label -> re-arm the auto-LAB for the next boot
 			var tapN = 0, tapAt = 0;
@@ -380,12 +399,18 @@ window.ViktorInstantroam = (function () {
 		try {
 			var e = await cacheEntry(isIndex); if (!e) return;
 			var html = await (await e.cache.match(e.req)).text();
+			// T=0 shell background = the user's real theme bg (captured by cacheEnv), so there's no
+			// flash of the wrong color before the capture overlay paints. Colors fold into the irv so a
+			// skin/scheme change re-poisons the shell.
+			var darkBg = DARK, lightBg = '#ffffff';
+			try { var ccp = JSON.parse(localStorage.getItem('IR_colors') || '{}'); if (ccp.dark && ccp.dark.bg) darkBg = ccp.dark.bg; if (ccp.light && ccp.light.bg) lightBg = ccp.light.bg; } catch (_) { }
+			var irv = VERSION + '.' + hashStr(darkBg + '|' + lightBg);
 			var isP = html.indexOf('id="IR_style"') !== -1;
-			if (isP && html.indexOf('data-irv="' + VERSION + '"') !== -1) return;     // already current
+			if (isP && html.indexOf('data-irv="' + irv + '"') !== -1) return;     // already current
 			var orig = isP ? strip(html) : html;
 			try { if (!localStorage.getItem(LSO)) localStorage.setItem(LSO, orig); } catch (_) { }
-			var styleTag = '<style id="IR_style" data-irv="' + VERSION + '">html,body{background:' + DARK + ' !important;}@media (prefers-color-scheme: light){html,body{background:#ffffff !important;}}</style>';
-			var scriptTag = '<script id="IR_boot" data-irv="' + VERSION + '">' + CAPTURE_SRC + '<\/script>';
+			var styleTag = '<style id="IR_style" data-irv="' + irv + '">html,body{background:' + darkBg + ' !important;}@media (prefers-color-scheme: light){html,body{background:' + lightBg + ' !important;}}</style>';
+			var scriptTag = '<script id="IR_boot" data-irv="' + irv + '">' + CAPTURE_SRC + '<\/script>';
 			var poisoned = orig.replace('</head>', styleTag + '</head>').replace(/<body[^>]*>/, function (m) { return m + scriptTag; });
 			// Defer Roam's heavy ClojureScript bundle so the capture textarea stays responsive while the
 			// user types (main.js's synchronous eval blocks the main thread → input freezes). We neutralize
@@ -432,8 +457,48 @@ window.ViktorInstantroam = (function () {
 		} catch (_) { }
 	}
 
+	// ---------- capture the user's live theme colors + first-block Y (for the T=0 capture screen) ----------
+	// Runs post-boot; polls until Roam has painted a block, then records bg/text (per color scheme) and the
+	// first-block top (per form factor) so the NEXT instant-capture matches the user's real skin + layout.
+	// Self-heals: it re-measures every boot, so changing your skin/CSS updates the capture screen too.
+	function opaque(c) { return !!c && c !== 'transparent' && !/rgba\([^)]*,\s*0\s*\)/.test(c); }
+	function cacheEnv() {
+		var tries = 0;
+		var iv = setInterval(function () {
+			tries++;
+			try {
+				var blk = document.querySelector('.rm-block-text') || document.querySelector('textarea.rm-block-input') || document.querySelector('.roam-block');
+				if (!blk) { if (tries > 30) clearInterval(iv); return; }   // up to ~15s for Roam to paint
+				var light = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+				var scheme = light ? 'light' : 'dark';
+				// colors: app/body background + block text color (works with any custom skin)
+				var bgEl = document.querySelector('.roam-app') || document.querySelector('.roam-body') || document.body;
+				var bgc = getComputedStyle(bgEl).backgroundColor;
+				if (!opaque(bgc)) bgc = getComputedStyle(document.body).backgroundColor;
+				var txt = getComputedStyle(blk).color;
+				if (opaque(bgc) && txt) {
+					var cc = {}; try { cc = JSON.parse(localStorage.getItem('IR_colors') || '{}'); } catch (e) { }
+					if (!cc[scheme] || cc[scheme].bg !== bgc || cc[scheme].text !== txt) {
+						cc[scheme] = { bg: bgc, text: txt };
+						try { localStorage.setItem('IR_colors', JSON.stringify(cc)); } catch (e) { }
+					}
+				}
+				// position: first block's text top (only when at the top of the page + sane range)
+				var top = Math.round(blk.getBoundingClientRect().top);
+				var vh = window.innerHeight || 800;
+				if (top > 60 && top < vh * 0.6) {
+					var form = (window.matchMedia && window.matchMedia('(max-width: 767px)').matches) ? 'm' : 'd';
+					var pp = {}; try { pp = JSON.parse(localStorage.getItem('IR_pos') || '{}'); } catch (e) { }
+					if (pp[form] !== top) { pp[form] = top; try { localStorage.setItem('IR_pos', JSON.stringify(pp)); } catch (e) { } }
+				}
+				clearInterval(iv);
+				poison();   // colors may have changed → re-bake the T=0 shell bg
+			} catch (e) { clearInterval(iv); }
+		}, 500);
+	}
+
 	var doLog = false, added = false;
-	function start() { if (added) return; added = true; poison(); poisonManifest(); }
+	function start() { if (added) return; added = true; poison(); poisonManifest(); cacheEnv(); }
 	function stop() {
 		added = false;
 		unpoison();
