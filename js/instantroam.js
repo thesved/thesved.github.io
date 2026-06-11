@@ -1,7 +1,7 @@
 /*
  * Viktor's Instant Roam — instant, dark, cursor-ready capture on every open.
- * version: 0.4.1-dbg  (2026-06-11) — deferred boot (smooth typing) + T=0 date-formatter (no flash)
- *                                    + no-nav handoff + debug layer
+ * version: 0.4.2-dbg  (2026-06-11) — no-nav handoff + T=0 date-formatter (no flash) + debug layer.
+ *                                    Deferred-boot REVERTED (broke iOS boot); typing freeze returns.
  * author: @ViktorTabori
  *
  * THE TRICK (proven on desktop CDP 2026-06-11, see instant-roam/):
@@ -42,6 +42,10 @@
 if (window.ViktorInstantroam && window.ViktorInstantroam.stop) window.ViktorInstantroam.stop();
 window.ViktorInstantroam = (function () {
 	var SALT = '2';                 // bump only if you change the injected <style> (capture-app changes auto-bump)
+	var DEFER_BOOT = false;         // DISABLED 2026-06-11: deferring + dynamically re-injecting Roam's
+	//                                 compiled scripts works on desktop CDP but does NOT boot Roam on the
+	//                                 real iOS PWA (user stuck on capture, no roam-ready). Needs a safer
+	//                                 smooth-typing technique. Kept gated for future iteration.
 	var DARK = '#182026';
 	var LSO = 'IR_orig_shell', LSM = 'IR_orig_manifest';
 
@@ -52,6 +56,7 @@ window.ViktorInstantroam = (function () {
 			var W = window, D = document, LS = 'IR_buffer';
 			var CAP = { ts: Date.now(), done: false, engaged: false, hydrated: false, dismissed: false };
 			W.__IR_CAPTURE = CAP;
+			var DEFER_BOOT = false;   // see module-scope note — deferred boot disabled (breaks iOS Roam boot)
 
 			// ---------- debug layer (default ON in this build; disable: localStorage.IR_debug='0') ----------
 			var DBG = true; try { DBG = localStorage.getItem('IR_debug') !== '0'; } catch (e) { }
@@ -107,7 +112,7 @@ window.ViktorInstantroam = (function () {
 			}
 
 			function engage(src) {
-				if (!CAP.engaged) { L('ENGAGED via ' + src + ' vv=' + vvh()); CAP.engaged = true; if (!capT) capT = setTimeout(function () { bootRoam('cap'); }, 2500); }   // cap typing window after first engage
+				if (!CAP.engaged) { L('ENGAGED via ' + src + ' vv=' + vvh()); CAP.engaged = true; if (DEFER_BOOT && !capT) capT = setTimeout(function () { bootRoam('cap'); }, 2500); }   // cap typing window after first engage
 				scheduleLab();
 			}
 			if (DBG) {
@@ -172,7 +177,7 @@ window.ViktorInstantroam = (function () {
 
 			function focusBox() { try { ta.focus(); var n = ta.value.length; ta.setSelectionRange(n, n); } catch (e) { } }
 			focusBox();
-			armBoot(ta);   // arm deferred-boot triggers now that the textarea exists
+			if (DEFER_BOOT) armBoot(ta);   // arm deferred-boot triggers now that the textarea exists
 
 			// Baton guard (active only during the no-nav handoff): if focus leaves IR_input to a
 			// NON-editable while the overlay is still alive, reclaim it in the SAME run-loop turn so
@@ -185,7 +190,7 @@ window.ViktorInstantroam = (function () {
 				L('baton reclaim (rt=' + cls(e.relatedTarget) + ') vv=' + vvh());
 				try { ta.focus({ preventScroll: true }); } catch (e2) { }
 			});
-			ta.addEventListener('input', function () { engage('input'); L('input len=' + ta.value.length + ' vv=' + vvh()); try { localStorage.setItem(LS, ta.value); } catch (e) { } if (!booted) { if (pauseT) clearTimeout(pauseT); pauseT = setTimeout(function () { bootRoam('typing-pause'); }, 700); } });
+			ta.addEventListener('input', function () { engage('input'); L('input len=' + ta.value.length + ' vv=' + vvh()); try { localStorage.setItem(LS, ta.value); } catch (e) { } if (DEFER_BOOT && !booted) { if (pauseT) clearTimeout(pauseT); pauseT = setTimeout(function () { bootRoam('typing-pause'); }, 700); } });
 			ta.addEventListener('keydown', function (e) { engage('keydown'); if (e.key === 'Escape') { e.preventDefault(); dismiss(); } });
 			ta.addEventListener('pointerdown', function () { engage('tap-ta'); });
 			ov.addEventListener('pointerdown', function (e) { if (e.target === x) return; engage('tap-ov'); focusBox(); });
@@ -385,7 +390,7 @@ window.ViktorInstantroam = (function () {
 			// the <script src> tags (parser ignores type="text/x-ir-deferred"); the capture app re-injects
 			// them (async=false → ordered) once typing pauses / on blur / after a cap. Best-effort: if the
 			// paths ever change and the regex misses, the scripts load normally (no smoothing, never broken).
-			poisoned = poisoned.replace(/<script\s+src="(js\/compiled\/(?:shared|main)\.js)"([^>]*)>/g, function (m, src, rest) {
+			if (DEFER_BOOT) poisoned = poisoned.replace(/<script\s+src="(js\/compiled\/(?:shared|main)\.js)"([^>]*)>/g, function (m, src, rest) {
 				return '<script type="text/x-ir-deferred" data-ir-src="' + src + '"' + rest + '>';
 			});
 			if (poisoned.indexOf('IR_boot') === -1 || poisoned.indexOf('IR_style') === -1) return;   // never write a broken shell
