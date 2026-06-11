@@ -1,14 +1,9 @@
 /*
  * Viktor's Instant Roam — instant, dark, cursor-ready capture on every open.
- * version: 0.5.4  (2026-06-11) — FIX stale-buffer-on-reopen (capture box kept the previous text). iOS
- *                                  commits pending autocorrect/composition on BLUR and fires a late
- *                                  `input` on our textarea — which fired AFTER clearBuf and re-saved
- *                                  IR_buffer. Now: focus the real block FIRST (forces the blur-commit),
- *                                  do a post-blur reconcile (folds the committed text into the block),
- *                                  SEAL the mirror (CAP.sealed → input listener ignores all further
- *                                  events), THEN read-back + clearBuf (with one 150ms retry so a lagging
- *                                  a.pull can't false-keep). Stale-buffer replay is now idempotent (a top
- *                                  block already holding the text writes nothing → no duplicate). (0.5.3 below.)
+ * version: 0.5.4  (2026-06-11) — fix: stale text retention bug. iOS commits pending
+ *                                  autocorrect on BLUR after clearBuf, resurrecting the buffer.
+ *                                  Now: focus real block FIRST, post-blur reconcile, SEAL the
+ *                                  mirror, THEN clearBuf. Also added autocomplete="off" + DOM clear.
  * version: 0.5.3  (2026-06-11) — dim the placeholder (.33, .25 on focus) so it doesn't read like
  *                                  already-typed text. (0.5.2/0.5.0 below.)
  * version: 0.5.2  (2026-06-11) — desktop horizontal alignment: fixed 25% side margin (centered middle
@@ -207,7 +202,7 @@ window.ViktorInstantroam = (function () {
 			head.appendChild(label);   // no close ✕ — there's nothing to close to (less is more)
 
 			var ta = D.createElement('textarea'); ta.id = 'IR_input';
-			ta.placeholder = 'Type your idea…'; ta.setAttribute('autocapitalize', 'sentences'); ta.setAttribute('autocorrect', 'on');
+			ta.placeholder = 'Type your idea…'; ta.setAttribute('autocapitalize', 'sentences'); ta.setAttribute('autocorrect', 'on'); ta.setAttribute('autocomplete', 'off');
 			ta.style.cssText = 'flex:1;width:100%;box-sizing:border-box;background:transparent;color:inherit;border:none;outline:none;resize:none;font-size:21px;line-height:1.5;padding:4px ' + sidePad + ' calc(18px + env(safe-area-inset-bottom));caret-color:#4c9aff;font-family:inherit';
 			try { var prev = localStorage.getItem(LS); if (prev) { ta.value = prev; if (prev.trim()) CAP.engaged = true; } } catch (e) { }
 
@@ -369,7 +364,7 @@ window.ViktorInstantroam = (function () {
 						try {
 							var chk = a.pull('[:block/string]', [':block/uid', target]);
 							if (!(chk && chk[':block/string'] === wrote)) { await sleep(150); chk = a.pull('[:block/string]', [':block/uid', target]); }
-							if (chk && chk[':block/string'] === wrote) clearBuf(); else L('buffer kept (read-back mismatch)');
+							if (chk && chk[':block/string'] === wrote) { clearBuf(); ta.value = ''; } else L('buffer kept (read-back mismatch)');
 						} catch (e) { }
 						if (ok) await new Promise(function (r) { requestAnimationFrame(function () { r(); }); });   // hold ≥1 frame before teardown
 						var confirmed = ok && endsWithUid(D.activeElement, target);
