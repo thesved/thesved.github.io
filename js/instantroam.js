@@ -356,7 +356,9 @@ window.ViktorInstantroam = (function () {
 	function strip(html) {
 		return html
 			.replace(/<style id="IR_style"[\s\S]*?<\/style>\s*/g, '')
-			.replace(/<script id="IR_boot"[\s\S]*?<\/script>\s*/g, '');
+			.replace(/<script id="IR_boot"[\s\S]*?<\/script>\s*/g, '')
+			// self-heal: restore any deferred compiled scripts left by an older deferred-boot build
+			.replace(/<script\s+type="text\/x-ir-deferred"\s+data-ir-src="([^"]+)"([^>]*)>/g, '<script src="$1"$2>');
 	}
 	async function cacheEntry(pred) {
 		try {
