@@ -1,7 +1,18 @@
 /*
  * Viktor's Instant Roam — instant, dark, cursor-ready capture on every open.
- * version: 0.4  (2026-06-11)
+ * version: 0.4.1  (2026-06-11)
  * author: @ViktorTabori
+ *
+ * v0.4.1 — applied a 4-lens adversarial review (must-fixes):
+ *   - Baton guard stays active during the handoff (was muted → up-to-60ms body-focus window killed
+ *     the keyboard). It still steps aside for an editable relatedTarget (the real handoff).
+ *   - Buffer is cleared ONLY after a read-back confirms the block actually holds the text
+ *     (confirmWritten), and never cleared on an error path → no data loss.
+ *   - Fallback gates overlay removal on Roam's editor holding DOM focus (pollEditable), not a fixed
+ *     timer → no re-run of the v0.3 keyboard drop.
+ *   - Dismiss (✕/Esc) mid-handoff no longer falls through to navigate/force-focus; restored drafts
+ *     are passive (not auto-committed); watchdog no longer yanks the caret; loop no longer stalls
+ *     on a wrong-block focus.
  *
  * THE TRICK (proven on desktop CDP + the dark capture box proven on a real iPhone, 2026-06-11):
  *   Roam boots from a Workbox-precached index.html and its OWN service worker serves that cached
@@ -41,7 +52,7 @@ window.ViktorInstantroam = (function () {
 		try {
 			if (window.__IR_CAPTURE) return;
 			var W = window, D = document, LS = 'IR_buffer';
-			var CAP = { ts: Date.now(), done: false, engaged: false, hydrated: false, dismissed: false, handingOff: false };
+			var CAP = { ts: Date.now(), done: false, engaged: false, hydrated: false, dismissed: false };
 			W.__IR_CAPTURE = CAP;
 
 			var DBG = false; try { DBG = localStorage.getItem('IR_debug') === '1'; } catch (e) { }
@@ -73,7 +84,7 @@ window.ViktorInstantroam = (function () {
 			ta.placeholder = 'Type your idea…'; ta.setAttribute('autocapitalize', 'sentences'); ta.setAttribute('autocorrect', 'on'); ta.setAttribute('autocomplete', 'off'); ta.setAttribute('inputmode', 'text');
 			// font-size MUST be >=16px or iOS auto-zooms on focus (jolt). 21px is safe.
 			ta.style.cssText = 'flex:1;width:100%;box-sizing:border-box;background:transparent;color:inherit;border:none;outline:none;resize:none;font-size:21px;line-height:1.5;padding:8px 18px calc(18px + env(safe-area-inset-bottom));caret-color:' + caret + ';font-family:inherit';
-			try { var prev = localStorage.getItem(LS); if (prev) { ta.value = prev; if (prev.trim()) CAP.engaged = true; } } catch (e) { }
+			try { var prev = localStorage.getItem(LS); if (prev) { ta.value = prev; } } catch (e) { }   // restore is PASSIVE — only real input sets CAP.engaged (don't auto-commit a dismissed draft)
 
 			ov.appendChild(head); ov.appendChild(ta);
 			(D.body || D.documentElement).appendChild(ov);
@@ -98,7 +109,7 @@ window.ViktorInstantroam = (function () {
 			// NON-editable (Roam's boot churn knocking focus to <body>), grab it back SYNCHRONOUSLY so the
 			// keyboard never closes. If focus is going to an editable (Roam's editor — the handoff), allow it.
 			ta.addEventListener('focusout', function (e) {
-				if (CAP.done || CAP.dismissed || CAP.handingOff) return;
+				if (CAP.done || CAP.dismissed) return;   // stays active through the handoff: editable relatedTarget (Roam) passes; a drop to <body> is reclaimed in the SAME turn
 				if (!isEditable(e.relatedTarget)) { try { ta.focus({ preventScroll: true }); } catch (_) { } log('baton-guard refocus'); }
 			});
 
@@ -111,10 +122,24 @@ window.ViktorInstantroam = (function () {
 			var written = '';
 			function syncBlock(a, target) { var c = curText(); if (c !== written) { try { a.updateBlock({ block: { uid: target, string: c } }); } catch (e) { } written = c; } return c; }
 
+			// Clear the buffer ONLY after reading back that the block actually holds the captured text
+			// (the block may have GROWN if the user kept typing into Roam, so startsWith is enough). On any
+			// failure the buffer is kept so the next launch restores the draft — never loses data.
+			async function confirmWritten(a, target) {
+				try {
+					await sleep(120);   // let the last updateBlock flush to the datom store
+					var p = a.pull('[:block/string]', [':block/uid', target]);
+					var s = (p && p[':block/string']) || '';
+					var want = ''; try { want = localStorage.getItem(LS) || ''; } catch (e) { }
+					if (want === '' || s === want || s.indexOf(want) === 0) { clearBuf(); return true; }
+				} catch (e) { }
+				return false;
+			}
+
 			async function ensureTarget(a) {
 				var dnp = a.util.dateToPageUid(new Date());
 				if (!a.pull('[:db/id]', [':block/uid', dnp])) { try { await a.createPage({ page: { title: a.util.dateToPageTitle(new Date()), uid: dnp } }); } catch (e) { } }
-				var text = curText(); written = text;
+				var text = curText();
 				var p = a.pull('[{:block/children [:block/string :block/uid :block/order]}]', [':block/uid', dnp]);
 				var kids = (p && p[':block/children']) || [];
 				kids.sort(function (m, n) { return (m[':block/order'] || 0) - (n[':block/order'] || 0); });
@@ -122,6 +147,8 @@ window.ViktorInstantroam = (function () {
 				var target;
 				if (topUid && topEmpty) { target = topUid; if (text) { try { await a.updateBlock({ block: { uid: topUid, string: text } }); } catch (e) { } } }
 				else { target = a.util.generateUID(); try { await a.createBlock({ location: { 'parent-uid': dnp, order: 0 }, block: { uid: target, string: text } }); } catch (e) { } }
+				// NOTE: do NOT preset `written` here — leave it '' so the loop's syncBlock re-writes the text
+				// (covers a swallowed/failed write above), and confirmWritten gates the buffer clear on read-back.
 				return { dnp: dnp, target: target };
 			}
 
@@ -130,52 +157,68 @@ window.ViktorInstantroam = (function () {
 				if (tries > 0) setTimeout(function () { var f = null; try { f = a.ui.getFocusedBlock(); } catch (e) { } if (!f || f['block-uid'] !== uid) focusBlock(a, uid, caretPos, tries - 1); }, 130);
 			}
 
+			// Resolve once Roam's real editable holds DOM focus (or cap out ~ticks*250ms). While waiting we
+			// keep OUR textarea focused so the keyboard never drops on a slow log view — this gates overlay
+			// removal in the fallback the same way the happy path is DOM-gated (no fixed timer = no v0.3 bug).
+			function pollEditable(ticks) {
+				return new Promise(function (res) {
+					var n = 0, iv = setInterval(function () {
+						n++;
+						if (roamEditable(D.activeElement)) { clearInterval(iv); return res(true); }
+						if (D.activeElement !== ta) focusTA();
+						if (n >= ticks) { clearInterval(iv); return res(false); }
+					}, 250);
+				});
+			}
+
 			// After a confirmed swap: if Roam re-mounts/blurs the block and focus falls to <body>, re-assert
-			// briefly so the keyboard survives the remount (board's top risk).
+			// briefly so the keyboard survives the remount (board's top risk). No `selection` → keep Roam's caret.
 			function watchdog(a, target) {
 				var n = 0, iv = setInterval(function () {
 					n++;
 					if (!roamEditable(D.activeElement)) {
 						log('watchdog re-assert');
-						try { a.ui.setBlockFocusAndSelection({ location: { 'block-uid': target, 'window-id': 'main-window' }, selection: { start: written.length } }); } catch (e) { }
-						var node = null; try { node = D.querySelector('textarea.rm-block-input'); } catch (e) { }
+						try { a.ui.setBlockFocusAndSelection({ location: { 'block-uid': target, 'window-id': 'main-window' } }); } catch (e) { }
+						var node = null; try { node = D.querySelector('textarea.rm-block-input[id*="' + target + '"]') || D.querySelector('textarea.rm-block-input'); } catch (e) { }
 						if (node) { try { node.focus({ preventScroll: true }); } catch (e) { } }
 					}
 					if (n >= 12) clearInterval(iv);   // ~720ms
 				}, 60);
 			}
 
-			// DOM-gated, no-navigation handoff. Confirm on document.activeElement (the board's key fix),
-			// keep the keyboard alive throughout, and only remove the overlay once Roam's real editor holds
-			// focus. Fall back to the proven openPage path if it can't be confirmed.
+			// DOM-gated, no-navigation handoff. Confirm on document.activeElement (the board's key fix); the
+			// baton guard keeps the keyboard alive (reclaims any body-drop in the same run-loop turn); remove
+			// the overlay only once Roam's real editor holds focus. Fall back to the proven openPage path —
+			// gated the same DOM way — if it can't be confirmed.
 			function hydrate(a) {
 				if (CAP.hydrated || CAP.dismissed) return; CAP.hydrated = true;
 				(async function () {
 					try {
 						var t = await ensureTarget(a); var target = t.target;
-						CAP.handingOff = true;        // from here the loop owns focus; baton guard steps aside
 						var lastReq = 0, confirmed = 0, ok = false;
 						for (var i = 0; i < 50 && !CAP.dismissed; i++) {
-							syncBlock(a, target);
 							var ae = D.activeElement;
+							if (ae === ta) syncBlock(a, target);     // only mirror while OUR field still owns focus (don't clobber what's typed into Roam)
 							var f = null; try { f = a.ui.getFocusedBlock(); } catch (e) { }
 							var domOk = roamEditable(ae), apiOk = !!(f && f['block-uid'] === target);
 							if (domOk && apiOk) { if (++confirmed >= 2) { ok = true; break; } }
 							else {
 								confirmed = 0;
-								if (ae && ae.id === 'IR_input') { if (Date.now() - lastReq > 250) { try { a.ui.setBlockFocusAndSelection({ location: { 'block-uid': target, 'window-id': 'main-window' }, selection: { start: written.length } }); } catch (e) { } lastReq = Date.now(); log('request focus'); } }
-								else if (!domOk) { focusTA(); log('recover keyboard (focus fell to body)'); }   // keep keyboard, retry next tick
+								if (!domOk && ae !== ta) { focusTA(); log('recover keyboard (focus fell to body)'); }      // body/non-editable → reclaim, keep keyboard
+								else if (Date.now() - lastReq > 250) { try { a.ui.setBlockFocusAndSelection({ location: { 'block-uid': target, 'window-id': 'main-window' }, selection: { start: written.length } }); } catch (e) { } lastReq = Date.now(); log('request focus'); }   // IR_input OR wrong editable → steer to target
 							}
 							await sleep(60);
 						}
-						if (ok) { log('HANDOFF OK (no-nav)'); syncBlock(a, target); clearBuf(); fadeRemove(); watchdog(a, target); return; }
-						// FALLBACK: proven openPage path so the keyboard is never left broken.
+						if (ok) { log('HANDOFF OK (no-nav)'); confirmWritten(a, target); fadeRemove(); watchdog(a, target); return; }
+						if (CAP.dismissed) { log('dismissed mid-handoff — keep buffer, no nav'); return; }   // ✕/Esc: don't fall through to navigate/force-focus/clear
+						// FALLBACK: proven openPage path, but gate overlay removal on DOM focus (no fixed timer).
 						log('handoff fallback → openPage');
 						try { await a.ui.mainWindow.openPage({ page: { uid: t.dnp } }); } catch (e) { }
 						await sleep(60); syncBlock(a, target);
 						focusBlock(a, target, written.length, 6);
-						await sleep(120); clearBuf(); fadeRemove(); watchdog(a, target);
-					} catch (e) { try { clearBuf(); } catch (_) { } fadeRemove(); }
+						await pollEditable(6);   // hold overlay (keeping IR_input focused) until Roam's editable holds focus, or ~1.5s
+						confirmWritten(a, target); fadeRemove(); watchdog(a, target);
+					} catch (e) { log('hydrate error — keeping buffer'); fadeRemove(); }
 				})();
 			}
 
