@@ -1,72 +1,77 @@
 /*
- * Viktor's Roam Mobile Command Bar — a contextual, openable/closable command toolbar for mobile.
- * version: 0.1  (2026-06-12)
+ * Viktor's Roam Mobile Command Bar — THE mobile toolbar (replaces Roam's native gray bar).
+ * version: 0.2  (2026-06-12)
  * author: @ViktorTabori
  *
- * WHY: On desktop, Esc selects the current block (line), Shift+Up/Down grows the selection block by
- * block, and you act on it (undo/redo, indent in/out, move up/down). On mobile there is no Esc and,
- * once nothing is in a text input, the above-keyboard bar vanishes — so block/line-selection and its
- * actions are unreachable. This module brings them to mobile as ONE surface with three chrome forms:
+ * v0.2 = first-principles rewrite after live root-causing (see docs/cmdbar-v2-design.md):
+ *   1. DEAD BUTTONS root cause: real taps bubbled to Roam's document-level press handlers which
+ *      CLEAR multiselect / unfocus the editor before our click handler ran. Fix: a window-capture
+ *      EVENT SHIELD around our chrome + we act on our own pointer gestures + `dont-unfocus-block`
+ *      class (Roam's official "don't unfocus" passport, found in their source).
+ *   2. GRAY BAR GAP root cause: Roam's live CSS has `bottom:46px` on #rm-mobile-bar and their
+ *      visualViewport transform adds the keyboard on top → permanent ~46px gap. We HIDE their bar
+ *      (display:none keeps its buttons clickable for proxying) and pin our own flush via
+ *      visualViewport (overlap = innerHeight − vv.height − vv.offsetTop; ≤30px ⇒ closed, which
+ *      also absorbs the iOS 26 residue bug).
+ *   3. KNOB DRAG dead on device (suspected): Roam's global hotkey engine reads e.keyCode; the
+ *      KeyboardEvent CONSTRUCTOR dict may drop keyCode on some WebKit builds → harden every
+ *      synthetic key with Object.defineProperty(keyCode/which).
+ *   4. `/`, `[[`, `((` are NOT key dispatches in Roam (direct React value splices) → PROXY-CLICK
+ *      Roam's hidden native buttons; synthetic-key or insertText fallbacks where possible.
+ *   5. Native-bar CONTRACT CHECK: we verify Roam's footer + every proxied button on start and on
+ *      entering EDITING; drift ⇒ auto-fallback + console.warn + HUD badge (+ _state().contract).
  *
- *   FAB   (closed)  — a small round toggle bottom-right, like the iOS keyboard show/hide control.
- *   BAR   (open)    — a full-bleed frosted bottom bar whose buttons are CONTEXTUAL.
- *   PILL  (editing) — a "Select line" pill above the keyboard (Roam's own bar already has undo/indent/
- *                     move while editing; the one thing it lacks is entry into block-select — the pill).
+ * ONE bar, three forms (board-reviewed: Opus/Gemini/Codex 2026-06-12):
+ *   IDLE      — FAB (or, toggled open, slim [undo][redo?]──[×] bar).
+ *   EDITING   — block textarea focused:  [Select] │ [⇤][⇥][↑][↓][↶][↷*] │ [[[ ] [/]
+ *               (no dismiss button — the OS accessory ✓ already does that; ↷ appears only when
+ *               redo is available; todo/media/(( cut — they live behind / and [[).
+ *   SELECTING — ≥1 block selected (keyboard down by nature): [+↑][+↓] │ [⇤][⇥][↑][↓][↶] │ [⌫] ─ [Done]
+ *               + ONE live knob at the selection's focus edge (anchor gets a cosmetic tick),
+ *               count chip rides the knob, extends auto-repeat on hold, knob drag = closed-loop
+ *               elementFromPoint → one Shift+Arrow per crossed block, edge auto-scroll.
+ *   Shared middle [⇤][⇥][↑][↓][↶] never moves between forms (shared-element morph; buttons are
+ *   built ONCE and toggled via CSS — nothing is ever rebuilt under a finger).
  *
- * CONTEXTS (single source of truth = roamAlphaAPI.ui.multiselect.getSelected() + document.activeElement):
- *   IDLE      nothing focused, no selection → FAB (or, if toggled open, BAR with just Undo/Redo).
- *   EDITING   a block textarea focused, keyboard up → PILL ("Select line").
- *   SELECTING ≥1 block selected, keyboard down → BAR with the full action set + drag handles.
+ * Engine: synthetic keydowns (keyCode-hardened) on window for Roam's global hotkey engine
+ * (Escape enter/clear select, Shift+Arrow extend, Tab indent, Meta+Shift+Arrow move, Backspace
+ * delete, Meta+Z undo) + proxy-clicks into the hidden native bar for editing ops. Single source
+ * of truth = roamAlphaAPI.ui.multiselect.getSelected() + document.activeElement (closed loop:
+ * re-read after every emit; never blind-fire).
  *
- * ENGINE (all proven live + corroborated against Roam's own compiled source — Roam's native mobile
- * bar drives indent/move by SIMULATING these very keydowns):
- *   enter select  = synthetic Escape keydown on the focused textarea (retry-until-selected; Escape
- *                   sometimes no-ops when fired with text selected — a ≤4× retry converges).
- *   extend/shrink = Shift+ArrowUp / Shift+ArrowDown on <body>  (single fixed ANCHOR = the escaped
- *                   block, one moving FOCUS; focus can cross the anchor to grow upward).
- *   undo / redo   = Meta+Z / Meta+Shift+Z              (Meta required; Ctrl does NOT work on Mac/iOS).
- *   indent/outdent= Tab / Shift+Tab.
- *   move up/down  = Meta+Shift+ArrowUp / Meta+Shift+ArrowDown (keeps the selection).
- *   getSelected() is READ-ONLY — we never set selection directly; we walk it with the keys above.
- *
- * Two entry modes into SELECTING (the user wanted both, to compare): (A) the PILL button, and
- * (B) AUTO-PROMOTE — selecting all of a block's text by touch promotes it to block-select; then the
- * draggable handle extends it. Auto-promote is conservative + cancelable + flag-gated (localStorage
- * VBS_autopromote, default on). Force the UI on for desktop CDP testing: localStorage VBS_force='1'.
- *
- * Mobile gate mirrors Roam's own: touch device (navigator.maxTouchPoints || 'ontouchstart') AND not
- * the Flutter native app (window.FlutterCurrentGraphChannel === undefined).
- *
- * Loader: registered as `cmdbar` in alphaChannel → global ViktorCmdbar with .start()/.stop().
+ * Debug: localStorage.VBS_debug='1' → on-screen HUD + ViktorCmdbar._log(). Desktop testing:
+ * localStorage.VBS_force='1'. Kill: ViktorCmdbar.stop(). Loader: `cmdbar` in alphaChannel.
  */
 if (window.ViktorCmdbar && window.ViktorCmdbar.stop) window.ViktorCmdbar.stop();
 window.ViktorCmdbar = (function () {
-	var doLog = false;
 	var BLUE = 'rgb(47,155,249)';
 	var STYLE_ID = 'vt-cmdbar-style';
 	var ROOT_ID = 'vt-cmd-root';
-
+	var KB_CURVE = 'cubic-bezier(0.17,0.59,0.4,0.77)'; // ≈ iOS keyboard
 	var added = false;
-	var root = null, fab = null, bar = null, pill = null, hLayer = null, knob = null, anchorLine = null, nub = null, dragMask = null;
+	var root = null, dock = null, bar = null, fab = null, hLayer = null, knob = null, tick = null, chip = null, hud = null;
+	var btns = {};                    // id -> button element
 	var mo = null, healTimer = null, ac = null, rafPos = 0, rafSync = 0;
-	var open = false;                 // IDLE open/closed preference
-	var state = 'OFF';
-	var redoAvail = false;            // shadow flag: Undo pressed → redo becomes available (Roam's own heuristic)
-	var lastBarKey = '';              // cache: rebuild bar only when (ctx, redoAvail, open) change
-	// auto-promote state
-	var apTimer = null, apArmed = false, apLastFull = false, apSawTouch = 0, apCooldown = 0, apGuardUid = null;
-	// drag state
-	var drag = null;
+	var open = false, ctx = 'OFF', redoAvail = false;
+	var kbAnimUntil = 0;              // while now()<this, dock transitions (focus/blur moments only)
+	var gesture = null, drag = null;  // shield gesture state
+	var contract = { ok: true, missing: [] };
+	var logRing = [];
+	var lastSelN = 0;
 
-	// ---------- detection ----------
+	// ---------- utils ----------
+	function now() { return Date.now(); }
 	function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 	function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { } }
 	function isFlutter() { return typeof window.FlutterCurrentGraphChannel !== 'undefined'; }
 	function isTouch() { return !!(navigator.maxTouchPoints > 0 || ('ontouchstart' in window)); }
 	function enabled() { return (isTouch() && !isFlutter()) || lsGet('VBS_force') === '1'; }
-	function autoPromoteOn() { return lsGet('VBS_autopromote') !== '0'; }
-
-	// ---------- roam api / engine ----------
+	function debugOn() { return lsGet('VBS_debug') === '1'; }
+	function log(m) {
+		logRing.push(now() % 100000 + ' ' + m);
+		if (logRing.length > 60) logRing.shift();
+		if (debugOn()) { try { console.log('[cmdbar]', m); } catch (e) { } hudPaint(); }
+	}
 	function api() { return window.roamAlphaAPI; }
 	function getSel() { try { return api().ui.multiselect.getSelected() || []; } catch (e) { return []; } }
 	function selUids() { return getSel().map(function (x) { return x['block-uid']; }); }
@@ -75,40 +80,161 @@ window.ViktorCmdbar = (function () {
 		var el = document.querySelector('[id$="-' + uid + '"]');
 		return el ? el.closest('.roam-block-container') : null;
 	}
-	// All currently-rendered block containers in DOM (== visual) order.
 	function allBlocks() { return Array.prototype.slice.call(document.querySelectorAll('.roam-block-container')); }
+	function scroller() { return document.querySelector('.rm-article-wrapper') || document.scrollingElement; }
 
+	// ---------- synthetic key engine (keyCode-hardened) ----------
 	var K = {
-		esc: { key: 'Escape', code: 'Escape', keyCode: 27, which: 27 },
-		extendUp: { key: 'ArrowUp', code: 'ArrowUp', keyCode: 38, which: 38, shiftKey: true },
-		extendDown: { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40, which: 40, shiftKey: true },
-		undo: { key: 'z', code: 'KeyZ', keyCode: 90, which: 90, metaKey: true },
-		redo: { key: 'z', code: 'KeyZ', keyCode: 90, which: 90, metaKey: true, shiftKey: true },
-		outdent: { key: 'Tab', code: 'Tab', keyCode: 9, which: 9, shiftKey: true },
-		indent: { key: 'Tab', code: 'Tab', keyCode: 9, which: 9 },
-		moveUp: { key: 'ArrowUp', code: 'ArrowUp', keyCode: 38, which: 38, metaKey: true, shiftKey: true },
-		moveDown: { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40, which: 40, metaKey: true, shiftKey: true }
+		esc: { key: 'Escape', code: 'Escape', kc: 27 },
+		extendUp: { key: 'ArrowUp', code: 'ArrowUp', kc: 38, shiftKey: true },
+		extendDown: { key: 'ArrowDown', code: 'ArrowDown', kc: 40, shiftKey: true },
+		undo: { key: 'z', code: 'KeyZ', kc: 90, metaKey: true },
+		redo: { key: 'z', code: 'KeyZ', kc: 90, metaKey: true, shiftKey: true },
+		outdent: { key: 'Tab', code: 'Tab', kc: 9, shiftKey: true },
+		indent: { key: 'Tab', code: 'Tab', kc: 9 },
+		moveUp: { key: 'ArrowUp', code: 'ArrowUp', kc: 38, metaKey: true, shiftKey: true },
+		moveDown: { key: 'ArrowDown', code: 'ArrowDown', kc: 40, metaKey: true, shiftKey: true },
+		del: { key: 'Backspace', code: 'Backspace', kc: 8 }
 	};
 	function fire(target, spec) {
-		(target || document.body).dispatchEvent(new KeyboardEvent('keydown',
-			Object.assign({ bubbles: true, cancelable: true, view: window }, spec)));
+		var init = { key: spec.key, code: spec.code, bubbles: true, cancelable: true, view: window,
+			shiftKey: !!spec.shiftKey, metaKey: !!spec.metaKey, altKey: !!spec.altKey, ctrlKey: !!spec.ctrlKey,
+			keyCode: spec.kc, which: spec.kc };
+		var ev = new KeyboardEvent('keydown', init);
+		// Roam's global hotkey engine reads e.keyCode; constructor dicts may drop it → force it.
+		try {
+			Object.defineProperty(ev, 'keyCode', { get: function () { return spec.kc; } });
+			Object.defineProperty(ev, 'which', { get: function () { return spec.kc; } });
+		} catch (e) { }
+		(target || window).dispatchEvent(ev);
 	}
 
-	// retry-until-selected Escape (the flaky-toggle-proof promotion)
+	// retry-until-selected Escape (Esc toggles; a ≤4× retry converges — proven live)
 	function promote(cb) {
 		var tries = 0;
 		(function attempt() {
-			fire(document.activeElement, K.esc);
+			fire(document.activeElement || window, K.esc);
 			setTimeout(function () {
-				if (getSel().length) { cb(true); return; }
-				if (++tries < 4) attempt(); else cb(false);
+				if (getSel().length) { log('promote ok'); cb(true); return; }
+				if (++tries < 4) attempt(); else { log('promote FAILED'); cb(false); }
 			}, 150);
 		})();
 	}
 
-	// ---------- icons (inline SVG, stroke=currentColor) ----------
+	// ---------- native-bar proxy layer + contract ----------
+	function nativeBar() { return document.getElementById('rm-mobile-bar'); }
+	function nativeBtn(matcher) {
+		var f = nativeBar(); if (!f) return null;
+		if (matcher.icon) { var i = f.querySelector(matcher.icon); return i ? i.closest('button') : null; }
+		if (matcher.text) {
+			return Array.prototype.find.call(f.querySelectorAll('button'), function (b) {
+				return (b.textContent || '').trim() === matcher.text;
+			}) || null;
+		}
+		return null;
+	}
+	function proxyClick(matcher) {
+		var b = nativeBtn(matcher); if (!b) return false;
+		// cover both onMouseDown- and onClick-bound handlers; untrusted events are fine for React
+		['mousedown', 'mouseup', 'click'].forEach(function (t) {
+			b.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window }));
+		});
+		return true;
+	}
+	var PROXY = {
+		undo: { icon: '.zmdi-undo' },
+		redo: { icon: '.zmdi-redo' },                        // exists only after their undo; fallback covers
+		outdent: { icon: '.zmdi-format-indent-decrease' },
+		indent: { icon: '.zmdi-format-indent-increase' },
+		moveUp: { icon: '.bp3-icon-arrow-up' },
+		moveDown: { icon: '.bp3-icon-arrow-down' },
+		wikilink: { text: '[[' },
+		slash: { text: '/' }
+	};
+	function checkContract() {
+		var f = nativeBar();
+		// footer mounts only while editing — absent+not-editing proves nothing
+		if (!f && !isBlockTextarea(document.activeElement)) { contract = { ok: true, missing: [], unverified: true, t: now() }; return true; }
+		var missing = [];
+		if (!f) missing.push('#rm-mobile-bar');
+		else {
+			for (var id in PROXY) { if (id !== 'redo' && !nativeBtn(PROXY[id])) missing.push(id); }
+		}
+		var ok = missing.length === 0;
+		if (!ok && (contract.ok || contract.missing.join() !== missing.join())) {
+			try { console.warn('[cmdbar] native-bar CONTRACT DRIFT — fallbacks engaged for:', missing.join(', ')); } catch (e) { }
+		}
+		contract = { ok: ok, missing: missing, t: now() };
+		if (bar) bar.toggleAttribute('data-drift', !ok);
+		return ok;
+	}
+	// typing-equivalent fallback for the splice buttons
+	function insertText(s) {
+		var ta = document.activeElement;
+		if (!isBlockTextarea(ta)) return false;
+		try { document.execCommand('insertText', false, s); return true; } catch (e) { return false; }
+	}
+
+	// ---------- actions ----------
+	// show: which forms display the button (E/S/I); rep: auto-repeat on hold
+	var ACTIONS = {
+		select: { show: 'E', run: function () { doSelect(); } },
+		extendUp: { show: 'S', rep: true, run: function () { fire(window, K.extendUp); } },
+		extendDown: { show: 'S', rep: true, run: function () { fire(window, K.extendDown); } },
+		outdent: { show: 'ES', run: function (c) { if (c === 'EDITING') { proxyClick(PROXY.outdent) || fire(document.activeElement, K.outdent); } else fire(window, K.outdent); } },
+		indent: { show: 'ES', run: function (c) { if (c === 'EDITING') { proxyClick(PROXY.indent) || fire(document.activeElement, K.indent); } else fire(window, K.indent); } },
+		moveUp: { show: 'ES', rep: true, run: function (c) { if (c === 'EDITING') { proxyClick(PROXY.moveUp) || fire(document.activeElement, K.moveUp); } else fire(window, K.moveUp); } },
+		moveDown: { show: 'ES', rep: true, run: function (c) { if (c === 'EDITING') { proxyClick(PROXY.moveDown) || fire(document.activeElement, K.moveDown); } else fire(window, K.moveDown); } },
+		undo: { show: 'ESI', run: function (c) { (c === 'EDITING' && proxyClick(PROXY.undo)) || fire(window, K.undo); redoAvail = true; paintRedo(); } },
+		redo: { show: 'EI', redoGated: true, run: function (c) { (c === 'EDITING' && proxyClick(PROXY.redo)) || fire(window, K.redo); } },
+		wikilink: { show: 'E', run: function () { proxyClick(PROXY.wikilink) || insertText('[['); } },
+		slash: { show: 'E', run: function () { proxyClick(PROXY.slash) || insertText('/'); } },
+		del: { show: 'S', run: function () { fire(window, K.del); } },
+		done: { show: 'S', run: function () { doDone(); } },
+		close: { show: 'I', run: function () { open = false; lsSet('VBS_cmdbar', '0'); applyCtx(true); } }
+	};
+	function doSelect() {
+		var ta = document.activeElement;
+		if (!isBlockTextarea(ta)) { shake(btns.select); return; }
+		checkContract();
+		promote(function (ok) {
+			if (ok) applyCtx(true); else shake(btns.select);
+		});
+	}
+	function doDone() {
+		// Esc with an active selection = full clear in Roam's engine (source-verified)
+		fire(window, K.esc);
+		setTimeout(function () {
+			if (getSel().length) fire(window, K.esc); // belt
+			setTimeout(function () { applyCtx(true); }, 80);
+		}, 80);
+	}
+	function act(id, viaRepeat) {
+		var a = ACTIONS[id]; if (!a) return;
+		var c = ctx;
+		log('act ' + id + (viaRepeat ? ' (rep)' : '') + ' ctx=' + c);
+		if (id !== 'undo' && id !== 'redo') { if (id !== 'select' && id !== 'close') redoAvail = false, paintRedo(); }
+		a.run(c);
+		// closed loop for selection ops
+		if (c === 'SELECTING' && id !== 'done') {
+			setTimeout(function () {
+				var n = getSel().length;
+				if (!n) {
+					if (id === 'indent' || id === 'outdent') { promote(function () { applyCtx(true); }); return; }
+					if (id === 'del') { applyCtx(true); return; }   // deletion legitimately empties
+					log('sel lost after ' + id + ' — exiting');
+					applyCtx(true); return;
+				}
+				if ((id === 'extendUp' || id === 'extendDown') && n === lastSelN && !viaRepeat) nudge(btns[id]);
+				lastSelN = n;
+				updateHandles();
+			}, 140);
+		}
+	}
+
+	// ---------- icons ----------
 	function svg(paths, w) {
-		return '<svg viewBox="0 0 24 24" width="' + (w || 23) + '" height="' + (w || 23) + '" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + paths + '</svg>';
+		return '<svg viewBox="0 0 24 24" width="' + (w || 22) + '" height="' + (w || 22) + '" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + paths + '</svg>';
 	}
 	var ICON = {
 		undo: svg('<path d="M4 11h11a5 5 0 0 1 0 10h-5"/><path d="M4 11l5-5"/><path d="M4 11l5 5"/>'),
@@ -121,7 +247,8 @@ window.ViktorCmdbar = (function () {
 		extendDown: svg('<path d="M6 12l6 5 6-5"/><path d="M6 7l6 5 6-5"/>'),
 		chevUp: svg('<path d="M5 15l7-7 7 7"/>', 20),
 		chevDown: svg('<path d="M5 9l7 7 7-7"/>', 20),
-		select: svg('<path d="M8 4H6a2 2 0 0 0-2 2v2"/><path d="M16 4h2a2 2 0 0 1 2 2v2"/><path d="M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M16 20h2a2 2 0 0 0 2-2v-2"/><path d="M9 12h6"/>', 19)
+		del: svg('<path d="M20 6H9l-5 6 5 6h11a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1z"/><path d="M12 9l5 5"/><path d="M17 9l-5 5"/>', 21),
+		select: svg('<path d="M8 4H6a2 2 0 0 0-2 2v2"/><path d="M16 4h2a2 2 0 0 1 2 2v2"/><path d="M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M16 20h2a2 2 0 0 0 2-2v-2"/><path d="M9 12h6"/>', 18)
 	};
 
 	// ---------- style ----------
@@ -130,454 +257,435 @@ window.ViktorCmdbar = (function () {
 		var css = document.createElement('style');
 		css.id = STYLE_ID;
 		css.textContent = [
-			'#' + ROOT_ID + '{position:fixed;inset:0;z-index:9990;pointer-events:none;',
-			'  --vt-kb:0px;--vt-nativebar:46px;',
-			'  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}',
-			'#' + ROOT_ID + ' *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}',
+			// replace the native bar (display:none keeps its buttons proxy-clickable)
+			'footer#rm-mobile-bar{display:none!important;}',
 
-			/* frosted material shared by BAR/FAB/PILL/NUB */
-			'.vt-frost{background:color-mix(in srgb, var(--bg-color,#182026) 80%, transparent);',
+			'#' + ROOT_ID + '{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}',
+			'#' + ROOT_ID + ' *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;}',
+
+			'.vt-frost{background:color-mix(in srgb, var(--bg-color,#182026) 82%, transparent);',
 			'  -webkit-backdrop-filter:saturate(1.6) blur(18px);backdrop-filter:saturate(1.6) blur(18px);}',
 			'@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){',
-			'  .vt-frost{background:color-mix(in srgb, var(--bg-color,#182026) 96%, #000);}}',
+			'  .vt-frost{background:color-mix(in srgb, var(--bg-color,#182026) 97%, #000);}}',
 
-			/* FAB */
-			'#vt-fab{position:absolute;right:12px;pointer-events:auto;',
-			'  bottom:calc(12px + env(safe-area-inset-bottom,0px) + var(--vt-kb));',
-			'  width:42px;height:42px;border-radius:21px;display:none;align-items:center;justify-content:center;',
-			'  color:var(--icon-color,#5c7080);border:1px solid color-mix(in srgb, var(--icon-color,#5c7080) 32%, transparent);',
-			'  box-shadow:0 2px 10px rgba(0,0,0,.35);transition:transform .16s cubic-bezier(.2,.9,.25,1.2),opacity .16s ease;}',
-			'#vt-fab:active{transform:scale(.9);}',
+			/* dock = the only transformed element (rides the keyboard) */
+			'#vt-dock{position:fixed;left:0;right:0;bottom:0;z-index:9990;pointer-events:none;will-change:transform;}',
+			'#vt-dock.vt-anim{transition:transform .25s ' + KB_CURVE + ';}',
 
 			/* BAR */
-			'#vt-bar{position:absolute;left:0;right:0;bottom:0;pointer-events:auto;display:none;align-items:center;',
-			'  height:calc(46px + env(safe-area-inset-bottom,0px));padding:0 max(8px,env(safe-area-inset-left,0)) env(safe-area-inset-bottom,0px) max(8px,env(safe-area-inset-right,0));',
-			'  border-top:1px solid color-mix(in srgb, var(--icon-color,#5c7080) 28%, transparent);',
-			'  box-shadow:0 -1px 14px rgba(0,0,0,.34);color:var(--icon-color,#5c7080);',
-			'  transition:transform .24s cubic-bezier(.32,.72,0,1),opacity .2s ease;will-change:transform;}',
-			'#vt-bar[data-anim="in"]{animation:vt-rise .26s cubic-bezier(.32,.72,0,1);}',
-			'@keyframes vt-rise{from{transform:translateY(110%);opacity:.4;}to{transform:translateY(0);opacity:1;}}',
+			'#vt-bar{pointer-events:auto;display:none;align-items:center;gap:1px;',
+			'  height:48px;padding:0 max(6px,env(safe-area-inset-left,0)) 0 max(6px,env(safe-area-inset-right,0));',
+			'  border-top:0.5px solid color-mix(in srgb, var(--icon-color,#5c7080) 30%, transparent);',
+			'  box-shadow:0 -1px 14px rgba(0,0,0,.30);color:var(--icon-color,#8a9ba8);}',
+			'#' + ROOT_ID + '[data-bar="1"] #vt-bar{display:flex;}',
+			'#vt-dock[data-kb="down"] #vt-bar{padding-bottom:env(safe-area-inset-bottom,0px);height:calc(48px + env(safe-area-inset-bottom,0px));}',
+			'#vt-bar[data-drift]::after{content:"";position:absolute;top:6px;right:6px;width:6px;height:6px;border-radius:3px;background:#f5a623;}',
 
-			'.vt-btn{flex:0 0 auto;width:40px;height:44px;margin:0;display:flex;align-items:center;justify-content:center;',
-			'  background:transparent;border:0;color:inherit;border-radius:10px;padding:0;cursor:pointer;',
-			'  transition:transform .2s cubic-bezier(.2,.9,.25,1.2),background .12s ease,color .12s ease;}',
-			'.vt-btn:active{transform:scale(.9);background:rgba(47,155,249,.18);}',
-			'.vt-btn[data-on="1"]{color:' + BLUE + ';}',
-			'.vt-pulse{animation:vt-pulse .26s ease-in-out;}',
-			'@keyframes vt-pulse{0%{transform:scale(1);}45%{transform:scale(.9);}70%{transform:scale(1.04);}100%{transform:scale(1);}}',
-			'.vt-nudge{animation:vt-nudge .2s ease;}',
-			'@keyframes vt-nudge{0%,100%{transform:translateX(0);}30%{transform:translateX(-4px);}60%{transform:translateX(4px);}}',
-			'.vt-div{flex:0 0 auto;width:1px;height:24px;margin:0 4px;background:color-mix(in srgb, var(--icon-color,#5c7080) 20%, transparent);}',
+			/* buttons: built once, morphed via max-width/opacity per form (no rebuilds) */
+			'.vt-b{flex:0 0 auto;height:44px;margin:0;display:flex;align-items:center;justify-content:center;',
+			'  background:transparent;border:0;color:inherit;border-radius:10px;padding:0;cursor:pointer;overflow:hidden;',
+			'  max-width:0;opacity:0;transform:scale(.62);',
+			'  transition:max-width .20s cubic-bezier(.32,.72,0,1),opacity .15s ease,transform .20s cubic-bezier(.32,.72,0,1),background .12s ease;}',
+			'.vt-b.vt-on{flex:0 1 auto;max-width:46px;width:42px;min-width:33px;opacity:1;transform:scale(1);}',
+			'.vt-b.vt-pressed{transform:scale(.88);background:rgba(47,155,249,.16);}',
+			'.vt-b:disabled{opacity:.35;}',
+			'.vt-div{flex:0 0 auto;width:1px;height:22px;margin:0 3px;background:color-mix(in srgb, var(--icon-color,#5c7080) 22%, transparent);',
+			'  max-width:0;opacity:0;transition:max-width .2s,opacity .15s,margin .2s;}',
+			'.vt-div.vt-on{max-width:1px;opacity:1;}',
 			'.vt-spacer{flex:1 1 auto;}',
-			'.vt-prim svg{filter:drop-shadow(0 1px 0 rgba(47,155,249,.0));}',
-			'.vt-prim{position:relative;}',
-			'.vt-prim::after{content:"";position:absolute;left:9px;right:9px;bottom:7px;height:1.5px;border-radius:1px;background:' + BLUE + ';opacity:.8;}',
-			'.vt-done{flex:0 0 auto;height:32px;margin-left:4px;padding:0 15px;border:0;border-radius:9px;',
-			'  background:' + BLUE + ';color:#fff;font:600 15px/32px -apple-system,sans-serif;cursor:pointer;}',
-			'.vt-done:active{transform:scale(.95);}',
+			'.vt-txt{font:600 16px/1 -apple-system,sans-serif;letter-spacing:.2px;}',
 
-			/* PILL + NUB */
-			'#vt-pill,#vt-nub{position:absolute;right:12px;pointer-events:auto;display:none;align-items:center;gap:6px;',
-			'  bottom:calc(var(--vt-kb) + var(--vt-nativebar) + 10px);height:36px;padding:0 15px;border-radius:18px;',
-			'  color:' + BLUE + ';font:600 14px/36px -apple-system,sans-serif;cursor:pointer;',
-			'  background:color-mix(in srgb, ' + BLUE + ' 14%, var(--bg-color,#182026));',
-			'  border:1px solid color-mix(in srgb, ' + BLUE + ' 34%, transparent);',
-			'  box-shadow:0 2px 8px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.14);',
-			'  transition:transform .16s cubic-bezier(.2,.9,.25,1.2),opacity .2s ease;}',
-			'#vt-pill:active{transform:scale(.94);background:color-mix(in srgb, ' + BLUE + ' 24%, var(--bg-color,#182026));}',
-			'#vt-pill.vt-shake{animation:vt-nudge .2s ease;}',
-			'#vt-nub .vt-x{margin-left:2px;width:22px;height:22px;border-radius:11px;display:inline-flex;align-items:center;justify-content:center;opacity:.7;}',
+			/* Select + Done pills */
+			'#vt-b-select.vt-on{max-width:96px;width:auto;padding:0 12px;gap:5px;color:' + BLUE + ';}',
+			'#vt-b-select span{font:600 14px/1 -apple-system,sans-serif;}',
+			'#vt-b-done{background:' + BLUE + ';color:#fff;height:34px;border-radius:9px;}',
+			'#vt-b-done.vt-on{max-width:84px;width:auto;padding:0 16px;}',
+			'#vt-b-done span{font:600 15px/1 -apple-system,sans-serif;}',
+			'#vt-b-done.vt-pressed{transform:scale(.94);background:' + BLUE + ';}',
 
-			/* HANDLES */
-			'#vt-handles{position:absolute;inset:0;pointer-events:none;display:none;}',
-			'.vt-knob{position:absolute;pointer-events:auto;touch-action:none;}',
-			'.vt-knob .vt-stem{position:absolute;width:2px;border-radius:1px;background:' + BLUE + ';left:50%;transform:translateX(-50%);}',
-			'.vt-knob .vt-dot{position:absolute;width:13px;height:13px;border-radius:50%;background:' + BLUE + ';left:50%;transform:translateX(-50%);',
-			'  box-shadow:0 1px 3px rgba(0,0,0,.4),0 0 0 1px var(--bg-color,#182026);transition:transform .12s ease;}',
-			'.vt-knob .vt-hit{position:absolute;width:44px;height:44px;left:50%;top:50%;transform:translate(-50%,-50%);}',
-			'.vt-knob[data-grab="1"] .vt-dot{transform:translateX(-50%) scale(1.25);box-shadow:0 1px 3px rgba(0,0,0,.4),0 0 0 8px rgba(47,155,249,.18),0 0 0 9px var(--bg-color,#182026);}',
-			'#vt-anchorline{position:absolute;width:2px;border-radius:1px;background:' + BLUE + ';opacity:.55;pointer-events:none;display:none;}',
-			'#vt-dragmask{position:fixed;inset:0;z-index:9989;display:none;}',
+			'.vt-nudge{animation:vt-nudge .2s ease;}',
+			'@keyframes vt-nudge{0%,100%{transform:translateX(0) scale(1);}30%{transform:translateX(-4px) scale(1);}60%{transform:translateX(4px) scale(1);}}',
+			'.vt-shake{animation:vt-nudge .2s ease;}',
 
-			'body.vt-bar-open .roam-body-main{padding-bottom:60px;}'
+			/* FAB */
+			'#vt-fab{position:absolute;right:12px;bottom:calc(12px + env(safe-area-inset-bottom,0px));pointer-events:auto;',
+			'  width:42px;height:42px;border-radius:21px;display:none;align-items:center;justify-content:center;',
+			'  color:var(--icon-color,#5c7080);border:0.5px solid color-mix(in srgb, var(--icon-color,#5c7080) 32%, transparent);',
+			'  box-shadow:0 2px 10px rgba(0,0,0,.35);transition:transform .16s cubic-bezier(.2,.9,.25,1.2);}',
+			'#' + ROOT_ID + '[data-fab="1"] #vt-fab{display:flex;}',
+			'#vt-fab.vt-pressed{transform:scale(.88);}',
+
+			/* HANDLES (separate fixed layer — never transformed) */
+			'#vt-handles{position:fixed;inset:0;z-index:9991;pointer-events:none;display:none;}',
+			'#' + ROOT_ID + '[data-handles="1"] #vt-handles{display:block;}',
+			'.vt-knob{position:absolute;pointer-events:auto;touch-action:none;width:44px;height:44px;margin:-22px 0 0 -22px;}',
+			'.vt-knob::before{content:"";position:absolute;left:50%;top:50%;width:15px;height:15px;border-radius:50%;background:' + BLUE + ';',
+			'  transform:translate(-50%,-50%);box-shadow:0 1px 4px rgba(0,0,0,.45),0 0 0 1.5px var(--bg-color,#182026);transition:transform .12s ease;}',
+			'.vt-knob[data-grab]::before{transform:translate(-50%,-50%) scale(1.3);box-shadow:0 1px 4px rgba(0,0,0,.45),0 0 0 8px rgba(47,155,249,.16),0 0 0 9.5px var(--bg-color,#182026);}',
+			'.vt-knob:not([data-grab]){transition:left .14s ease,top .14s ease;}', // the crossing animation
+			'#vt-tick{position:absolute;width:3px;border-radius:1.5px;background:' + BLUE + ';opacity:.6;pointer-events:none;transition:left .14s ease,top .14s ease,height .14s ease;}',
+			'#vt-chip{position:absolute;pointer-events:none;min-width:22px;height:22px;padding:0 6px;border-radius:11px;',
+			'  background:' + BLUE + ';color:#fff;font:700 12px/22px -apple-system,sans-serif;text-align:center;',
+			'  box-shadow:0 1px 4px rgba(0,0,0,.4);transition:left .14s ease,top .14s ease;}',
+
+			/* HUD */
+			'#vt-hud{position:fixed;left:8px;top:8px;z-index:9999;pointer-events:none;display:none;max-width:70vw;',
+			'  background:rgba(0,0,0,.72);color:#9fe3a1;font:10px/1.45 ui-monospace,Menlo,monospace;padding:6px 8px;border-radius:8px;white-space:pre-wrap;}',
+			'#' + ROOT_ID + '[data-debug="1"] #vt-hud{display:block;}',
+
+			/* page accommodation + overlay suppression */
+			'body.vt-bar-open .roam-body-main{padding-bottom:64px;}',
+			'body.bp3-overlay-open #vt-dock,body.bp3-overlay-open #vt-handles{display:none!important;}'
 		].join('\n');
 		document.head.appendChild(css);
 	}
 
-	// ---------- DOM build ----------
+	// ---------- DOM ----------
 	function el(tag, id, cls) { var e = document.createElement(tag); if (id) e.id = id; if (cls) e.className = cls; return e; }
+	function mkBtn(id, html, label, rep) {
+		var b = el('button', 'vt-b-' + id, 'vt-b');
+		b.innerHTML = html; b.setAttribute('aria-label', label); b.tabIndex = -1;
+		b.dataset.act = id; if (rep) b.dataset.rep = '1';
+		btns[id] = b; return b;
+	}
 	function build() {
-		root = el('div', ROOT_ID);
-		fab = el('button', 'vt-fab', 'vt-frost'); fab.innerHTML = ICON.chevUp; fab.setAttribute('aria-label', 'Commands');
+		root = el('div', ROOT_ID, 'dont-unfocus-block');   // Roam's official "don't unfocus the editor" passport
+		dock = el('div', 'vt-dock', 'dont-unfocus-block');
+		dock.dataset.kb = 'down';
 		bar = el('div', 'vt-bar', 'vt-frost');
-		pill = el('button', 'vt-pill'); pill.innerHTML = ICON.select + '<span>Select line</span>';
-		nub = el('div', 'vt-nub', 'vt-frost'); nub.innerHTML = '<span>Select line</span><span class="vt-x">✕</span>';
-		hLayer = el('div', 'vt-handles');
-		anchorLine = el('div', 'vt-anchorline');
+		// DOM order = shared-element order; visibility toggled per form, never rebuilt
+		bar.appendChild(mkBtn('select', ICON.select + '<span>Select</span>', 'Select line'));
+		bar.appendChild(mkBtn('extendUp', ICON.extendUp, 'Extend up', true));
+		bar.appendChild(mkBtn('extendDown', ICON.extendDown, 'Extend down', true));
+		var d1 = el('div', 'vt-d1', 'vt-div'); bar.appendChild(d1);
+		bar.appendChild(mkBtn('outdent', ICON.outdent, 'Outdent'));
+		bar.appendChild(mkBtn('indent', ICON.indent, 'Indent'));
+		bar.appendChild(mkBtn('moveUp', ICON.moveUp, 'Move up', true));
+		bar.appendChild(mkBtn('moveDown', ICON.moveDown, 'Move down', true));
+		bar.appendChild(mkBtn('undo', ICON.undo, 'Undo'));
+		bar.appendChild(mkBtn('redo', ICON.redo, 'Redo'));
+		var d2 = el('div', 'vt-d2', 'vt-div'); bar.appendChild(d2);
+		bar.appendChild(mkBtn('wikilink', '<span class="vt-txt">[[</span>', 'Page link'));
+		bar.appendChild(mkBtn('slash', '<span class="vt-txt">/</span>', 'Command'));
+		bar.appendChild(mkBtn('del', ICON.del, 'Delete blocks'));
+		bar.appendChild(el('div', null, 'vt-spacer'));
+		bar.appendChild(mkBtn('done', '<span>Done</span>', 'Done'));
+		bar.appendChild(mkBtn('close', ICON.chevDown, 'Close bar'));
+		fab = el('button', 'vt-fab', 'vt-frost'); fab.innerHTML = ICON.chevUp; fab.tabIndex = -1; fab.setAttribute('aria-label', 'Commands');
+		dock.appendChild(bar); dock.appendChild(fab);
+
+		hLayer = el('div', 'vt-handles', 'dont-unfocus-block');
 		knob = el('div', null, 'vt-knob');
-		knob.innerHTML = '<div class="vt-stem"></div><div class="vt-dot"></div><div class="vt-hit"></div>';
-		hLayer.appendChild(anchorLine); hLayer.appendChild(knob);
-		dragMask = el('div', 'vt-dragmask');
-		root.appendChild(fab); root.appendChild(bar); root.appendChild(pill); root.appendChild(nub); root.appendChild(hLayer);
-		document.body.appendChild(root); document.body.appendChild(dragMask);
+		tick = el('div', 'vt-tick');
+		chip = el('div', 'vt-chip');
+		hLayer.appendChild(tick); hLayer.appendChild(knob); hLayer.appendChild(chip);
 
-		fab.addEventListener('click', function () { open = true; lsSet('VBS_cmdbar', '1'); applyState(true); });
-		// pill: don't steal textarea focus before we read selection
-		function pillTap(e) { e.preventDefault(); doSelectLine(); }
-		pill.addEventListener('mousedown', pillTap);
-		pill.addEventListener('touchstart', pillTap, { passive: false });
-		nub.addEventListener('mousedown', function (e) { e.preventDefault(); cancelAutoPromote(); });
-		nub.addEventListener('touchstart', function (e) { e.preventDefault(); cancelAutoPromote(); }, { passive: false });
-		knob.addEventListener('touchstart', onKnobDown, { passive: false, capture: true });
-		knob.addEventListener('mousedown', onKnobDown, { passive: false, capture: true }); // desktop CDP drag test
+		hud = el('div', 'vt-hud');
+
+		root.appendChild(dock); root.appendChild(hLayer); root.appendChild(hud);
+		document.body.appendChild(root);
+		root.dataset.debug = debugOn() ? '1' : '0';
 	}
 
-	// ---------- bar content per context ----------
-	function mkBtn(icon, label, key, opts) {
-		var b = el('button', null, 'vt-btn' + (opts && opts.prim ? ' vt-prim' : ''));
-		b.innerHTML = icon; b.setAttribute('aria-label', label); b.dataset.key = key;
-		b.addEventListener('click', function () { onAction(key, b); });
-		return b;
+	// which buttons show in which form
+	var FORM = {
+		IDLE: ['undo', 'redo*', 'close'],
+		EDITING: ['select', 'd1', 'outdent', 'indent', 'moveUp', 'moveDown', 'undo', 'redo*', 'd2', 'wikilink', 'slash'],
+		SELECTING: ['extendUp', 'extendDown', 'd1', 'outdent', 'indent', 'moveUp', 'moveDown', 'undo', 'd2', 'del', 'done']
+	};
+	function paintForm() {
+		var list = FORM[ctx] || [];
+		var on = {};
+		list.forEach(function (id) {
+			if (id === 'redo*') { if (redoAvail) on.redo = 1; }
+			else on[id] = 1;
+		});
+		for (var id in btns) btns[id].classList.toggle('vt-on', !!on[id]);
+		document.getElementById('vt-d1').classList.toggle('vt-on', !!on.d1);
+		document.getElementById('vt-d2').classList.toggle('vt-on', !!on.d2);
 	}
-	function mkDiv() { return el('div', null, 'vt-div'); }
-	function mkSpacer() { return el('div', null, 'vt-spacer'); }
+	function paintRedo() { if (ctx !== 'OFF') paintForm(); }
+	function shake(b) { if (!b) return; b.classList.remove('vt-shake'); void b.offsetWidth; b.classList.add('vt-shake'); }
+	function nudge(b) { if (!b) return; b.classList.remove('vt-nudge'); void b.offsetWidth; b.classList.add('vt-nudge'); }
 
-	function buildBar(ctx) {
-		var keyCache = ctx + '|' + (redoAvail ? 'r' : '') + '|' + (open ? 'o' : '');
-		if (keyCache === lastBarKey) return;
-		lastBarKey = keyCache;
-		bar.innerHTML = '';
-		if (ctx === 'IDLE') {
-			bar.appendChild(mkBtn(ICON.undo, 'Undo', 'undo'));
-			if (redoAvail) bar.appendChild(mkBtn(ICON.redo, 'Redo', 'redo'));
-			bar.appendChild(mkSpacer());
-			var close = mkBtn(ICON.chevDown, 'Close', '__close');
-			bar.appendChild(close);
-		} else { // SELECTING
-			bar.appendChild(mkBtn(ICON.extendUp, 'Extend up', 'extendUp', { prim: true }));
-			bar.appendChild(mkBtn(ICON.extendDown, 'Extend down', 'extendDown', { prim: true }));
-			bar.appendChild(mkDiv());
-			bar.appendChild(mkBtn(ICON.undo, 'Undo', 'undo'));
-			if (redoAvail) bar.appendChild(mkBtn(ICON.redo, 'Redo', 'redo'));
-			bar.appendChild(mkDiv());
-			bar.appendChild(mkBtn(ICON.outdent, 'Outdent', 'outdent'));
-			bar.appendChild(mkBtn(ICON.indent, 'Indent', 'indent'));
-			bar.appendChild(mkBtn(ICON.moveUp, 'Move up', 'moveUp'));
-			bar.appendChild(mkBtn(ICON.moveDown, 'Move down', 'moveDown'));
-			bar.appendChild(mkSpacer());
-			var done = el('button', null, 'vt-done'); done.textContent = 'Done';
-			done.addEventListener('click', function () { onAction('__done', done); });
-			bar.appendChild(done);
+	// ---------- positioning (visualViewport keyboard oracle) ----------
+	function overlap() {
+		var vv = window.visualViewport;
+		if (!vv) return 0;
+		var o = Math.round(window.innerHeight - vv.height - vv.offsetTop);
+		return o <= 30 ? 0 : o;   // ≤30 ⇒ closed (also absorbs the iOS 26 residue bug)
+	}
+	function orientKey() { return window.innerHeight >= window.innerWidth ? 'p' : 'l'; }
+	function place() {
+		if (!dock) return;
+		var o = overlap();
+		dock.classList.toggle('vt-anim', now() < kbAnimUntil);
+		dock.style.transform = o ? 'translateY(' + (-o) + 'px)' : '';
+		dock.dataset.kb = o ? 'up' : 'down';
+		if (o > 60) lsSet('VBS_kb_' + orientKey(), String(o));
+		if (ctx === 'SELECTING') updateHandles();
+	}
+	function schedulePos() { if (rafPos) return; rafPos = requestAnimationFrame(function () { rafPos = 0; place(); }); }
+	function preRide() {
+		// keyboard is coming (focusin) — ride with it using the cached height; settle on real resize
+		var cached = parseInt(lsGet('VBS_kb_' + orientKey()) || '0', 10);
+		kbAnimUntil = now() + 450;
+		if (cached > 60 && overlap() <= 30) {
+			dock.classList.add('vt-anim');
+			dock.style.transform = 'translateY(' + (-cached) + 'px)';
+			dock.dataset.kb = 'up';
 		}
 	}
 
-	// ---------- actions ----------
-	function pulse(b) { if (!b) return; b.classList.remove('vt-pulse'); void b.offsetWidth; b.classList.add('vt-pulse'); }
-	function nudge(b) { if (!b) return; b.classList.remove('vt-nudge'); void b.offsetWidth; b.classList.add('vt-nudge'); }
-
-	function onAction(key, btn) {
-		if (key === '__close') { open = false; lsSet('VBS_cmdbar', '0'); applyState(true); return; }
-		if (key === '__done') { exitSelect(); return; }
-		if (key === 'undo') { fire(document.body, K.undo); redoAvail = true; pulse(btn); afterAction(); return; }
-		if (key === 'redo') { fire(document.body, K.redo); pulse(btn); afterAction(); return; }
-
-		// SELECTING-only structural/extend actions — require body focus + a live selection
-		if (state !== 'SELECTING') { return; }
-		if (document.activeElement && document.activeElement.tagName === 'TEXTAREA') { try { document.activeElement.blur(); } catch (e) { } }
-		if (!getSel().length) { exitSelect(); return; }
-
-		var before = selUids().length;
-		fire(document.body, K[key]);
-		redoAvail = redoAvail && (key === 'undo'); // any mutating action clears the redo branch
-		if (key === 'indent' || key === 'outdent' || key === 'moveUp' || key === 'moveDown') redoAvail = false;
-		pulse(btn);
-		setTimeout(function () {
-			var after = getSel();
-			if (!after.length) { // indent on a single block can drop back to edit — re-promote to stay in select
-				if (key === 'indent' || key === 'outdent') { promote(function () { afterAction(); }); return; }
-				exitSelect(); return;
-			}
-			if ((key === 'extendUp' || key === 'extendDown') && after.length === before) nudge(btn); // hit doc edge
-			afterAction();
-		}, 140);
-	}
-	function afterAction() { lastBarKey = ''; buildBar(state); updateHandles(); }
-
-	function doSelectLine() {
-		var ta = document.activeElement;
-		if (!isBlockTextarea(ta)) return;
-		promote(function (ok) {
-			if (ok) { applyState(true); }
-			else { pill.classList.remove('vt-shake'); void pill.offsetWidth; pill.classList.add('vt-shake'); }
-		});
-	}
-	function exitSelect() {
-		fire(document.body, K.esc);
-		setTimeout(function () {
-			if (getSel().length) { try { var b = document.querySelector('.roam-article'); if (b) b.click(); } catch (e) { } }
-			applyState(true);
-		}, 60);
-	}
-
-	// ---------- positioning (visualViewport keyboard oracle) ----------
-	function kbHeight() {
-		var vv = window.visualViewport;
-		if (!vv) return 0;
-		return Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
-	}
-	function kbUp() { return kbHeight() > 60; }
-	function reposition() {
-		if (!root) return;
-		root.style.setProperty('--vt-kb', kbHeight() + 'px');
-		// keep BAR above a still-animating keyboard
-		var kb = kbHeight();
-		bar.style.transform = kb > 0 && state !== 'SELECTING' ? 'translateY(-' + kb + 'px)' : '';
-		if (state === 'SELECTING') updateHandles();
-	}
-	function schedulePos() { if (rafPos) return; rafPos = requestAnimationFrame(function () { rafPos = 0; reposition(); }); }
-
 	// ---------- handles ----------
-	function hideHandles() { if (hLayer) hLayer.style.display = 'none'; }
-	function lineHeightOf(node) {
-		var t = node && node.querySelector('.rm-block-text');
-		if (!t) return 24;
-		var lh = parseFloat(getComputedStyle(t).lineHeight);
-		return isFinite(lh) && lh > 8 ? lh : 24;
-	}
 	function rectOf(uid) {
 		var node = uidNode(uid); if (!node) return null;
 		var t = node.querySelector('.rm-block-text') || node;
-		return { r: t.getBoundingClientRect(), node: node, lh: lineHeightOf(node) };
+		return t.getBoundingClientRect();
 	}
 	function updateHandles() {
 		var sel = getSel();
-		if (!sel.length) { hideHandles(); return; }
-		hLayer.style.display = 'block';
+		if (!sel.length) { root.dataset.handles = '0'; return; }
+		root.dataset.handles = '1';
 		var uids = sel.map(function (x) { return x['block-uid']; });
-		// anchor = first entry (getSelected returns [anchor, ...]); focus = the geometric far end
-		var nodes = uids.map(function (u) { return { uid: u, info: rectOf(u) }; }).filter(function (x) { return x.info; });
-		if (!nodes.length) { hideHandles(); return; }
-		// sort by visual top
-		nodes.sort(function (a, b) { return a.info.r.top - b.info.r.top; });
-		var top = nodes[0].info, bot = nodes[nodes.length - 1].info;
+		var rects = uids.map(function (u) { return { uid: u, r: rectOf(u) }; }).filter(function (x) { return x.r; });
+		if (!rects.length) { root.dataset.handles = '0'; return; }
+		rects.sort(function (a, b) { return a.r.top - b.r.top; });
+		var top = rects[0], bot = rects[rects.length - 1];
 		var anchorUid = uids[0];
-		// the focus (movable) end is the one that is NOT the anchor; with 1 block it's the bottom
-		var focusIsBottom = (anchorUid === nodes[0].uid) || nodes.length === 1;
-		// KNOB at focus edge
+		var focusIsBottom = (anchorUid === top.uid) || rects.length === 1;
+		var vw = window.innerWidth;
 		var kr = focusIsBottom ? bot.r : top.r;
-		var lh = focusIsBottom ? bot.lh : top.lh;
-		placeKnob(focusIsBottom, kr, lh);
-		// cosmetic anchor line at the opposite edge
+		knob.style.left = Math.max(14, Math.min(focusIsBottom ? kr.right + 6 : kr.left - 6, vw - 14)) + 'px';
+		knob.style.top = (focusIsBottom ? kr.bottom - 4 : kr.top + 4) + 'px';
 		var ar = focusIsBottom ? top.r : bot.r;
-		anchorLine.style.display = 'block';
-		anchorLine.style.left = (focusIsBottom ? ar.left : ar.right) + 'px';
-		anchorLine.style.top = (focusIsBottom ? ar.top : ar.bottom - (focusIsBottom ? 0 : ar.height)) + 'px';
-		anchorLine.style.height = ar.height + 'px';
-		// simpler: anchor line spans the anchor block's left edge height
-		anchorLine.style.top = ar.top + 'px';
-		anchorLine.style.left = (focusIsBottom ? ar.left : ar.right) + 'px';
-	}
-	function placeKnob(bottom, r, lh) {
-		var x = bottom ? r.right : r.left;
-		var yEdge = bottom ? r.bottom : r.top;
-		knob.style.left = x + 'px';
-		knob.style.top = yEdge + 'px';
-		var stem = knob.querySelector('.vt-stem'), dot = knob.querySelector('.vt-dot');
-		if (bottom) { // stem rises into block, knob below
-			stem.style.height = lh + 'px'; stem.style.top = (-lh) + 'px';
-			dot.style.top = '4px';
-		} else {       // stem descends into block, knob above
-			stem.style.height = lh + 'px'; stem.style.top = '0px';
-			dot.style.top = (-15) + 'px';
-		}
+		tick.style.left = (focusIsBottom ? ar.left - 7 : Math.min(ar.right + 4, vw - 8)) + 'px';
+		tick.style.top = ar.top + 'px';
+		tick.style.height = ar.height + 'px';
+		chip.textContent = String(rects.length);
+		chip.style.left = (focusIsBottom ? Math.min(kr.right + 22, vw - 38) : Math.max(8, kr.left - 52)) + 'px';
+		chip.style.top = (focusIsBottom ? kr.bottom + 2 : kr.top - 26) + 'px';
 	}
 
-	// ---------- drag (device-only-verifiable) ----------
-	function evPoint(e) { var t = (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || e; return { x: t.clientX, y: t.clientY }; }
-	function onKnobDown(e) {
-		if (state !== 'SELECTING') return;
-		e.preventDefault(); e.stopPropagation();
-		var p = evPoint(e);
-		drag = { startY: p.y, x: p.x, y: p.y, moved: false, lastTarget: null, busy: false };
-		knob.setAttribute('data-grab', '1');
-		dragMask.style.display = 'block';
-		document.body.style.touchAction = 'none';
-		window.addEventListener('touchmove', onKnobMove, { passive: false, capture: true });
-		window.addEventListener('mousemove', onKnobMove, { passive: false, capture: true });
-		window.addEventListener('touchend', onKnobUp, { passive: false, capture: true });
-		window.addEventListener('mouseup', onKnobUp, { passive: false, capture: true });
-		window.addEventListener('touchcancel', onKnobUp, { passive: false, capture: true });
-		dragLoop();
+	// ---------- the EVENT SHIELD + gesture engine ----------
+	// Everything inside #vt-cmd-root is invisible to Roam (window-capture stop) and we act on our
+	// own pointer gestures. Untrusted clicks pass through (our proxy clicks must reach React).
+	var SHIELD_TYPES = ['pointerdown', 'pointermove', 'pointerup', 'pointercancel',
+		'mousedown', 'mousemove', 'mouseup', 'touchstart', 'touchmove', 'touchend', 'touchcancel',
+		'click', 'contextmenu', 'dblclick'];
+	function inRoot(t) { return !!(t && t.closest && t.closest('#' + ROOT_ID)); }
+	function shield(e) {
+		var inside = inRoot(e.target);
+		// during a knob drag we own the whole screen's move/up events
+		if (!inside && !(drag && (e.type.indexOf('move') > 0 || e.type.indexOf('up') > 0 || e.type.indexOf('cancel') > 0 || e.type.indexOf('end') > 0))) return;
+		if (e.type === 'click' && !e.isTrusted) return;       // our proxies / programmatic clicks
+		if (inside || drag) e.stopPropagation();
+		if (e.type === 'touchstart' || e.type === 'touchmove' || e.type === 'mousedown' || e.type === 'contextmenu') {
+			if (e.cancelable) e.preventDefault();             // keep focus+selection, kill zoom/callout/scroll
+		}
+		route(e);
 	}
-	function onKnobMove(e) {
-		if (!drag) return;
-		e.preventDefault();
-		var p = evPoint(e); drag.x = p.x; drag.y = p.y;
-		if (Math.abs(p.y - drag.startY) > 8) drag.moved = true;
+	function evPoint(e) {
+		if (e.touches && e.touches.length) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+		if (e.changedTouches && e.changedTouches.length) return { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
+		return { x: e.clientX, y: e.clientY };
+	}
+	function route(e) {
+		var t = e.type;
+		// gestures are driven by POINTER events; touch/mouse only feed preventDefault above
+		if (t === 'pointerdown') {
+			var p = evPoint(e);
+			if (e.target.closest && e.target.closest('.vt-knob')) { dragStart(e.pointerId, p); return; }
+			var b = e.target.closest && e.target.closest('.vt-b,#vt-fab');
+			if (b) gestureStart(e.pointerId, b, p);
+			return;
+		}
+		if (t === 'pointermove') {
+			var p2 = evPoint(e);
+			if (drag && e.pointerId === drag.pid) { drag.x = p2.x; drag.y = p2.y; if (Math.abs(p2.y - drag.startY) > 8) drag.moved = true; return; }
+			if (gesture && e.pointerId === gesture.pid) {
+				if (Math.abs(p2.x - gesture.x) > 12 || Math.abs(p2.y - gesture.y) > 12) gestureCancel();
+			}
+			return;
+		}
+		if (t === 'pointerup') {
+			if (drag && e.pointerId === drag.pid) { dragEnd(); return; }
+			if (gesture && e.pointerId === gesture.pid) gestureEnd(true);
+			return;
+		}
+		if (t === 'pointercancel') {
+			if (drag && e.pointerId === drag.pid) dragEnd();
+			if (gesture && e.pointerId === gesture.pid) gestureCancel();
+		}
+	}
+	// --- button gesture (press visual, auto-repeat, act on release if not repeated) ---
+	function gestureStart(pid, btn, p) {
+		if (gesture) gestureCancel();
+		gesture = { pid: pid, btn: btn, x: p.x, y: p.y, fired: 0, repT: null };
+		btn.classList.add('vt-pressed');
+		if (btn.dataset.rep) {
+			gesture.repT = setTimeout(function repeat() {
+				if (!gesture || gesture.btn !== btn) return;
+				gesture.fired++;
+				act(btn === fab ? '__fab' : btn.dataset.act, true);
+				var iv = gesture.fired > 6 ? 70 : 120;
+				gesture.repT = setTimeout(repeat, iv);
+			}, 350);
+		}
+	}
+	function gestureEnd(actNow) {
+		if (!gesture) return;
+		var g = gesture; gesture = null;
+		if (g.repT) clearTimeout(g.repT);
+		g.btn.classList.remove('vt-pressed');
+		if (actNow && !g.fired) {
+			if (g.btn === fab) { open = true; lsSet('VBS_cmdbar', '1'); applyCtx(true); }
+			else act(g.btn.dataset.act, false);
+		}
+	}
+	function gestureCancel() { gestureEnd(false); }
+	// --- knob drag (closed loop; one extend per crossed block; edge auto-scroll) ---
+	function dragStart(pid, p) {
+		if (ctx !== 'SELECTING') return;
+		drag = { pid: pid, startY: p.y, x: p.x, y: p.y, moved: false, busy: false, raf: 0 };
+		knob.setAttribute('data-grab', '1');
+		log('drag start');
+		dragLoop();
 	}
 	function dragLoop() {
 		if (!drag) return;
 		if (drag.moved && !drag.busy) {
 			var sel = getSel();
-			if (!sel.length) { endDrag(); return; } // selection vanished — abort, never blind-emit
-			// find block under finger
-			hLayer.style.pointerEvents = 'none';
+			if (!sel.length) { log('drag: sel vanished — abort'); dragEnd(); return; }
+			// edge auto-scroll
+			var vv = window.visualViewport;
+			var vh = vv ? vv.height + vv.offsetTop : window.innerHeight;
+			var sc = scroller();
+			if (drag.y < 100) sc.scrollBy(0, -Math.ceil((100 - drag.y) / 6));
+			else if (drag.y > vh - 110) sc.scrollBy(0, Math.ceil((drag.y - (vh - 110)) / 6));
+			// hit-test the block under the finger
 			var hit = document.elementFromPoint(drag.x, Math.max(2, Math.min(window.innerHeight - 2, drag.y)));
 			var targetEl = hit && hit.closest ? hit.closest('.roam-block-container') : null;
-			if (!targetEl) targetEl = drag.lastTarget;
 			if (targetEl) {
-				drag.lastTarget = targetEl;
 				var list = allBlocks();
 				var tIdx = list.indexOf(targetEl);
-				// current focus index = the selected block furthest from anchor, in DOM order
 				var uids = sel.map(function (x) { return x['block-uid']; });
-				var idxs = uids.map(function (u) { var n = uidNode(u); return list.indexOf(n); }).filter(function (i) { return i >= 0; }).sort(function (a, b) { return a - b; });
+				var idxs = uids.map(function (u) { return list.indexOf(uidNode(u)); }).filter(function (i) { return i >= 0; }).sort(function (a, b) { return a - b; });
 				var anchorIdx = list.indexOf(uidNode(uids[0]));
-				var focusIdx = (anchorIdx === idxs[0]) ? idxs[idxs.length - 1] : idxs[0]; // far end
+				var focusIdx = (anchorIdx === idxs[0]) ? idxs[idxs.length - 1] : idxs[0];
 				if (tIdx >= 0 && tIdx !== focusIdx) {
-					var spec = tIdx > focusIdx ? K.extendDown : K.extendUp;
 					drag.busy = true;
-					fire(document.body, spec);
-					setTimeout(function () { drag.busy = false; updateHandles(); }, 50);
+					fire(window, tIdx > focusIdx ? K.extendDown : K.extendUp);
+					setTimeout(function () { if (drag) drag.busy = false; updateHandles(); }, 60);
 				}
 			}
 		}
 		drag.raf = requestAnimationFrame(dragLoop);
 	}
-	function endDrag() {
+	function dragEnd() {
 		if (!drag) return;
 		if (drag.raf) cancelAnimationFrame(drag.raf);
 		drag = null;
 		knob.removeAttribute('data-grab');
-		dragMask.style.display = 'none';
-		document.body.style.touchAction = '';
-		window.removeEventListener('touchmove', onKnobMove, { capture: true });
-		window.removeEventListener('mousemove', onKnobMove, { capture: true });
-		window.removeEventListener('touchend', onKnobUp, { capture: true });
-		window.removeEventListener('mouseup', onKnobUp, { capture: true });
-		window.removeEventListener('touchcancel', onKnobUp, { capture: true });
+		log('drag end sel=' + getSel().length);
 		updateHandles();
-	}
-	function onKnobUp(e) { if (e && e.preventDefault) e.preventDefault(); endDrag(); }
-
-	// ---------- auto-promote (mode B, device-only-verifiable) ----------
-	function onSelectionChange() {
-		if (!autoPromoteOn()) return;
-		var ta = document.activeElement;
-		if (!isBlockTextarea(ta)) { clearAP(); return; }
-		var full = ta.selectionStart === 0 && ta.selectionEnd === ta.value.length && ta.value.trim().length >= 2;
-		if (!full) {
-			if (apArmed && apTimer) { /* shrank — abort */ }
-			clearAP(); apLastFull = false; return;
-		}
-		// require: grew INTO full on this gesture, a recent real touch, not in cooldown, not already handled for this focus
-		var grewInto = !apLastFull; apLastFull = true;
-		if (apArmed) return;
-		if (Date.now() < apCooldown) return;
-		if (apGuardUid === ta.id) return;
-		if (Date.now() - apSawTouch > 800) return;     // provenance: a real touch select, not programmatic/Cmd+A/CDP
-		if (!grewInto) return;
-		apArmed = true;
-		showNub();
-		apTimer = setTimeout(function () { fireAutoPromote(ta); }, 380);
-	}
-	function showNub() { nub.style.display = 'inline-flex'; }
-	function hideNub() { nub.style.display = 'none'; }
-	function clearAP() { if (apTimer) { clearTimeout(apTimer); apTimer = null; } apArmed = false; hideNub(); }
-	function cancelAutoPromote() { clearAP(); apCooldown = Date.now() + 1500; }
-	function fireAutoPromote(ta) {
-		clearAP();
-		apGuardUid = ta.id;
-		if (document.activeElement !== ta) return;
-		promote(function (ok) { if (ok) applyState(true); });
 	}
 
 	// ---------- state machine ----------
 	function ctxNow() {
 		if (getSel().length) return 'SELECTING';
-		var ae = document.activeElement;
-		if (isBlockTextarea(ae) && kbUp()) return 'EDITING';
+		if (isBlockTextarea(document.activeElement)) return 'EDITING';
 		return 'IDLE';
 	}
-	function applyState(force) {
+	function applyCtx(force) {
 		if (!added) return;
-		var ctx = ctxNow();
-		if (!force && ctx === state) {
-			if (ctx === 'SELECTING') updateHandles();
+		var c = ctxNow();
+		if (!force && c === ctx) {
+			if (c === 'SELECTING' && !drag) updateHandles();
 			return;
 		}
-		state = ctx;
-		fab.style.display = 'none'; bar.style.display = 'none'; pill.style.display = 'none'; hideHandles();
-		bar.removeAttribute('data-anim');
-		if (ctx === 'IDLE') {
-			if (open) { buildBar('IDLE'); bar.style.display = 'flex'; }
-			else { fab.style.display = 'flex'; }
-		} else if (ctx === 'EDITING') {
-			pill.style.display = 'inline-flex';
-		} else if (ctx === 'SELECTING') {
-			buildBar('SELECTING'); bar.style.display = 'flex'; bar.setAttribute('data-anim', 'in');
-			updateHandles();
-		}
-		document.body.classList.toggle('vt-bar-open', bar.style.display !== 'none');
-		reposition();
-		if (doLog) console.log('[cmdbar]', state, 'sel=', selUids().length);
+		var prev = ctx; ctx = c;
+		lastSelN = getSel().length;
+		root.dataset.bar = (c === 'EDITING' || c === 'SELECTING' || (c === 'IDLE' && open)) ? '1' : '0';
+		root.dataset.fab = (c === 'IDLE' && !open) ? '1' : '0';
+		root.dataset.handles = (c === 'SELECTING') ? '1' : '0';
+		paintForm();
+		if (c === 'SELECTING') updateHandles();
+		if (c === 'EDITING' && prev !== 'EDITING') checkContract();
+		document.body.classList.toggle('vt-bar-open', root.dataset.bar === '1');
+		place();
+		log('ctx ' + prev + '→' + c + ' sel=' + lastSelN);
+		hudPaint();
 	}
-	function scheduleSync() { if (rafSync) return; rafSync = requestAnimationFrame(function () { rafSync = 0; applyState(false); }); }
+	function scheduleSync() { if (rafSync) return; rafSync = requestAnimationFrame(function () { rafSync = 0; applyCtx(false); }); }
+
+	// ---------- HUD ----------
+	function hudPaint() {
+		if (!hud || !debugOn()) return;
+		hud.textContent = 'ctx=' + ctx + ' sel=' + getSel().length + ' kb=' + overlap() +
+			' redo=' + (redoAvail ? 1 : 0) + ' contract=' + (contract.ok ? 'ok' : 'DRIFT:' + contract.missing.join(',')) +
+			'\n' + logRing.slice(-8).join('\n');
+	}
 
 	// ---------- wiring ----------
 	function start() {
 		if (added) return;
-		if (!enabled()) { if (doLog) console.log('[cmdbar] not a touch device / flutter app — idle'); return; }
+		if (!enabled()) return;
 		added = true;
 		open = lsGet('VBS_cmdbar') === '1';
 		injectStyle();
 		build();
+		checkContract();
 		ac = new AbortController(); var sig = ac.signal;
-		document.addEventListener('focusin', scheduleSync, { capture: true, signal: sig });
-		document.addEventListener('focusout', function () { setTimeout(scheduleSync, 60); }, { capture: true, signal: sig });
-		document.addEventListener('selectionchange', onSelectionChange, { signal: sig });
-		document.addEventListener('touchend', function (e) { var t = e.target; if (t && t.closest && t.closest('textarea')) apSawTouch = Date.now(); }, { capture: true, passive: true, signal: sig });
-		// undo/redo shadow flag: any typing into a block clears the redo branch
-		document.addEventListener('input', function (e) { if (isBlockTextarea(e.target)) redoAvail = false; }, { capture: true, signal: sig });
+		SHIELD_TYPES.forEach(function (t) {
+			window.addEventListener(t, shield, { capture: true, passive: false, signal: sig });
+		});
+		document.addEventListener('focusin', function (e) {
+			if (isBlockTextarea(e.target)) preRide();
+			scheduleSync();
+		}, { capture: true, signal: sig });
+		document.addEventListener('focusout', function () {
+			kbAnimUntil = now() + 450;
+			setTimeout(scheduleSync, 60);
+			schedulePos();
+		}, { capture: true, signal: sig });
+		document.addEventListener('input', function (e) { if (isBlockTextarea(e.target)) { redoAvail = false; paintRedo(); } }, { capture: true, signal: sig });
 		if (window.visualViewport) {
 			window.visualViewport.addEventListener('resize', function () { schedulePos(); scheduleSync(); }, { signal: sig });
 			window.visualViewport.addEventListener('scroll', schedulePos, { signal: sig });
 		}
-		window.addEventListener('orientationchange', function () { setTimeout(function () { schedulePos(); scheduleSync(); }, 80); }, { signal: sig });
-		window.addEventListener('scroll', function () { if (state === 'SELECTING') schedulePos(); }, { capture: true, passive: true, signal: sig });
-		// body-class flips (bp3 overlays, theme) are cheap to watch and catch most state changes
+		window.addEventListener('orientationchange', function () { setTimeout(function () { schedulePos(); scheduleSync(); }, 120); }, { signal: sig });
+		window.addEventListener('scroll', function () { if (ctx === 'SELECTING') schedulePos(); }, { capture: true, passive: true, signal: sig });
 		mo = new MutationObserver(scheduleSync);
 		mo.observe(document.body, { attributes: true, attributeFilter: ['class'] });
-		// Cheap poll (getSelected() read + 2 compares; applyState early-returns when unchanged) instead
-		// of a heavy .roam-app subtree/attribute observer — Roam re-renders constantly. Also re-asserts
-		// the <style> if Roam dropped it, and re-anchors handles for scroll/re-render while SELECTING.
 		healTimer = setInterval(function () {
 			if (!document.getElementById(STYLE_ID)) injectStyle();
-			applyState(false);
-			if (state === 'SELECTING' && !drag) updateHandles();
+			applyCtx(false);
+			if (ctx === 'SELECTING' && !drag) updateHandles();
+			if (debugOn()) hudPaint();
 		}, 280);
-		applyState(true);
-		if (doLog) console.log('** cmdbar v0.1 installed **');
+		applyCtx(true);
+		log('cmdbar v0.2 up');
 	}
 	function stop() {
 		if (!added) return; added = false;
 		if (ac) { ac.abort(); ac = null; }
 		if (mo) { mo.disconnect(); mo = null; }
 		if (healTimer) { clearInterval(healTimer); healTimer = null; }
-		endDrag(); clearAP();
+		if (gesture) gestureCancel();
+		if (drag) dragEnd();
 		document.body.classList.remove('vt-bar-open');
 		if (root && root.parentNode) root.parentNode.removeChild(root);
-		if (dragMask && dragMask.parentNode) dragMask.parentNode.removeChild(dragMask);
-		var st = document.getElementById(STYLE_ID); if (st) st.remove();
-		root = fab = bar = pill = hLayer = knob = anchorLine = nub = dragMask = null;
-		state = 'OFF';
-		if (doLog) console.log('** cmdbar v0.1 STOPPED **');
+		var st = document.getElementById(STYLE_ID); if (st) st.remove();   // un-hides the native bar
+		root = dock = bar = fab = hLayer = knob = tick = chip = hud = null;
+		btns = {}; ctx = 'OFF';
 	}
 
 	start();
 	return {
 		isAdded: function () { return added; }, start: start, stop: stop,
-		_state: function () { return { state: state, sel: selUids(), open: open, redoAvail: redoAvail, kb: kbHeight() }; },
+		_state: function () { return { ctx: ctx, sel: selUids(), open: open, redoAvail: redoAvail, kb: overlap(), contract: contract }; },
+		_log: function () { return logRing.slice(); },
 		_force: function (v) { lsSet('VBS_force', v ? '1' : '0'); }
 	};
 })();
