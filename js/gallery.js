@@ -1,0 +1,365 @@
+/*
+ * Viktor's Roam gallery v1.0 — PhotoSwipe 5
+ * author: @ViktorTabori
+ *
+ * v1.0 (2026-06-12): PhotoSwipe 4.1.3 (custom SVG fork) → 5.4.4 stock ESM from cdnjs.
+ *  - SVG (mermaid) needs no fork anymore: serialized to a blob: URL, revoked on close.
+ *  - Copy-on-mobile: iOS long-press is a TEXT-SELECTION gesture (see longtap v0.5) and the
+ *    theme sets -webkit-touch-callout:none on rendered blocks, so the NATIVE image callout
+ *    never fires in Roam. We own the gesture instead: 500ms touch timer on an image (in a
+ *    block OR inside the open PhotoSwipe modal) opens our action sheet:
+ *    Copy image / Copy image URL / Share… / Open in new tab.
+ *    The modal top bar also gets a copy button (desktop + mobile affordance).
+ *
+ * How to install it:
+ *  - go to page [[roam/js]]
+ *  - create a node with: {{[[roam/js]]}}
+ *  - create a code block under it, and change its type from clojure to javascript
+ *  - allow the running of the javascript on the {{[[roam/js]]}} node
+ *  - reload Roam
+ *  - click/tap an image: gallery; long-press an image: copy sheet
+ *  - edit image url on mobile: tap top right corner of image (44x44px, gallery won't fire)
+ */
+if (window.ViktorGallery && window.ViktorGallery.stop) window.ViktorGallery.stop();
+window.ViktorGallery = (function(){
+	var PSWP_JS  = 'https://cdnjs.cloudflare.com/ajax/libs/photoswipe/5.4.4/photoswipe.esm.min.js';
+	var PSWP_CSS = 'https://cdnjs.cloudflare.com/ajax/libs/photoswipe/5.4.4/photoswipe.min.css';
+	var SVG_ZOOM = 3;     // rasterization scale for svg images
+	var LP_MS    = 500;   // long-press duration
+	var MOVE_TOL = 12;    // px of touch movement that cancels tap/long-press
+	var COPY_ICON = '<svg aria-hidden="true" viewBox="0 0 32 32" width="32" height="32" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)"><path fill="currentColor" d="M20 5H8a2 2 0 0 0-2 2v14h2V7h12V5zm4 4H12a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V11a2 2 0 0 0-2-2zm0 16H12V11h12v14z"/></svg>';
+
+	var started = false;
+	var pswpModulePromise = null;
+	var activePswp = null;
+	var touch = null; // in-block long-press state: {img, x, y, timer, fired}
+
+	start();
+
+	return {
+		isStarted:()=>started,
+		start: start,
+		stop: stop,
+	};
+
+	function start() {
+		if (started) return;
+		started = true;
+		document.addEventListener('click', onClick, true);
+		document.addEventListener('touchstart', onTouchStart, true);
+		document.addEventListener('touchmove', onTouchMove, true);
+		document.addEventListener('touchend', onTouchEnd, true);
+		document.addEventListener('touchcancel', onTouchCancel, true);
+		addFile('link', 'href', PSWP_CSS, {rel:'stylesheet'});
+		addStyle();
+		console.log('Gallery plugin (PhotoSwipe 5) loaded & listening');
+		return true;
+	}
+
+	function stop() {
+		if (!started) return;
+		started = false;
+		document.removeEventListener('click', onClick, true);
+		document.removeEventListener('touchstart', onTouchStart, true);
+		document.removeEventListener('touchmove', onTouchMove, true);
+		document.removeEventListener('touchend', onTouchEnd, true);
+		document.removeEventListener('touchcancel', onTouchCancel, true);
+		cancelTouch();
+		closeSheet();
+		if (activePswp) { try { activePswp.destroy(); } catch(_){} activePswp = null; }
+		var style = document.getElementById('vg-style');
+		if (style) style.remove();
+		console.log('Gallery plugin stopped');
+		return true;
+	}
+
+	// ---- target picking -------------------------------------------------
+
+	// returns the gallery-able element under `target`: an inline img, or a mermaid svg
+	function pickImage(target) {
+		if (!target || !target.closest) return null;
+		if (target.nodeName == 'IMG' && target.classList.contains('rm-inline-img')) return target;
+		var mermaid = target.closest('.rm-mermaid');
+		if (mermaid) return target.closest('svg') || mermaid.querySelector('svg');
+		return null;
+	}
+
+	// 44x44px top right corner on mobile = Roam's edit-the-url affordance, leave it alone
+	function inEditCorner(x, y, img) {
+		if (window.innerWidth >= 500) return false;
+		var rect = img.getBoundingClientRect();
+		return (x - rect.left) > (rect.width - 44) && (y - rect.top) < 44;
+	}
+
+	// ---- in-block events -------------------------------------------------
+
+	function onClick(e) {
+		// trusted desktop click (touch taps are handled+consumed in onTouchEnd)
+		var img = pickImage(e.target);
+		if (!img) return;
+		if (inEditCorner(e.clientX, e.clientY, img)) return;
+		e.preventDefault();
+		e.stopPropagation();
+		openGallery(img);
+	}
+
+	function onTouchStart(e) {
+		var img = pickImage(e.target);
+		if (!img) return;
+		var t = e.touches[0];
+		cancelTouch();
+		touch = {img: img, x: t.clientX, y: t.clientY, fired: false, timer: setTimeout(function(){
+			if (!touch) return;
+			touch.fired = true;
+			showSheet(itemFromDom(touch.img));
+		}, LP_MS)};
+	}
+
+	function onTouchMove(e) {
+		if (!touch) return;
+		var t = e.touches[0];
+		if (Math.hypot(t.clientX - touch.x, t.clientY - touch.y) > MOVE_TOL) cancelTouch();
+	}
+
+	function onTouchEnd(e) {
+		if (!touch) return;
+		clearTimeout(touch.timer);
+		var st = touch;
+		touch = null;
+		if (st.fired) { // long-press already opened the sheet — swallow the tap
+			e.preventDefault();
+			e.stopPropagation();
+			return;
+		}
+		var t = e.changedTouches[0];
+		if (inEditCorner(t.clientX, t.clientY, st.img)) return; // let Roam edit the url
+		e.preventDefault(); // also suppresses the synthetic click
+		e.stopPropagation();
+		openGallery(st.img);
+	}
+
+	function onTouchCancel() { cancelTouch(); }
+
+	function cancelTouch() {
+		if (!touch) return;
+		clearTimeout(touch.timer);
+		touch = null;
+	}
+
+	// ---- gallery ---------------------------------------------------------
+
+	function loadPswp() {
+		if (!pswpModulePromise) pswpModulePromise = import(PSWP_JS).then(m => m.default);
+		return pswpModulePromise;
+	}
+
+	function collectItems() {
+		return Array.from(document.querySelectorAll('img.rm-inline-img, .rm-mermaid svg')).map(function(v){
+			var ret = {_dom: v};
+			if (v.nodeName.match(/^svg$/i)) {
+				v.style.backgroundColor = '#eee';
+				ret.src = URL.createObjectURL(new Blob([v.outerHTML.replace(/<br>/g,'<br/>')], {type:'image/svg+xml;charset=utf-8'}));
+				ret.width = v.viewBox.baseVal.width * SVG_ZOOM;
+				ret.height = v.viewBox.baseVal.height * SVG_ZOOM;
+				ret._blob = true;
+			} else {
+				ret.src = v.src;
+				ret.width = v.naturalWidth;
+				ret.height = v.naturalHeight;
+			}
+			ret.msrc = ret.src;
+			return ret;
+		});
+	}
+
+	function itemFromDom(dom) {
+		if (dom.nodeName == 'IMG') return {src: dom.src};
+		return collectItems().filter(function(i){ return i._dom == dom; })[0];
+	}
+
+	function openGallery(target) {
+		loadPswp().then(function(PhotoSwipe){
+			var items = collectItems();
+			var index = Math.max(0, items.findIndex(function(i){ return i._dom == target; }));
+			var pswp = new PhotoSwipe({
+				dataSource: items,
+				index: index,
+				showHideAnimationType: 'none', // v4 had showAnimationDuration:0
+				wheelToZoom: true,
+			});
+			pswp.on('uiRegister', function(){
+				pswp.ui.registerElement({
+					name: 'copy-image',
+					title: 'Copy image',
+					order: 9, // between counter (5) and zoom (10)
+					isButton: true,
+					html: COPY_ICON,
+					onClick: function(){ showSheet(pswp.currSlide && pswp.currSlide.data); },
+				});
+			});
+			pswp.on('destroy', function(){
+				items.forEach(function(i){ if (i._blob) URL.revokeObjectURL(i.src); });
+				if (activePswp == pswp) activePswp = null;
+			});
+			pswp.init();
+			activePswp = pswp;
+			hookModalLongpress(pswp);
+		}).catch(function(err){ console.error('gallery: PhotoSwipe load failed', err); });
+	}
+
+	// long-press inside the open modal → same copy sheet. PhotoSwipe drives its gestures
+	// with pointer events on descendants of pswp.element, so capture-phase listeners on
+	// pswp.element run FIRST and can swallow the pointerup after a fired long-press
+	// (otherwise pswp treats it as a tap and toggles/closes the UI).
+	function hookModalLongpress(pswp) {
+		var el = pswp.element, st = null;
+		function down(e){
+			if (e.pointerType != 'touch' && e.pointerType != 'pen') return;
+			clear();
+			st = {x: e.clientX, y: e.clientY, fired: false, timer: setTimeout(function(){
+				if (!st) return;
+				st.fired = true;
+				showSheet(pswp.currSlide && pswp.currSlide.data);
+			}, LP_MS)};
+		}
+		function move(e){
+			if (st && Math.hypot(e.clientX - st.x, e.clientY - st.y) > MOVE_TOL) clear();
+		}
+		function up(e){
+			if (!st) return;
+			var fired = st.fired;
+			clear();
+			if (fired) { e.preventDefault(); e.stopPropagation(); }
+		}
+		function clear(){ if (st) { clearTimeout(st.timer); st = null; } }
+		el.addEventListener('pointerdown', down, true);
+		el.addEventListener('pointermove', move, true);
+		el.addEventListener('pointerup', up, true);
+		el.addEventListener('pointercancel', clear, true);
+	}
+
+	// ---- copy sheet --------------------------------------------------------
+
+	function showSheet(item) {
+		if (!item || !item.src) return;
+		closeSheet();
+		var src = item.src;
+		var isBlob = /^(blob|data):/i.test(src);
+		var backdrop = document.createElement('div');
+		backdrop.className = 'vg-backdrop';
+		var sheet = document.createElement('div');
+		sheet.className = 'vg-sheet';
+		button('Copy image', function(){ copyImage(src); });
+		if (!isBlob) button('Copy image URL', function(){
+			navigator.clipboard.writeText(src).then(function(){ toast('URL copied'); }, function(){ toast('Copy failed'); });
+		});
+		if (navigator.share) button('Share…', function(){ shareImage(src); });
+		if (!isBlob) button('Open in new tab', function(){ window.open(src, '_blank'); });
+		var cancel = button('Cancel', function(){});
+		cancel.classList.add('vg-cancel');
+		backdrop.appendChild(sheet);
+		backdrop.addEventListener('click', function(e){ if (e.target == backdrop) closeSheet(); });
+		document.body.appendChild(backdrop);
+
+		function button(label, fn) {
+			var b = document.createElement('button');
+			b.className = 'vg-btn';
+			b.textContent = label;
+			b.addEventListener('click', function(e){
+				e.preventDefault();
+				e.stopPropagation();
+				closeSheet();
+				fn();
+			});
+			sheet.appendChild(b);
+			return b;
+		}
+	}
+
+	function closeSheet() {
+		var b = document.querySelector('.vg-backdrop');
+		if (b) b.remove();
+	}
+
+	function copyImage(src) {
+		if (!navigator.clipboard || !window.ClipboardItem) {
+			navigator.clipboard && navigator.clipboard.writeText(src).then(function(){ toast('Image copy unsupported — URL copied'); });
+			return;
+		}
+		// Safari demands the ClipboardItem (with a Promise payload) be created synchronously
+		// inside the user gesture — resolve the png blob lazily inside it.
+		navigator.clipboard.write([new ClipboardItem({'image/png': pngBlob(src)})]).then(function(){
+			toast('Image copied');
+		}, function(err){
+			console.warn('gallery: image copy failed', err);
+			navigator.clipboard.writeText(src).then(function(){ toast('Image copy failed — URL copied'); }, function(){ toast('Copy failed'); });
+		});
+	}
+
+	function pngBlob(src) {
+		return new Promise(function(resolve, reject){
+			var img = new Image();
+			if (!/^(blob|data):/i.test(src)) img.crossOrigin = 'anonymous';
+			img.onload = function(){
+				try {
+					var c = document.createElement('canvas');
+					c.width = img.naturalWidth || img.width;
+					c.height = img.naturalHeight || img.height;
+					c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+					c.toBlob(function(b){ b ? resolve(b) : reject(new Error('toBlob failed')); }, 'image/png');
+				} catch (err) { reject(err); }
+			};
+			img.onerror = function(){ reject(new Error('image load failed (CORS?)')); };
+			img.src = src;
+		});
+	}
+
+	function shareImage(src) {
+		fetch(src).then(function(r){ return r.blob(); }).then(function(blob){
+			var ext = (blob.type.split('/')[1] || 'png').replace('jpeg','jpg').replace(/\+.*/,'');
+			var file = new File([blob], 'image.' + ext, {type: blob.type});
+			if (navigator.canShare && navigator.canShare({files:[file]})) return navigator.share({files:[file]});
+			return navigator.share({url: src});
+		}).catch(function(err){
+			if (err && err.name == 'AbortError') return; // user dismissed the share sheet
+			console.warn('gallery: share failed', err);
+			navigator.share({url: src}).catch(function(){ toast('Share failed'); });
+		});
+	}
+
+	function toast(msg) {
+		var t = document.createElement('div');
+		t.className = 'vg-toast';
+		t.textContent = msg;
+		document.body.appendChild(t);
+		setTimeout(function(){ t.remove(); }, 1800);
+	}
+
+	// ---- statics -------------------------------------------------------------
+
+	function addStyle() {
+		if (document.getElementById('vg-style')) return;
+		var s = document.createElement('style');
+		s.id = 'vg-style';
+		s.textContent = [
+			'.vg-backdrop{position:fixed;inset:0;z-index:2000000;background:rgba(0,0,0,.35);display:flex;align-items:flex-end;justify-content:center}',
+			'.vg-sheet{width:min(420px,calc(100% - 16px));margin-bottom:max(8px,env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:1px;border-radius:14px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.35)}',
+			'.vg-btn{appearance:none;border:0;margin:0;padding:15px 16px;font-size:16px;line-height:1.2;text-align:center;cursor:pointer;background:rgba(40,42,46,.96);color:#eaeaea}',
+			'.vg-btn:active{background:rgba(70,72,78,.96)}',
+			'.vg-btn.vg-cancel{margin-top:7px;border-radius:14px;font-weight:600}',
+			'.vg-toast{position:fixed;left:50%;bottom:64px;transform:translateX(-50%);z-index:2000001;padding:9px 16px;border-radius:999px;background:rgba(30,32,36,.94);color:#fff;font-size:14px;pointer-events:none}',
+		].join('\n');
+		document.head.appendChild(s);
+	}
+
+	// inject code to head
+	function addFile(type, srcName, src, opt){
+		if (Array.from(document.head.getElementsByTagName(type)).filter(function(s){ return s[srcName] == src; }).length) return;
+		var file = document.createElement(type);
+		file[srcName] = src;
+		file.async = false;
+		if (typeof opt == 'object') for (var i in opt) file[i] = opt[i];
+		document.head.appendChild(file);
+		return true;
+	}
+})();
