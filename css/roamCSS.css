@@ -486,6 +486,20 @@ strong {
   }
 }
 
+/* Phone (<601): azlen has a SEPARATE mobile rail — `@media (max-width:600px){#right-sidebar{
+   padding-right:10px!important}}` — which (with `flex:0 0 auto` above) keeps the CLOSED right
+   sidebar 10px wide; the ungated `.roam-app>.flex-h-box{overflow-x:scroll}` (azlen AND this file)
+   then lets the whole app row pan 10px right on touch. Same disease as the tablet band, mobile
+   variant. Collapse only-when-closed. (Root-caused + fix validated live 2026-06-12: flex-h-box
+   scrollWidth 400→390, maxScroll 10→0, deterministic on/off. cmdbar was exonerated — all its UI
+   is position:fixed.) */
+@media only screen and (max-width: 600px) {
+  #right-sidebar:not(:has(#roam-right-sidebar-content)) {
+    flex: 0 0 0px !important;
+    padding-right: 0 !important;
+  }
+}
+
 /* CLOSED left sidebar covers the top-left hamburger. azlen forces
    `.roam-sidebar-container{width:300px!important}` + `:not([style*="top: 0px"]){left:-245px!important}`
    → right edge +55px (z-999) peeking over the topbar. The topbar centers within max-width:800, so the

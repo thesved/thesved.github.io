@@ -1,6 +1,6 @@
 /*
  * Viktor's Roam Mobile Command Bar — THE mobile toolbar (replaces Roam's native gray bar).
- * version: 0.2  (2026-06-12)
+ * version: 0.3  (2026-06-12)
  * author: @ViktorTabori
  *
  * v0.2 = first-principles rewrite after live root-causing (see docs/cmdbar-v2-design.md):
@@ -41,6 +41,26 @@
  *
  * Debug: localStorage.VBS_debug='1' → on-screen HUD + ViktorCmdbar._log(). Desktop testing:
  * localStorage.VBS_force='1'. Kill: ViktorCmdbar.stop(). Loader: `cmdbar` in alphaChannel.
+ *
+ * v0.3 (2026-06-12, evening — six-agent evidence pass on the iPhone videos):
+ *   - ROAM SELECTION MEMORY (root of "gapped selection / can't reach last child"): Roam keeps the
+ *     previous selection after Esc-clear and UNIONS it into the next Esc-promote or even a single
+ *     Shift+Arrow (reproduced with TRUSTED input — Roam-native bug). Mitigations: promote verifies
+ *     the result is exactly [the focused block]; merged sets are healed by shrink-walking (extends
+ *     toward the anchor converge — proven) + refocus-retry; extends and knob drags gap-check after
+ *     the fact and rebuild a contiguous selection when an illegitimate gap appears.
+ *   - KNOB DRAG remap: Roam extends stride≠1 at indent boundaries (subtree closure; ancestor-skip
+ *     gaps; an UP key can grow DOWNWARD past the anchor; getSelected() order ≠ doc order). Drag now
+ *     uses a COVERAGE test (block-highlight-blue), direction by selection extent (min/max DOM
+ *     index), one keypress per settle (poll until set changes, ≤200ms), and an oscillation guard.
+ *   - EDGE AUTO-SCROLL rebuilt to platform grammar (WebKit/Android/pragmatic-dnd constants):
+ *     DIRECTIONAL ARMING (inert until ≥48px travel toward the edge + ≥120ms), zone anchored to the
+ *     bar top (90px), linear depth velocity 50→550px/s, 400ms time-ramp resetting on zone exit,
+ *     per-frame cap 9px. Extending under a stationary finger STAYS (universal grammar) — only
+ *     engagement is gated.
+ *   - Knob lag: handles update optimistically (~35ms) and the knob animates ONLY when crossing.
+ *   - Extends share Select's blue (one visual family). `((` restored. #vt-handles clipped
+ *     (overflow:hidden) so the 44pt knob hit-box can never make iOS pan the page.
  */
 if (window.ViktorCmdbar && window.ViktorCmdbar.stop) window.ViktorCmdbar.stop();
 window.ViktorCmdbar = (function () {
@@ -55,6 +75,9 @@ window.ViktorCmdbar = (function () {
 	var open = false, ctx = 'OFF', redoAvail = false;
 	var kbAnimUntil = 0;              // while now()<this, dock transitions (focus/blur moments only)
 	var gesture = null, drag = null;  // shield gesture state
+	var prevFocusBottom = null, crossT = null; // knob crossing detector
+	var lastEdge = 'bottom';          // which end of the selection the user is working (knob side)
+	var healing = false;              // re-entrancy guard for gap healing
 	var contract = { ok: true, missing: [] };
 	var logRing = [];
 	var lastSelN = 0;
@@ -110,15 +133,106 @@ window.ViktorCmdbar = (function () {
 	}
 
 	// retry-until-selected Escape (Esc toggles; a ≤4× retry converges — proven live)
-	function promote(cb) {
+	function promoteRaw(cb) {
 		var tries = 0;
 		(function attempt() {
 			fire(document.activeElement || window, K.esc);
 			setTimeout(function () {
-				if (getSel().length) { log('promote ok'); cb(true); return; }
-				if (++tries < 4) attempt(); else { log('promote FAILED'); cb(false); }
+				if (getSel().length) { cb(true); return; }
+				if (++tries < 4) attempt(); else cb(false);
 			}, 150);
 		})();
+	}
+
+	// ---------- selection-memory countermeasures ----------
+	// Roam keeps the previous selection after Esc-clear and UNIONS it into the next promote/extend
+	// (Roam-native, reproduced with trusted input). We detect and heal.
+	function domIdx(uid) { var n = uidNode(uid); return n ? allBlocks().indexOf(n) : -1; }
+	// DOM-order extent of the current selection + gaps not explained by subtree containment
+	function selGapInfo() {
+		var list = allBlocks();
+		var sel = getSel();
+		if (!sel.length) return null;
+		var nodes = [], idxs = [], minUid = null, maxUid = null, min = 1e9, max = -1;
+		sel.forEach(function (s) {
+			var n = uidNode(s['block-uid']); if (!n) return;
+			var i = list.indexOf(n); if (i < 0) return;
+			nodes.push(n); idxs.push(i);
+			if (i < min) { min = i; minUid = s['block-uid']; }
+			if (i > max) { max = i; maxUid = s['block-uid']; }
+		});
+		if (!idxs.length) return null;
+		var set = {}; idxs.forEach(function (i) { set[i] = 1; });
+		var gaps = [];
+		for (var i = min + 1; i < max; i++) {
+			if (set[i]) continue;
+			var el = list[i];
+			var ok = false;
+			for (var k = 0; k < nodes.length; k++) { if (el.contains(nodes[k]) || nodes[k].contains(el)) { ok = true; break; } }
+			if (!ok) gaps.push(i);
+		}
+		return { min: min, max: max, minUid: minUid, maxUid: maxUid, gaps: gaps, win: sel[0]['window-id'] };
+	}
+	// shrink the selection one step at a time toward its anchor; converges to [anchor] (proven)
+	function shrinkWalk(cb) {
+		var steps = 0, flips = 0, dir = K.extendUp, lastLen = getSel().length;
+		(function step() {
+			var n = getSel().length;
+			if (n <= 1 || steps > 24) { cb(); return; }
+			steps++;
+			fire(window, dir);
+			setTimeout(function () {
+				var m = getSel().length;
+				if (m < lastLen) { lastLen = m; step(); return; }
+				flips++;
+				if (flips > 3) { cb(); return; }
+				dir = (dir === K.extendUp) ? K.extendDown : K.extendUp;
+				lastLen = m; step();
+			}, 130);
+		})();
+	}
+	// promote that GUARANTEES the result is exactly [intendedUid] (heals stale-memory merges)
+	function ensureClean(intendedUid, win, cb, outer) {
+		outer = outer || 0;
+		promoteRaw(function (ok) {
+			if (!ok) { cb(false); return; }
+			var sel = getSel();
+			if (!intendedUid || (sel.length === 1 && sel[0]['block-uid'] === intendedUid)) { cb(true); return; }
+			log('promote merged ' + sel.length + ' — healing (shrink-walk)');
+			shrinkWalk(function () {
+				var s2 = getSel();
+				if (s2.length === 1 && s2[0]['block-uid'] === intendedUid) { log('heal ok (walk)'); cb(true); return; }
+				if (outer >= 2) { log('heal cap — accepting ' + s2.length); cb(s2.length >= 1); return; }
+				fire(window, K.esc); // clear
+				setTimeout(function () {
+					try { api().ui.setBlockFocusAndSelection({ location: { 'block-uid': intendedUid, 'window-id': win || 'log-outline' } }); } catch (e) { }
+					setTimeout(function () { ensureClean(intendedUid, win, cb, outer + 1); }, 400);
+				}, 160);
+			});
+		});
+	}
+	function promote(cb) {
+		var fb = null;
+		try { fb = api().ui.getFocusedBlock(); } catch (e) { }
+		ensureClean(fb && fb['block-uid'], fb && fb['window-id'], cb);
+	}
+	// gap healing: when an extend/drag resurrects a stale remembered set (illegitimate gap),
+	// COLLAPSE to the anchor (shrink-walk converges — proven) rather than bridging the span:
+	// bridging a memory-resurrected gap would select a swath of unrelated content. After the
+	// collapse the live selection is clean and further extends grow normally (no clear happens,
+	// so the memory cannot re-union mid-session).
+	function healGaps(reason) {
+		if (healing || ctx !== 'SELECTING') return;
+		var gi = selGapInfo();
+		if (!gi || !gi.gaps.length) return;
+		healing = true;
+		log('GAP (' + reason + '): ' + gi.gaps.length + ' — collapsing to anchor');
+		shrinkWalk(function () {
+			healing = false;
+			lastSelN = getSel().length;
+			updateHandles();
+			log('gap collapse done sel=' + lastSelN);
+		});
 	}
 
 	// ---------- native-bar proxy layer + contract ----------
@@ -149,6 +263,7 @@ window.ViktorCmdbar = (function () {
 		moveUp: { icon: '.bp3-icon-arrow-up' },
 		moveDown: { icon: '.bp3-icon-arrow-down' },
 		wikilink: { text: '[[' },
+		blockref: { text: '((' },
 		slash: { text: '/' }
 	};
 	function checkContract() {
@@ -188,6 +303,7 @@ window.ViktorCmdbar = (function () {
 		undo: { show: 'ESI', run: function (c) { (c === 'EDITING' && proxyClick(PROXY.undo)) || fire(window, K.undo); redoAvail = true; paintRedo(); } },
 		redo: { show: 'EI', redoGated: true, run: function (c) { (c === 'EDITING' && proxyClick(PROXY.redo)) || fire(window, K.redo); } },
 		wikilink: { show: 'E', run: function () { proxyClick(PROXY.wikilink) || insertText('[['); } },
+		blockref: { show: 'E', run: function () { proxyClick(PROXY.blockref) || insertText('(('); } },
 		slash: { show: 'E', run: function () { proxyClick(PROXY.slash) || insertText('/'); } },
 		del: { show: 'S', run: function () { fire(window, K.del); } },
 		done: { show: 'S', run: function () { doDone(); } },
@@ -198,7 +314,7 @@ window.ViktorCmdbar = (function () {
 		if (!isBlockTextarea(ta)) { shake(btns.select); return; }
 		checkContract();
 		promote(function (ok) {
-			if (ok) applyCtx(true); else shake(btns.select);
+			if (ok) { lastEdge = 'bottom'; applyCtx(true); } else shake(btns.select);
 		});
 	}
 	function doDone() {
@@ -214,9 +330,12 @@ window.ViktorCmdbar = (function () {
 		var c = ctx;
 		log('act ' + id + (viaRepeat ? ' (rep)' : '') + ' ctx=' + c);
 		if (id !== 'undo' && id !== 'redo') { if (id !== 'select' && id !== 'close') redoAvail = false, paintRedo(); }
+		if (id === 'extendUp') lastEdge = 'top';
+		if (id === 'extendDown') lastEdge = 'bottom';
 		a.run(c);
 		// closed loop for selection ops
 		if (c === 'SELECTING' && id !== 'done') {
+			setTimeout(updateHandles, 35);   // optimistic: knob/chip track the highlight, not the verify
 			setTimeout(function () {
 				var n = getSel().length;
 				if (!n) {
@@ -228,6 +347,8 @@ window.ViktorCmdbar = (function () {
 				if ((id === 'extendUp' || id === 'extendDown') && n === lastSelN && !viaRepeat) nudge(btns[id]);
 				lastSelN = n;
 				updateHandles();
+				// selection-memory resurrection guard: a single extend can union a stale set (Roam bug)
+				if (id === 'extendUp' || id === 'extendDown') healGaps('extend');
 			}, 140);
 		}
 	}
@@ -295,8 +416,11 @@ window.ViktorCmdbar = (function () {
 			'.vt-spacer{flex:1 1 auto;}',
 			'.vt-txt{font:600 16px/1 -apple-system,sans-serif;letter-spacing:.2px;}',
 
+			/* selection family shares the Select blue (extends continue what Select started) */
+			'#vt-b-extendUp.vt-on,#vt-b-extendDown.vt-on{color:' + BLUE + ';}',
+
 			/* Select + Done pills */
-			'#vt-b-select.vt-on{max-width:96px;width:auto;padding:0 12px;gap:5px;color:' + BLUE + ';}',
+			'#vt-b-select.vt-on{max-width:96px;width:auto;padding:0 10px;gap:5px;color:' + BLUE + ';}',
 			'#vt-b-select span{font:600 14px/1 -apple-system,sans-serif;}',
 			'#vt-b-done{background:' + BLUE + ';color:#fff;height:34px;border-radius:9px;}',
 			'#vt-b-done.vt-on{max-width:84px;width:auto;padding:0 16px;}',
@@ -315,18 +439,19 @@ window.ViktorCmdbar = (function () {
 			'#' + ROOT_ID + '[data-fab="1"] #vt-fab{display:flex;}',
 			'#vt-fab.vt-pressed{transform:scale(.88);}',
 
-			/* HANDLES (separate fixed layer — never transformed) */
-			'#vt-handles{position:fixed;inset:0;z-index:9991;pointer-events:none;display:none;}',
+			/* HANDLES (separate fixed layer — never transformed; clipped so the 44pt knob hit-box
+			   can never poke past the right edge and make iOS pan the page) */
+			'#vt-handles{position:fixed;inset:0;z-index:9991;pointer-events:none;display:none;overflow:hidden;}',
 			'#' + ROOT_ID + '[data-handles="1"] #vt-handles{display:block;}',
 			'.vt-knob{position:absolute;pointer-events:auto;touch-action:none;width:44px;height:44px;margin:-22px 0 0 -22px;}',
 			'.vt-knob::before{content:"";position:absolute;left:50%;top:50%;width:15px;height:15px;border-radius:50%;background:' + BLUE + ';',
 			'  transform:translate(-50%,-50%);box-shadow:0 1px 4px rgba(0,0,0,.45),0 0 0 1.5px var(--bg-color,#182026);transition:transform .12s ease;}',
 			'.vt-knob[data-grab]::before{transform:translate(-50%,-50%) scale(1.3);box-shadow:0 1px 4px rgba(0,0,0,.45),0 0 0 8px rgba(47,155,249,.16),0 0 0 9.5px var(--bg-color,#182026);}',
-			'.vt-knob:not([data-grab]){transition:left .14s ease,top .14s ease;}', // the crossing animation
+			'.vt-knob.vt-cross{transition:left .16s ease,top .16s ease;}', // animate ONLY when the knob crosses to the other end
 			'#vt-tick{position:absolute;width:3px;border-radius:1.5px;background:' + BLUE + ';opacity:.6;pointer-events:none;transition:left .14s ease,top .14s ease,height .14s ease;}',
 			'#vt-chip{position:absolute;pointer-events:none;min-width:22px;height:22px;padding:0 6px;border-radius:11px;',
 			'  background:' + BLUE + ';color:#fff;font:700 12px/22px -apple-system,sans-serif;text-align:center;',
-			'  box-shadow:0 1px 4px rgba(0,0,0,.4);transition:left .14s ease,top .14s ease;}',
+			'  box-shadow:0 1px 4px rgba(0,0,0,.4);}',
 
 			/* HUD */
 			'#vt-hud{position:fixed;left:8px;top:8px;z-index:9999;pointer-events:none;display:none;max-width:70vw;',
@@ -366,6 +491,7 @@ window.ViktorCmdbar = (function () {
 		bar.appendChild(mkBtn('redo', ICON.redo, 'Redo'));
 		var d2 = el('div', 'vt-d2', 'vt-div'); bar.appendChild(d2);
 		bar.appendChild(mkBtn('wikilink', '<span class="vt-txt">[[</span>', 'Page link'));
+		bar.appendChild(mkBtn('blockref', '<span class="vt-txt">((</span>', 'Block ref'));
 		bar.appendChild(mkBtn('slash', '<span class="vt-txt">/</span>', 'Command'));
 		bar.appendChild(mkBtn('del', ICON.del, 'Delete blocks'));
 		bar.appendChild(el('div', null, 'vt-spacer'));
@@ -390,7 +516,7 @@ window.ViktorCmdbar = (function () {
 	// which buttons show in which form
 	var FORM = {
 		IDLE: ['undo', 'redo*', 'close'],
-		EDITING: ['select', 'd1', 'outdent', 'indent', 'moveUp', 'moveDown', 'undo', 'redo*', 'd2', 'wikilink', 'slash'],
+		EDITING: ['select', 'd1', 'outdent', 'indent', 'moveUp', 'moveDown', 'undo', 'redo*', 'd2', 'wikilink', 'blockref', 'slash'],
 		SELECTING: ['extendUp', 'extendDown', 'd1', 'outdent', 'indent', 'moveUp', 'moveDown', 'undo', 'd2', 'del', 'done']
 	};
 	function paintForm() {
@@ -445,15 +571,23 @@ window.ViktorCmdbar = (function () {
 	}
 	function updateHandles() {
 		var sel = getSel();
-		if (!sel.length) { root.dataset.handles = '0'; return; }
+		if (!sel.length) { root.dataset.handles = '0'; prevFocusBottom = null; return; }
 		root.dataset.handles = '1';
 		var uids = sel.map(function (x) { return x['block-uid']; });
 		var rects = uids.map(function (u) { return { uid: u, r: rectOf(u) }; }).filter(function (x) { return x.r; });
-		if (!rects.length) { root.dataset.handles = '0'; return; }
+		if (!rects.length) { root.dataset.handles = '0'; prevFocusBottom = null; return; }
 		rects.sort(function (a, b) { return a.r.top - b.r.top; });
 		var top = rects[0], bot = rects[rects.length - 1];
-		var anchorUid = uids[0];
-		var focusIsBottom = (anchorUid === top.uid) || rects.length === 1;
+		// getSelected() order is INSERTION order, not document order (proven) — never derive the
+		// anchor from uids[0]; the knob lives at the edge the user is working (lastEdge).
+		var focusIsBottom = lastEdge !== 'top';
+		// animate the knob ONLY when it crosses to the other end (the moment worth selling)
+		if (prevFocusBottom !== null && focusIsBottom !== prevFocusBottom && !drag) {
+			knob.classList.add('vt-cross');
+			if (crossT) clearTimeout(crossT);
+			crossT = setTimeout(function () { knob.classList.remove('vt-cross'); }, 200);
+		}
+		prevFocusBottom = focusIsBottom;
 		var vw = window.innerWidth;
 		var kr = focusIsBottom ? bot.r : top.r;
 		knob.style.left = Math.max(14, Math.min(focusIsBottom ? kr.right + 6 : kr.left - 6, vw - 14)) + 'px';
@@ -545,38 +679,95 @@ window.ViktorCmdbar = (function () {
 	}
 	function gestureCancel() { gestureEnd(false); }
 	// --- knob drag (closed loop; one extend per crossed block; edge auto-scroll) ---
+	// Auto-scroll grammar (WebKit/Android/pragmatic-dnd constants): zones are INERT until the finger
+	// travels ≥48px toward that edge (directional arming) and ≥120ms passed; velocity is linear in
+	// zone depth (50→550px/s) × a 400ms time-ramp that resets on zone exit; per-frame cap 9px.
+	// Extending under a stationary finger while content scrolls is the universal grammar — kept.
+	var AS = { ARM_PX: 48, ARM_MS: 120, ZONE: 90, TOPZ: 80, VMIN: 50, VMAX: 550, RAMP: 400, CAP: 9 };
 	function dragStart(pid, p) {
 		if (ctx !== 'SELECTING') return;
-		drag = { pid: pid, startY: p.y, x: p.x, y: p.y, moved: false, busy: false, raf: 0 };
+		drag = {
+			pid: pid, startY: p.y, x: p.x, y: p.y, moved: false, busy: false, raf: 0,
+			t0: now(), lastT: now(), minY: p.y, maxY: p.y,
+			armUp: false, armDown: false, engUp: 0, engDown: 0,
+			seenEl: null, seen: {}
+		};
 		knob.setAttribute('data-grab', '1');
 		log('drag start');
 		dragLoop();
 	}
 	function dragLoop() {
 		if (!drag) return;
-		if (drag.moved && !drag.busy) {
+		var t = now();
+		var dt = Math.min(50, t - drag.lastT); drag.lastT = t;
+		if (drag.moved) {
 			var sel = getSel();
 			if (!sel.length) { log('drag: sel vanished — abort'); dragEnd(); return; }
-			// edge auto-scroll
+			// --- directional arming + tracking ---
+			if (drag.y > drag.maxY) drag.maxY = drag.y;
+			if (drag.y < drag.minY) drag.minY = drag.y;
+			if (!drag.armDown && drag.y - drag.minY >= AS.ARM_PX && t - drag.t0 >= AS.ARM_MS) { drag.armDown = true; drag.maxY = drag.y; }
+			if (drag.armDown && drag.maxY - drag.y >= AS.ARM_PX) { drag.armDown = false; drag.engDown = 0; drag.minY = drag.y; }
+			if (!drag.armUp && drag.maxY - drag.y >= AS.ARM_PX && t - drag.t0 >= AS.ARM_MS) { drag.armUp = true; drag.minY = drag.y; }
+			if (drag.armUp && drag.y - drag.minY >= AS.ARM_PX) { drag.armUp = false; drag.engUp = 0; drag.maxY = drag.y; }
+			// --- ramped edge auto-scroll (zone anchored to the bar top, not the screen bottom) ---
 			var vv = window.visualViewport;
-			var vh = vv ? vv.height + vv.offsetTop : window.innerHeight;
+			var vpBottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+			var barTop = vpBottom - ((root.dataset.bar === '1') ? bar.getBoundingClientRect().height : 0);
 			var sc = scroller();
-			if (drag.y < 100) sc.scrollBy(0, -Math.ceil((100 - drag.y) / 6));
-			else if (drag.y > vh - 110) sc.scrollBy(0, Math.ceil((drag.y - (vh - 110)) / 6));
-			// hit-test the block under the finger
-			var hit = document.elementFromPoint(drag.x, Math.max(2, Math.min(window.innerHeight - 2, drag.y)));
-			var targetEl = hit && hit.closest ? hit.closest('.roam-block-container') : null;
-			if (targetEl) {
-				var list = allBlocks();
-				var tIdx = list.indexOf(targetEl);
-				var uids = sel.map(function (x) { return x['block-uid']; });
-				var idxs = uids.map(function (u) { return list.indexOf(uidNode(u)); }).filter(function (i) { return i >= 0; }).sort(function (a, b) { return a - b; });
-				var anchorIdx = list.indexOf(uidNode(uids[0]));
-				var focusIdx = (anchorIdx === idxs[0]) ? idxs[idxs.length - 1] : idxs[0];
-				if (tIdx >= 0 && tIdx !== focusIdx) {
-					drag.busy = true;
-					fire(window, tIdx > focusIdx ? K.extendDown : K.extendUp);
-					setTimeout(function () { if (drag) drag.busy = false; updateHandles(); }, 60);
+			if (drag.armDown && drag.y > barTop - AS.ZONE) {
+				if (!drag.engDown) drag.engDown = t;
+				var depth = Math.min(1, (drag.y - (barTop - AS.ZONE)) / AS.ZONE);
+				var v = (AS.VMIN + depth * (AS.VMAX - AS.VMIN)) * Math.min(1, (t - drag.engDown) / AS.RAMP);
+				sc.scrollBy(0, Math.max(1, Math.min(AS.CAP, v * dt / 1000)));
+			} else drag.engDown = 0;
+			if (drag.armUp && drag.y < AS.TOPZ) {
+				if (!drag.engUp) drag.engUp = t;
+				var depthU = Math.min(1, (AS.TOPZ - drag.y) / AS.TOPZ);
+				var vU = (AS.VMIN + depthU * (AS.VMAX - AS.VMIN)) * Math.min(1, (t - drag.engUp) / AS.RAMP);
+				sc.scrollBy(0, -Math.max(1, Math.min(AS.CAP, vU * dt / 1000)));
+			} else drag.engUp = 0;
+			// --- extend toward the finger (coverage test; one keypress per settle; oscillation guard) ---
+			if (!drag.busy) {
+				var hit = document.elementFromPoint(drag.x, Math.max(2, Math.min(window.innerHeight - 2, drag.y)));
+				var targetEl = hit && hit.closest ? hit.closest('.roam-block-container') : null;
+				if (targetEl) {
+					// covered = the finger's block is already part of the selection (incl. via a
+					// selected ancestor — children of a selected parent are never independently addressable)
+					var covered = targetEl.classList.contains('block-highlight-blue') ||
+						!!targetEl.closest('.block-highlight-blue') ||
+						!!targetEl.querySelector('.block-highlight-blue');
+					var gi = selGapInfo();
+					var list = allBlocks();
+					var tIdx = list.indexOf(targetEl);
+					var key = null;
+					if (gi && tIdx >= 0) {
+						if (!covered && tIdx > gi.max) key = K.extendDown;
+						else if (!covered && tIdx < gi.min) key = K.extendUp;
+						else if (covered) {
+							// inside the range: shrink the working edge toward the finger
+							if (lastEdge === 'bottom' && tIdx < gi.max) key = K.extendUp;
+							else if (lastEdge === 'top' && tIdx > gi.min) key = K.extendDown;
+						}
+					}
+					if (key) {
+						if (drag.seenEl !== targetEl) { drag.seen = {}; drag.seenEl = targetEl; }
+						var sig = selUids().slice().sort().join(',') + '|' + (key === K.extendDown ? 'd' : 'u');
+						if (!drag.seen[sig]) {        // never repeat a press that produced a seen state
+							drag.seen[sig] = 1;
+							drag.busy = true;
+							var pre = selUids().slice().sort().join(',');
+							fire(window, key);
+							lastEdge = (key === K.extendDown) ? 'bottom' : 'top';
+							var t0s = now();
+							(function settle() {
+								if (!drag) return;
+								var cur = selUids().slice().sort().join(',');
+								if (cur !== pre || now() - t0s > 200) { drag.busy = false; updateHandles(); }
+								else setTimeout(settle, 40);
+							})();
+						}
+					}
 				}
 			}
 		}
@@ -589,6 +780,7 @@ window.ViktorCmdbar = (function () {
 		knob.removeAttribute('data-grab');
 		log('drag end sel=' + getSel().length);
 		updateHandles();
+		healGaps('drag');   // selection-memory resurrection mid-drag → rebuild contiguous
 	}
 
 	// ---------- state machine ----------
