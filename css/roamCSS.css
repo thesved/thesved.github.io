@@ -686,6 +686,19 @@ strong {
 .rm-find-or-create-footer .bp3-button {
   background-color: var(--bg-color) !important;
 }
+/* --- inline [[ / (( autocomplete popup footer (.rm-autocomplete-footer): Roam
+   hardcodes a light bg rgb(235,236,235) + light border-top while the text follows
+   var(--text-color) → light-on-light in dark mode (the results list above it IS
+   dark). Same treatment as the cmd+U footer below. */
+.rm-autocomplete-footer {
+  background-color: var(--page-color) !important;
+  border-top: 1px solid rgba(var(--box-shadow-color), 0.15) !important;
+}
+.rm-autocomplete-footer .rm-autocomplete-footer__action__hotkey__icon {
+  /* native pill is rgba(0,0,0,.08) — invisible on the dark footer */
+  background-color: rgba(var(--box-shadow-color), 0.12) !important;
+}
+
 .rm-find-or-create-popover .bp3-menu-item.bp3-active,
 .rm-find-or-create-popover .bp3-menu-item:hover {
   background-color: rgba(var(--color-primary), 0.25) !important;

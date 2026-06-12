@@ -1,6 +1,6 @@
 /*
  * Viktor's Roam Mobile Command Bar — THE mobile toolbar (replaces Roam's native gray bar).
- * version: 0.4  (2026-06-12)
+ * version: 0.4.1  (2026-06-12)  — divider right of [⌫] (was visually glued to [Done])
  * author: @ViktorTabori
  *
  * v0.2 = first-principles rewrite after live root-causing (see docs/cmdbar-v2-design.md):
@@ -26,7 +26,7 @@
  *   EDITING   — block textarea focused:  [Select] │ [⇤][⇥][↑][↓][↶][↷*] │ [[[ ] [✓] [img] [/]
  *               (no dismiss button — the OS accessory ✓ already does that; ↷ appears only when
  *               redo is available and then borrows the [img] slot — 390pt budget).
- *   SELECTING — ≥1 block selected (keyboard down by nature): [+↑][+↓] │ [⇤][⇥][↑][↓][↶] │ [⌫] ─ [Done]
+ *   SELECTING — ≥1 block selected (keyboard down by nature): [+↑][+↓] │ [⇤][⇥][↑][↓][↶] │ [⌫] │ ─ [Done]
  *               + ONE live knob at the selection's focus edge (anchor gets a cosmetic tick),
  *               count chip rides the knob, extends auto-repeat on hold, edge auto-scroll.
  *   Shared middle [⇤][⇥][↑][↓][↶] never moves between forms (shared-element morph; buttons are
@@ -637,6 +637,7 @@ window.ViktorCmdbar = (function () {
 		bar.appendChild(mkBtn('media', ICON.media, 'Upload image'));
 		bar.appendChild(mkBtn('slash', '<span class="vt-txt">/</span>', 'Command'));
 		bar.appendChild(mkBtn('del', ICON.del, 'Delete blocks'));
+		var d3 = el('div', 'vt-d3', 'vt-div'); bar.appendChild(d3);
 		bar.appendChild(el('div', null, 'vt-spacer'));
 		bar.appendChild(mkBtn('done', '<span>Done</span>', 'Done'));
 		bar.appendChild(mkBtn('close', ICON.chevDown, 'Close bar'));
@@ -660,7 +661,7 @@ window.ViktorCmdbar = (function () {
 	var FORM = {
 		IDLE: ['undo', 'redo*', 'close'],
 		EDITING: ['select', 'd1', 'outdent', 'indent', 'moveUp', 'moveDown', 'undo', 'redo*', 'd2', 'wikilink', 'todo', 'media', 'slash'],
-		SELECTING: ['extendUp', 'extendDown', 'd1', 'outdent', 'indent', 'moveUp', 'moveDown', 'undo', 'd2', 'del', 'done']
+		SELECTING: ['extendUp', 'extendDown', 'd1', 'outdent', 'indent', 'moveUp', 'moveDown', 'undo', 'd2', 'del', 'd3', 'done']
 	};
 	function paintForm() {
 		var list = FORM[ctx] || [];
@@ -673,6 +674,7 @@ window.ViktorCmdbar = (function () {
 		for (var id in btns) btns[id].classList.toggle('vt-on', !!on[id]);
 		document.getElementById('vt-d1').classList.toggle('vt-on', !!on.d1);
 		document.getElementById('vt-d2').classList.toggle('vt-on', !!on.d2);
+		document.getElementById('vt-d3').classList.toggle('vt-on', !!on.d3);
 	}
 	function paintRedo() { if (ctx !== 'OFF') paintForm(); }
 	function shake(b) { if (!b) return; b.classList.remove('vt-shake'); void b.offsetWidth; b.classList.add('vt-shake'); }
@@ -1024,7 +1026,7 @@ window.ViktorCmdbar = (function () {
 			if (debugOn()) hudPaint();
 		}, 280);
 		applyCtx(true);
-		log('cmdbar v0.4 up');
+		log('cmdbar v0.4.1 up');
 	}
 	function stop() {
 		if (!added) return; added = false;
