@@ -1,7 +1,14 @@
 /*
  * Viktor's Roam Mobile Long tap → right-click on bullets + open-in-sidebar on pages/refs/filters
- * version: 0.6  (2026-05-30)
+ * version: 0.7  (2026-06-12)
  * author: @ViktorTabori
+ *
+ * WHY v0.6 → v0.7 (filter popup hint relabel):
+ *   Roam's filter popup says "Removes — Shift-Click to Add". On mobile there is no shift-click;
+ *   OUR long-tap on a filter chip is what performs that shift-click (see the FILTER path below),
+ *   so on touch devices we relabel the hint to "Long Tap to Add". A body-level MutationObserver
+ *   catches the popover portal mounting and rewrites the text node (desktop test force:
+ *   localStorage.VLT_force = '1').
  *
  * WHY v0.5 → v0.6 (block-push under the menu, first-principles fix):
  *   v0.5 opened the menu AT THE TOUCH POINT and pushed the block by (menu.right - block.left),
@@ -66,6 +73,7 @@ window.ViktorLongtap = (function () {
 		pendingAt = 0,            // timestamp of that long-press
 		pushedEl = null,          // block currently shifted (so we always revert exactly one)
 		bodyObserver = null,
+		portalObserver = null,    // watches popover portals to relabel the filter popup hint
 		css = document.createElement('style');
 	css.id = 'CSSViktorMobileLongTap';
 	css.innerHTML = `
@@ -118,8 +126,11 @@ window.ViktorLongtap = (function () {
 		// observe the block context menu opening/closing to drive the push/revert
 		bodyObserver = new MutationObserver(onBodyClass);
 		bodyObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+		// watch for the filter popup mounting (Blueprint portals append under body) to relabel its hint
+		portalObserver = new MutationObserver(onPortal);
+		portalObserver.observe(document.body, { childList: true, subtree: true });
 		document.head.appendChild(css);
-		if (doLog) console.log('** long tap v0.5 installed **');
+		if (doLog) console.log('** long tap v0.7 installed **');
 	}
 
 	function stop() {
@@ -135,10 +146,11 @@ window.ViktorLongtap = (function () {
 		document.removeEventListener('touchcancel', bulletTouchEnd, { passive: false, capture: true });
 		document.removeEventListener('click', clickGuard, { passive: false, capture: true });
 		if (bodyObserver) { bodyObserver.disconnect(); bodyObserver = null; }
+		if (portalObserver) { portalObserver.disconnect(); portalObserver = null; }
 		clearBullet();
 		revert();
 		if (css.parentNode) css.parentNode.removeChild(css);
-		if (doLog) console.log('** long tap v0.5 STOPPED **');
+		if (doLog) console.log('** long tap v0.7 STOPPED **');
 	}
 
 	// ---------- BULLET long-press (mobile only) ----------
@@ -272,6 +284,42 @@ window.ViktorLongtap = (function () {
 			tapStatus.latestLongTap = new Date();
 			action();
 		}, minWaitTime);
+	}
+
+	// ---------- filter popup hint relabel (touch devices only) ----------
+
+	// On touch devices there is no shift-click: OUR long-tap on a filter chip is what dispatches
+	// the shift-click that adds it to "Removes" (see the FILTER path above). So when the filter
+	// popup mounts, rewrite its "Shift-Click to Add" hint to "Long Tap to Add".
+	function isTouchDevice() {
+		try { if (localStorage.getItem('VLT_force') === '1') return true; } catch (_) { }
+		return (navigator.maxTouchPoints || 0) > 0 || 'ontouchstart' in window;
+	}
+
+	function onPortal(muts) {
+		if (!isTouchDevice()) return;
+		for (var i = 0; i < muts.length; i++) {
+			var nodes = muts[i].addedNodes;
+			for (var j = 0; j < nodes.length; j++) {
+				var n = nodes[j];
+				if (n.nodeType === 1 && /bp3-(portal|overlay|popover)/.test(n.getAttribute('class') || '')) relabelFilterHint(n, 0);
+			}
+		}
+	}
+
+	function relabelFilterHint(root, tries) {
+		var done = false;
+		try {
+			var w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null), t;
+			while ((t = w.nextNode())) {
+				if (t.nodeValue && t.nodeValue.indexOf('Shift-Click') !== -1) {
+					t.nodeValue = t.nodeValue.replace(/Shift-Click/g, 'Long Tap');
+					done = true;
+				}
+			}
+		} catch (_) { }
+		// the popover content can paint a frame or two after the portal mounts — retry briefly
+		if (!done && tries < 12 && root.isConnected) requestAnimationFrame(function () { relabelFilterHint(root, tries + 1); });
 	}
 
 	// ---------- block push/revert under the open menu (mobile only) ----------
