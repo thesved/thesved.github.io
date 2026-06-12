@@ -87,6 +87,7 @@ window.ViktorCmdbar = (function () {
 	var open = false, ctx = 'OFF', redoAvail = false;
 	var kbAnimUntil = 0;              // while now()<this, dock transitions (focus/blur moments only)
 	var gesture = null, drag = null;  // shield gesture state
+	var dragGuardUntil = 0;           // eat the ghost mouseup/click that trails a knob release
 	var prevFocusBottom = null, crossT = null; // knob crossing detector
 	var lastEdge = 'bottom';          // which end of the selection the user is working (knob side)
 	var healing = false;              // re-entrancy guard for heal/ladder
@@ -766,6 +767,13 @@ window.ViktorCmdbar = (function () {
 	function shield(e) {
 		if (e.__vt) return;                                   // our own synthetics — Roam must see them
 		var inside = inRoot(e.target);
+		// the trusted mouseup/click pair that trails a knob release targets a page block (no
+		// matching mousedown — we owned it) and would make Roam clear/zoom — eat it (desktop/CDP;
+		// real iOS never synthesizes it because the knob's touchstart is preventDefault'd)
+		if (!inside && now() < dragGuardUntil && (e.type === 'mouseup' || e.type === 'click' || e.type === 'dblclick')) {
+			e.stopPropagation();
+			return;
+		}
 		// during a knob drag we own the whole screen's move/up events
 		if (!inside && !(drag && (e.type.indexOf('move') > 0 || e.type.indexOf('up') > 0 || e.type.indexOf('cancel') > 0 || e.type.indexOf('end') > 0))) return;
 		if (e.type === 'click' && !e.isTrusted) return;       // other modules' programmatic clicks
@@ -925,6 +933,7 @@ window.ViktorCmdbar = (function () {
 		var x = drag.x, y = drag.y, lastCont = drag.lastCont, scope = drag.scope;
 		if (drag.raf) cancelAnimationFrame(drag.raf);
 		drag = null;
+		dragGuardUntil = now() + 350;
 		knob.removeAttribute('data-grab');
 		// final assert: a fast flick can lift inside the 120ms throttle window — the selection
 		// must still end exactly at the finger
