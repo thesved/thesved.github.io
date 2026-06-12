@@ -584,7 +584,8 @@ window.ViktorCmdbar = (function () {
 			'.vt-knob::before{content:"";position:absolute;left:50%;top:50%;width:15px;height:15px;border-radius:50%;background:' + BLUE + ';',
 			'  transform:translate(-50%,-50%);box-shadow:0 1px 4px rgba(0,0,0,.45),0 0 0 1.5px var(--bg-color,#182026);transition:transform .12s ease;}',
 			'.vt-knob[data-grab]::before{transform:translate(-50%,-50%) scale(1.3);box-shadow:0 1px 4px rgba(0,0,0,.45),0 0 0 8px rgba(47,155,249,.16),0 0 0 9.5px var(--bg-color,#182026);}',
-			'.vt-knob.vt-cross{transition:left .16s ease,top .16s ease;}', // animate ONLY when the knob crosses to the other end
+			/* NO position transition on the knob either (user: the dot must never fly — it snaps,
+			   both across sessions and when crossing to the selection's other end) */
 			/* NO transition on the tick: it must never "fly in" from the previous selection's spot
 			   (user-reported artifact) nor smear behind scrolling — it snaps, always. */
 			'#vt-tick{position:absolute;width:3px;border-radius:1.5px;background:' + BLUE + ';opacity:.6;pointer-events:none;}',
@@ -716,8 +717,6 @@ window.ViktorCmdbar = (function () {
 		// new selection session: paint in place, no transitions from the previous session's spot
 		if (!hLayer) return;
 		hLayer.classList.add('vt-snap');
-		knob.classList.remove('vt-cross');
-		if (crossT) { clearTimeout(crossT); crossT = null; }
 		prevFocusBottom = null;
 		updateHandles();
 		requestAnimationFrame(function () { requestAnimationFrame(function () {
@@ -736,12 +735,6 @@ window.ViktorCmdbar = (function () {
 		// getSelected() order is INSERTION order, not document order (proven) — never derive the
 		// anchor from uids[0]; the knob lives at the edge the user is working (lastEdge).
 		var focusIsBottom = lastEdge !== 'top';
-		// animate the knob ONLY when it crosses to the other end (the moment worth selling)
-		if (prevFocusBottom !== null && focusIsBottom !== prevFocusBottom && !drag) {
-			knob.classList.add('vt-cross');
-			if (crossT) clearTimeout(crossT);
-			crossT = setTimeout(function () { knob.classList.remove('vt-cross'); }, 200);
-		}
 		prevFocusBottom = focusIsBottom;
 		var vw = window.innerWidth;
 		var kr = focusIsBottom ? bot.r : top.r;
