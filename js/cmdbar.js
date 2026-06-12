@@ -1,6 +1,7 @@
 /*
  * Viktor's Roam Mobile Command Bar — THE mobile toolbar (replaces Roam's native gray bar).
- * version: 0.4.1  (2026-06-12)  — divider right of [⌫] (was visually glued to [Done])
+ * version: 0.4.2  (2026-06-12)  — divider right of [⌫] (was visually glued to [Done]);
+ *   hidden flex items no longer contribute the bar's 1px gap (⌫ sat asymmetric between dividers)
  * author: @ViktorTabori
  *
  * v0.2 = first-principles rewrite after live root-causing (see docs/cmdbar-v2-design.md):
@@ -543,12 +544,18 @@ window.ViktorCmdbar = (function () {
 			'.vt-b{flex:0 0 auto;height:44px;margin:0;display:flex;align-items:center;justify-content:center;',
 			'  background:transparent;border:0;color:inherit;border-radius:10px;padding:0;cursor:pointer;overflow:hidden;',
 			'  max-width:0;opacity:0;transform:scale(.62);',
-			'  transition:max-width .20s cubic-bezier(.32,.72,0,1),opacity .15s ease,transform .20s cubic-bezier(.32,.72,0,1),background .12s ease;}',
+			'  transition:max-width .20s cubic-bezier(.32,.72,0,1),opacity .15s ease,transform .20s cubic-bezier(.32,.72,0,1),background .12s ease,margin .20s ease;}',
+			/* the bar has gap:1px — a COLLAPSED flex item still contributes a gap, so a run of
+			   hidden buttons (e.g. [[/todo/media/slash between d2 and ⌫ in SELECTING) pads its
+			   left side wider than its right (user-visible asymmetry). margin-right:-1px makes
+			   each hidden item net 0px regardless of run length. */
+			'.vt-b:not(.vt-on){margin-right:-1px;}',
 			'.vt-b.vt-on{flex:0 1 auto;max-width:46px;width:42px;min-width:30px;opacity:1;transform:scale(1);}',
 			'.vt-b.vt-pressed{transform:scale(.88);background:rgba(47,155,249,.16);}',
 			'.vt-b:disabled{opacity:.35;}',
 			'.vt-div{flex:0 0 auto;width:1px;height:22px;margin:0 2px;background:color-mix(in srgb, var(--icon-color,#5c7080) 22%, transparent);',
 			'  max-width:0;opacity:0;transition:max-width .2s,opacity .15s,margin .2s;}',
+			'.vt-div:not(.vt-on){margin:0 -1px 0 0;}',   /* hidden divider: no side margins + cancel its gap */
 			'.vt-div.vt-on{max-width:1px;opacity:1;}',
 			'.vt-spacer{flex:1 1 auto;}',
 			'.vt-txt{font:600 16px/1 -apple-system,sans-serif;letter-spacing:.2px;}',
@@ -1026,7 +1033,7 @@ window.ViktorCmdbar = (function () {
 			if (debugOn()) hudPaint();
 		}, 280);
 		applyCtx(true);
-		log('cmdbar v0.4.1 up');
+		log('cmdbar v0.4.2 up');
 	}
 	function stop() {
 		if (!added) return; added = false;
