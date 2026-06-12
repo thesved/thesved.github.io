@@ -1,6 +1,6 @@
 /*
  * Viktor's Roam Mobile Command Bar — THE mobile toolbar (replaces Roam's native gray bar).
- * version: 0.3  (2026-06-12)
+ * version: 0.4  (2026-06-12)
  * author: @ViktorTabori
  *
  * v0.2 = first-principles rewrite after live root-causing (see docs/cmdbar-v2-design.md):
@@ -23,44 +23,56 @@
  *
  * ONE bar, three forms (board-reviewed: Opus/Gemini/Codex 2026-06-12):
  *   IDLE      — FAB (or, toggled open, slim [undo][redo?]──[×] bar).
- *   EDITING   — block textarea focused:  [Select] │ [⇤][⇥][↑][↓][↶][↷*] │ [[[ ] [/]
+ *   EDITING   — block textarea focused:  [Select] │ [⇤][⇥][↑][↓][↶][↷*] │ [[[ ] [✓] [img] [/]
  *               (no dismiss button — the OS accessory ✓ already does that; ↷ appears only when
- *               redo is available; todo/media/(( cut — they live behind / and [[).
+ *               redo is available and then borrows the [img] slot — 390pt budget).
  *   SELECTING — ≥1 block selected (keyboard down by nature): [+↑][+↓] │ [⇤][⇥][↑][↓][↶] │ [⌫] ─ [Done]
  *               + ONE live knob at the selection's focus edge (anchor gets a cosmetic tick),
- *               count chip rides the knob, extends auto-repeat on hold, knob drag = closed-loop
- *               elementFromPoint → one Shift+Arrow per crossed block, edge auto-scroll.
+ *               count chip rides the knob, extends auto-repeat on hold, edge auto-scroll.
  *   Shared middle [⇤][⇥][↑][↓][↶] never moves between forms (shared-element morph; buttons are
  *   built ONCE and toggled via CSS — nothing is ever rebuilt under a finger).
  *
- * Engine: synthetic keydowns (keyCode-hardened) on window for Roam's global hotkey engine
- * (Escape enter/clear select, Shift+Arrow extend, Tab indent, Meta+Shift+Arrow move, Backspace
- * delete, Meta+Z undo) + proxy-clicks into the hidden native bar for editing ops. Single source
- * of truth = roamAlphaAPI.ui.multiselect.getSelected() + document.activeElement (closed loop:
- * re-read after every emit; never blind-fire).
+ * Engine v0.4 — ABSOLUTE SELECTION (the big simplification, live-verified 2026-06-12):
+ *   A synthetic (untrusted) shift-click on a block's content div makes Roam compute the selection
+ *   as anchor..target ABSOLUTELY: replaces any previous extension, native subtree closure, both
+ *   directions, idempotent on repeat. That one primitive (assertRange) now drives the knob drag,
+ *   the extend buttons and gap healing — the v0.3 keyboard stepping (Shift+Arrow per block with
+ *   coverage tests, seen-set oscillation guards and settle polling) is GONE; it no-oped at subtree
+ *   boundaries (bricked drags through a parent's children — iPhone video, HUD-confirmed) and could
+ *   resurrect Roam's remembered selection. Esc keydowns remain only for promote (Select) and as
+ *   clear fallback; editing ops still proxy-click the hidden native bar.
  *
- * Debug: localStorage.VBS_debug='1' → on-screen HUD + ViktorCmdbar._log(). Desktop testing:
- * localStorage.VBS_force='1'. Kill: ViktorCmdbar.stop(). Loader: `cmdbar` in alphaChannel.
- *
- * v0.3 (2026-06-12, evening — six-agent evidence pass on the iPhone videos):
- *   - ROAM SELECTION MEMORY (root of "gapped selection / can't reach last child"): Roam keeps the
- *     previous selection after Esc-clear and UNIONS it into the next Esc-promote or even a single
- *     Shift+Arrow (reproduced with TRUSTED input — Roam-native bug). Mitigations: promote verifies
- *     the result is exactly [the focused block]; merged sets are healed by shrink-walking (extends
- *     toward the anchor converge — proven) + refocus-retry; extends and knob drags gap-check after
- *     the fact and rebuild a contiguous selection when an illegitimate gap appears.
- *   - KNOB DRAG remap: Roam extends stride≠1 at indent boundaries (subtree closure; ancestor-skip
- *     gaps; an UP key can grow DOWNWARD past the anchor; getSelected() order ≠ doc order). Drag now
- *     uses a COVERAGE test (block-highlight-blue), direction by selection extent (min/max DOM
- *     index), one keypress per settle (poll until set changes, ≤200ms), and an oscillation guard.
- *   - EDGE AUTO-SCROLL rebuilt to platform grammar (WebKit/Android/pragmatic-dnd constants):
- *     DIRECTIONAL ARMING (inert until ≥48px travel toward the edge + ≥120ms), zone anchored to the
- *     bar top (90px), linear depth velocity 50→550px/s, 400ms time-ramp resetting on zone exit,
- *     per-frame cap 9px. Extending under a stationary finger STAYS (universal grammar) — only
- *     engagement is gated.
- *   - Knob lag: handles update optimistically (~35ms) and the knob animates ONLY when crossing.
- *   - Extends share Select's blue (one visual family). `((` restored. #vt-handles clipped
- *     (overflow:hidden) so the 44pt knob hit-box can never make iOS pan the page.
+ * v0.4 (2026-06-12, night — evidence: 2 iPhone videos w/ HUD + 11 live CDP isolation tests):
+ *   - THE DANCE root cause: v0.3 ensureClean demanded promote == exactly [seed]; a parent's
+ *     LEGIT subtree promote (Roam enumerates parent+descendants) was misread as a memory-merge
+ *     → shrink-walk (which no-ops on subtree sets) → Esc-clear/refocus/re-promote loop → the
+ *     highlight flashed on/off ~1.6s and "danced". Fix: subtreeOk() accepts seed ∪ descendants
+ *     (DOM containment; a selected uid with NO DOM node = collapsed descendant = inside).
+ *   - Promote heal (real memory-union): ONE assertRange(seed) → verify → ONE clear+refocus+
+ *     re-promote → verify → else HONEST FAILURE (clear + shake, never accept foreign blocks —
+ *     a foreign selection is one [⌫] away from deleting unrelated content, and never loop).
+ *   - Knob drag: absolute shift-click on the block under the finger (throttled 120ms, retry ≤4
+ *     per target until the extent covers it, embed containers resolve to their HOST block,
+ *     scope = the anchor's article). Final assert at dragEnd (fast flick inside the throttle
+ *     window must not under-select). Autoscroll grammar from v0.3 kept verbatim.
+ *   - Extend buttons: absolute too — target = block before/after the current DOM extent,
+ *     assertRange(target), keyboard Shift+Arrow only as one-shot fallback (page boundaries /
+ *     virtualized targets). Auto-repeat is now safe (idempotent).
+ *   - healGaps: gap ⇒ ONE assertRange(working-edge extent) re-asserts anchor..edge contiguity;
+ *     persists ⇒ reset ladder (clear+refocus+re-promote, honest-exit). No more shrink-walk.
+ *   - Seed invariant: seedUid tracked from promote; if it ever leaves the selection (Roam's
+ *     internal anchor drifted — the state the memory bug corrupts) ⇒ reset ladder.
+ *   - Done: plain synthetic click on safe whitespace (article corner / topbar gap) clears the
+ *     multiselect WITHOUT Esc — live-verified — so Roam's selection memory is never primed on
+ *     the main path; Esc stays as fallback.
+ *   - SHIELD: our own synthetic page-targeted events are tagged (ev.__vt) and exempted FIRST —
+ *     v0.3's drag-ownership clause would have eaten our own shift-click mouseup mid-drag.
+ *   - Handles: tick/knob/chip SNAP on a new selection session (no more blue line flying in from
+ *     the previous selection's position — the user's "animated from above/below" artifact #3);
+ *     transitions enabled only within a live session. Knob crossing animation state reset too.
+ *   - Buttons: `((` replaced by [✓] todo (proxy .zmdi-check-square, fallback inserts
+ *     {{[[TODO]]}}) and [img] media upload (proxy .bp3-icon-media, no fallback — contract-drift
+ *     badge covers). 390pt: .vt-b min-width 33→30, divider margins 3→2px, redo⇄media slot-share.
  */
 if (window.ViktorCmdbar && window.ViktorCmdbar.stop) window.ViktorCmdbar.stop();
 window.ViktorCmdbar = (function () {
@@ -77,7 +89,8 @@ window.ViktorCmdbar = (function () {
 	var gesture = null, drag = null;  // shield gesture state
 	var prevFocusBottom = null, crossT = null; // knob crossing detector
 	var lastEdge = 'bottom';          // which end of the selection the user is working (knob side)
-	var healing = false;              // re-entrancy guard for gap healing
+	var healing = false;              // re-entrancy guard for heal/ladder
+	var seedUid = null, seedWin = null; // the promoted anchor (invariant: stays in the selection)
 	var contract = { ok: true, missing: [] };
 	var logRing = [];
 	var lastSelN = 0;
@@ -103,8 +116,18 @@ window.ViktorCmdbar = (function () {
 		var el = document.querySelector('[id$="-' + uid + '"]');
 		return el ? el.closest('.roam-block-container') : null;
 	}
-	function allBlocks() { return Array.prototype.slice.call(document.querySelectorAll('.roam-block-container')); }
 	function scroller() { return document.querySelector('.rm-article-wrapper') || document.scrollingElement; }
+	// selection workspace scoping: the anchor's article (log/page or right-sidebar window);
+	// embed-inner containers belong to a FOREIGN page — never addressable, never gap-relevant
+	function articleOf(node) {
+		return (node && node.closest && (node.closest('.roam-article') || node.closest('#roam-right-sidebar-content')))
+			|| document.querySelector('.roam-article') || document.body;
+	}
+	function blocksIn(scope) {
+		return Array.prototype.slice.call(scope.querySelectorAll('.roam-block-container')).filter(function (n) {
+			return !n.closest('.rm-embed-container') && !n.closest('#' + ROOT_ID);
+		});
+	}
 
 	// ---------- synthetic key engine (keyCode-hardened) ----------
 	var K = {
@@ -144,15 +167,45 @@ window.ViktorCmdbar = (function () {
 		})();
 	}
 
-	// ---------- selection-memory countermeasures ----------
-	// Roam keeps the previous selection after Esc-clear and UNIONS it into the next promote/extend
-	// (Roam-native, reproduced with trusted input). We detect and heal.
-	function domIdx(uid) { var n = uidNode(uid); return n ? allBlocks().indexOf(n) : -1; }
+	// ---------- absolute selection engine (ONE primitive) ----------
+	// A synthetic shift-click makes Roam compute anchor..target ABSOLUTELY (live-verified:
+	// replaces previous extension, native subtree closure, idempotent, works upward, works on
+	// ancestors, safe on the anchor itself). Tagged __vt so our own shield never eats it.
+	function contentEl(cont) {
+		return cont.querySelector('.rm-block-main .roam-block') ||
+			cont.querySelector('.rm-block-main div[id^="block-input"]') ||
+			cont.querySelector('.rm-block-main') || cont;
+	}
+	function tagged(el, types, opts) {
+		types.forEach(function (t) {
+			var ev = new MouseEvent(t, opts);
+			ev.__vt = 1;
+			el.dispatchEvent(ev);
+		});
+	}
+	function assertRange(target) {   // target: container element or uid
+		var cont = typeof target === 'string' ? uidNode(target) : target;
+		if (!cont) return false;
+		var el = contentEl(cont);
+		var r = el.getBoundingClientRect();
+		if (!r.width && !r.height) return false;
+		tagged(el, ['mousedown', 'mouseup', 'click'], {
+			bubbles: true, cancelable: true, view: window, shiftKey: true, button: 0,
+			clientX: r.left + Math.min(20, Math.max(2, r.width / 2)),
+			clientY: r.top + Math.min(10, Math.max(2, r.height / 2))
+		});
+		return true;
+	}
+
 	// DOM-order extent of the current selection + gaps not explained by subtree containment
-	function selGapInfo() {
-		var list = allBlocks();
+	function selExtent() {
 		var sel = getSel();
 		if (!sel.length) return null;
+		var first = null;
+		for (var f = 0; f < sel.length && !first; f++) first = uidNode(sel[f]['block-uid']);
+		if (!first) return null;
+		var scope = articleOf(first);
+		var list = blocksIn(scope);
 		var nodes = [], idxs = [], minUid = null, maxUid = null, min = 1e9, max = -1;
 		sel.forEach(function (s) {
 			var n = uidNode(s['block-uid']); if (!n) return;
@@ -171,68 +224,124 @@ window.ViktorCmdbar = (function () {
 			for (var k = 0; k < nodes.length; k++) { if (el.contains(nodes[k]) || nodes[k].contains(el)) { ok = true; break; } }
 			if (!ok) gaps.push(i);
 		}
-		return { min: min, max: max, minUid: minUid, maxUid: maxUid, gaps: gaps, win: sel[0]['window-id'] };
+		return { scope: scope, list: list, min: min, max: max, minUid: minUid, maxUid: maxUid, gaps: gaps };
 	}
-	// shrink the selection one step at a time toward its anchor; converges to [anchor] (proven)
-	function shrinkWalk(cb) {
-		var steps = 0, flips = 0, dir = K.extendUp, lastLen = getSel().length;
-		(function step() {
-			var n = getSel().length;
-			if (n <= 1 || steps > 24) { cb(); return; }
-			steps++;
-			fire(window, dir);
-			setTimeout(function () {
-				var m = getSel().length;
-				if (m < lastLen) { lastLen = m; step(); return; }
-				flips++;
-				if (flips > 3) { cb(); return; }
-				dir = (dir === K.extendUp) ? K.extendDown : K.extendUp;
-				lastLen = m; step();
-			}, 130);
-		})();
-	}
-	// promote that GUARANTEES the result is exactly [intendedUid] (heals stale-memory merges)
-	function ensureClean(intendedUid, win, cb, outer) {
-		outer = outer || 0;
-		promoteRaw(function (ok) {
-			if (!ok) { cb(false); return; }
-			var sel = getSel();
-			if (!intendedUid || (sel.length === 1 && sel[0]['block-uid'] === intendedUid)) { cb(true); return; }
-			log('promote merged ' + sel.length + ' — healing (shrink-walk)');
-			shrinkWalk(function () {
-				var s2 = getSel();
-				if (s2.length === 1 && s2[0]['block-uid'] === intendedUid) { log('heal ok (walk)'); cb(true); return; }
-				if (outer >= 2) { log('heal cap — accepting ' + s2.length); cb(s2.length >= 1); return; }
-				fire(window, K.esc); // clear
-				setTimeout(function () {
-					try { api().ui.setBlockFocusAndSelection({ location: { 'block-uid': intendedUid, 'window-id': win || 'log-outline' } }); } catch (e) { }
-					setTimeout(function () { ensureClean(intendedUid, win, cb, outer + 1); }, 400);
-				}, 160);
-			});
+
+	// ---------- promote + selection-memory countermeasures ----------
+	// Promoting a PARENT legitimately selects the whole subtree (Roam enumerates every visible
+	// descendant; collapsed descendants may be in the set with no DOM node). v0.3 treated that as
+	// a memory-merge and "healed" it into an Esc on/off dance — THE bug. Acceptance is now:
+	// seed ∈ selection AND every selected node is seed's container or inside it (null node ⇒
+	// collapsed descendant ⇒ inside).
+	function subtreeOk(uid) {
+		var sel = getSel(); if (!sel.length) return false;
+		var host = uidNode(uid); if (!host) return false;
+		var hasSeed = false;
+		var ok = sel.every(function (s) {
+			if (s['block-uid'] === uid) { hasSeed = true; return true; }
+			var n = uidNode(s['block-uid']);
+			return !n || host.contains(n);
 		});
+		return ok && hasSeed;
 	}
+	// promote with decisive, non-looping heal. NEVER accepts foreign blocks (a foreign selection
+	// is one [⌫] away from deleting unrelated content) and NEVER dances (each rung runs ONCE).
 	function promote(cb) {
 		var fb = null;
 		try { fb = api().ui.getFocusedBlock(); } catch (e) { }
-		ensureClean(fb && fb['block-uid'], fb && fb['window-id'], cb);
+		var uid = fb && fb['block-uid'], win = fb && fb['window-id'];
+		if (!uid) { cb(false); return; }
+		promoteRaw(function (ok) {
+			if (!ok) { cb(false); return; }
+			if (subtreeOk(uid)) { seedUid = uid; seedWin = win; cb(true); return; }
+			log('promote union ' + getSel().length + ' — heal: assertRange(seed)');
+			assertRange(uid);
+			setTimeout(function () {
+				if (subtreeOk(uid)) { seedUid = uid; seedWin = win; cb(true); return; }
+				log('heal 1 failed — clear+refocus+re-promote');
+				fire(window, K.esc);
+				setTimeout(function () {
+					try { api().ui.setBlockFocusAndSelection({ location: { 'block-uid': uid, 'window-id': win || 'log-outline' } }); } catch (e) { }
+					setTimeout(function () {
+						promoteRaw(function (ok2) {
+							if (ok2 && subtreeOk(uid)) { seedUid = uid; seedWin = win; cb(true); return; }
+							log('promote heal failed — honest exit');
+							if (getSel().length) fire(window, K.esc);   // never leave a foreign selection armed
+							cb(false);
+						});
+					}, 400);
+				}, 160);
+			}, 250);
+		});
 	}
-	// gap healing: when an extend/drag resurrects a stale remembered set (illegitimate gap),
-	// COLLAPSE to the anchor (shrink-walk converges — proven) rather than bridging the span:
-	// bridging a memory-resurrected gap would select a swath of unrelated content. After the
-	// collapse the live selection is clean and further extends grow normally (no clear happens,
-	// so the memory cannot re-union mid-session).
+	// shared honest-failure path: clear + refocus seed + one re-promote; still bad ⇒ clear + shake
+	function resetLadder(reason) {
+		if (healing || !seedUid) return;
+		healing = true;
+		log('reset ladder (' + reason + ')');
+		fire(window, K.esc);
+		setTimeout(function () {
+			try { api().ui.setBlockFocusAndSelection({ location: { 'block-uid': seedUid, 'window-id': seedWin || 'log-outline' } }); } catch (e) { }
+			setTimeout(function () {
+				promoteRaw(function (ok) {
+					if (!ok || !subtreeOk(seedUid)) {
+						if (getSel().length) fire(window, K.esc);
+						shake(btns.select);
+					}
+					healing = false;
+					lastSelN = getSel().length;
+					applyCtx(true);
+				});
+			}, 350);
+		}, 160);
+	}
+	// seed invariant: the anchor must stay inside the selection (extends and absolute clicks
+	// always include it). Seed gone ⇒ Roam's internal anchor drifted (memory bug) ⇒ ladder.
+	function seedCheck(reason) {
+		if (ctx !== 'SELECTING' || !seedUid || healing) return;
+		if (!getSel().length) return;
+		if (selUids().indexOf(seedUid) >= 0) return;
+		log('seed left selection (' + reason + ')');
+		resetLadder('seed:' + reason);
+	}
+	// gap healing: an illegitimate gap means a stale remembered set got unioned in. ONE absolute
+	// re-assert of the working edge rebuilds anchor..edge contiguously; if the gap survives that,
+	// the anchor itself is suspect → reset ladder. (Never bridge: gaps span unrelated content.)
 	function healGaps(reason) {
 		if (healing || ctx !== 'SELECTING') return;
-		var gi = selGapInfo();
+		var gi = selExtent();
 		if (!gi || !gi.gaps.length) return;
-		healing = true;
-		log('GAP (' + reason + '): ' + gi.gaps.length + ' — collapsing to anchor');
-		shrinkWalk(function () {
-			healing = false;
+		log('GAP (' + reason + '): ' + gi.gaps.length + ' — re-assert edge');
+		assertRange(lastEdge === 'top' ? gi.minUid : gi.maxUid);
+		setTimeout(function () {
+			var g2 = selExtent();
+			if (g2 && g2.gaps.length) { resetLadder('gap:' + reason); return; }
 			lastSelN = getSel().length;
 			updateHandles();
-			log('gap collapse done sel=' + lastSelN);
-		});
+		}, 200);
+	}
+	// Done without Esc: a plain click on safe whitespace clears the multiselect (live-verified)
+	// WITHOUT priming Roam's selection memory. Esc remains the fallback.
+	function clearByClick() {
+		var pts = [];
+		var art = document.querySelector('.roam-article');
+		if (art) {
+			var r = art.getBoundingClientRect();
+			pts.push([r.right - 24, r.top + 8], [r.left + 24, r.top + 8]);
+		}
+		var tb = document.querySelector('.rm-topbar');
+		if (tb) { var t = tb.getBoundingClientRect(); pts.push([t.left + t.width / 2, t.top + t.height / 2]); }
+		for (var i = 0; i < pts.length; i++) {
+			var el = document.elementFromPoint(pts[i][0], pts[i][1]);
+			if (!el) continue;
+			if (el.closest('.roam-block-container,a,button,input,textarea,[contenteditable],.rm-title-display,.bp3-button,#' + ROOT_ID)) continue;
+			tagged(el, ['mousedown', 'mouseup', 'click'], {
+				bubbles: true, cancelable: true, view: window, button: 0,
+				clientX: pts[i][0], clientY: pts[i][1]
+			});
+			return true;
+		}
+		return false;
 	}
 
 	// ---------- native-bar proxy layer + contract ----------
@@ -251,7 +360,9 @@ window.ViktorCmdbar = (function () {
 		var b = nativeBtn(matcher); if (!b) return false;
 		// cover both onMouseDown- and onClick-bound handlers; untrusted events are fine for React
 		['mousedown', 'mouseup', 'click'].forEach(function (t) {
-			b.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window }));
+			var ev = new MouseEvent(t, { bubbles: true, cancelable: true, view: window });
+			ev.__vt = 1;
+			b.dispatchEvent(ev);
 		});
 		return true;
 	}
@@ -262,8 +373,10 @@ window.ViktorCmdbar = (function () {
 		indent: { icon: '.zmdi-format-indent-increase' },
 		moveUp: { icon: '.bp3-icon-arrow-up' },
 		moveDown: { icon: '.bp3-icon-arrow-down' },
+		todo: { icon: '.zmdi-check-square' },
+		media: { icon: '.bp3-icon-media' },
 		wikilink: { text: '[[' },
-		blockref: { text: '((' },
+		blockref: { text: '((' },                            // unused in the bar; still contract-watched
 		slash: { text: '/' }
 	};
 	function checkContract() {
@@ -292,10 +405,24 @@ window.ViktorCmdbar = (function () {
 
 	// ---------- actions ----------
 	// show: which forms display the button (E/S/I); rep: auto-repeat on hold
+	function extendAbs(dirDown) {
+		var gi = selExtent();
+		if (!gi) { fire(window, dirDown ? K.extendDown : K.extendUp); return; }
+		var idx = dirDown ? gi.max + 1 : gi.min - 1;
+		var target = (idx >= 0 && idx < gi.list.length) ? gi.list[idx] : null;
+		if (!target) { nudge(btns[dirDown ? 'extendDown' : 'extendUp']); return; }
+		var pre = gi.min + ':' + gi.max + ':' + getSel().length;
+		assertRange(target);
+		setTimeout(function () {
+			var g2 = selExtent();
+			var post = g2 ? g2.min + ':' + g2.max + ':' + getSel().length : '';
+			if (post === pre) fire(window, dirDown ? K.extendDown : K.extendUp);   // one-shot legacy fallback
+		}, 150);
+	}
 	var ACTIONS = {
 		select: { show: 'E', run: function () { doSelect(); } },
-		extendUp: { show: 'S', rep: true, run: function () { fire(window, K.extendUp); } },
-		extendDown: { show: 'S', rep: true, run: function () { fire(window, K.extendDown); } },
+		extendUp: { show: 'S', rep: true, run: function () { extendAbs(false); } },
+		extendDown: { show: 'S', rep: true, run: function () { extendAbs(true); } },
 		outdent: { show: 'ES', run: function (c) { if (c === 'EDITING') { proxyClick(PROXY.outdent) || fire(document.activeElement, K.outdent); } else fire(window, K.outdent); } },
 		indent: { show: 'ES', run: function (c) { if (c === 'EDITING') { proxyClick(PROXY.indent) || fire(document.activeElement, K.indent); } else fire(window, K.indent); } },
 		moveUp: { show: 'ES', rep: true, run: function (c) { if (c === 'EDITING') { proxyClick(PROXY.moveUp) || fire(document.activeElement, K.moveUp); } else fire(window, K.moveUp); } },
@@ -303,7 +430,8 @@ window.ViktorCmdbar = (function () {
 		undo: { show: 'ESI', run: function (c) { (c === 'EDITING' && proxyClick(PROXY.undo)) || fire(window, K.undo); redoAvail = true; paintRedo(); } },
 		redo: { show: 'EI', redoGated: true, run: function (c) { (c === 'EDITING' && proxyClick(PROXY.redo)) || fire(window, K.redo); } },
 		wikilink: { show: 'E', run: function () { proxyClick(PROXY.wikilink) || insertText('[['); } },
-		blockref: { show: 'E', run: function () { proxyClick(PROXY.blockref) || insertText('(('); } },
+		todo: { show: 'E', run: function () { proxyClick(PROXY.todo) || insertText('{{[[TODO]]}} ') || shake(btns.todo); } },
+		media: { show: 'E', run: function () { proxyClick(PROXY.media) || shake(btns.media); } },
 		slash: { show: 'E', run: function () { proxyClick(PROXY.slash) || insertText('/'); } },
 		del: { show: 'S', run: function () { fire(window, K.del); } },
 		done: { show: 'S', run: function () { doDone(); } },
@@ -314,16 +442,23 @@ window.ViktorCmdbar = (function () {
 		if (!isBlockTextarea(ta)) { shake(btns.select); return; }
 		checkContract();
 		promote(function (ok) {
-			if (ok) { lastEdge = 'bottom'; applyCtx(true); } else shake(btns.select);
+			if (ok) { lastEdge = 'bottom'; applyCtx(true); } else { shake(btns.select); applyCtx(true); }
 		});
 	}
 	function doDone() {
-		// Esc with an active selection = full clear in Roam's engine (source-verified)
-		fire(window, K.esc);
+		var clicked = clearByClick();   // memory-safe clear (no Esc on the main path)
 		setTimeout(function () {
-			if (getSel().length) fire(window, K.esc); // belt
-			setTimeout(function () { applyCtx(true); }, 80);
-		}, 80);
+			if (getSel().length) {
+				// fallback: Esc with an active selection = full clear in Roam's engine (source-verified)
+				fire(window, K.esc);
+				setTimeout(function () {
+					if (getSel().length) fire(window, K.esc); // belt
+					setTimeout(function () { applyCtx(true); }, 80);
+				}, 80);
+				return;
+			}
+			applyCtx(true);
+		}, clicked ? 160 : 0);
 	}
 	function act(id, viaRepeat) {
 		var a = ACTIONS[id]; if (!a) return;
@@ -347,9 +482,8 @@ window.ViktorCmdbar = (function () {
 				if ((id === 'extendUp' || id === 'extendDown') && n === lastSelN && !viaRepeat) nudge(btns[id]);
 				lastSelN = n;
 				updateHandles();
-				// selection-memory resurrection guard: a single extend can union a stale set (Roam bug)
-				if (id === 'extendUp' || id === 'extendDown') healGaps('extend');
-			}, 140);
+				if (id === 'extendUp' || id === 'extendDown') { healGaps('extend'); seedCheck('extend'); }
+			}, 220);
 		}
 	}
 
@@ -369,7 +503,9 @@ window.ViktorCmdbar = (function () {
 		chevUp: svg('<path d="M5 15l7-7 7 7"/>', 20),
 		chevDown: svg('<path d="M5 9l7 7 7-7"/>', 20),
 		del: svg('<path d="M20 6H9l-5 6 5 6h11a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1z"/><path d="M12 9l5 5"/><path d="M17 9l-5 5"/>', 21),
-		select: svg('<path d="M8 4H6a2 2 0 0 0-2 2v2"/><path d="M16 4h2a2 2 0 0 1 2 2v2"/><path d="M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M16 20h2a2 2 0 0 0 2-2v-2"/><path d="M9 12h6"/>', 18)
+		select: svg('<path d="M8 4H6a2 2 0 0 0-2 2v2"/><path d="M16 4h2a2 2 0 0 1 2 2v2"/><path d="M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M16 20h2a2 2 0 0 0 2-2v-2"/><path d="M9 12h6"/>', 18),
+		todo: svg('<rect x="4" y="4.5" width="15" height="15" rx="3"/><path d="M8.2 12.4l2.6 2.6 4.6-5.2"/>', 21),
+		media: svg('<rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="10.2" r="1.6"/><path d="M20 15l-4.5-4.5L6.5 19"/>', 21)
 	};
 
 	// ---------- style ----------
@@ -407,10 +543,10 @@ window.ViktorCmdbar = (function () {
 			'  background:transparent;border:0;color:inherit;border-radius:10px;padding:0;cursor:pointer;overflow:hidden;',
 			'  max-width:0;opacity:0;transform:scale(.62);',
 			'  transition:max-width .20s cubic-bezier(.32,.72,0,1),opacity .15s ease,transform .20s cubic-bezier(.32,.72,0,1),background .12s ease;}',
-			'.vt-b.vt-on{flex:0 1 auto;max-width:46px;width:42px;min-width:33px;opacity:1;transform:scale(1);}',
+			'.vt-b.vt-on{flex:0 1 auto;max-width:46px;width:42px;min-width:30px;opacity:1;transform:scale(1);}',
 			'.vt-b.vt-pressed{transform:scale(.88);background:rgba(47,155,249,.16);}',
 			'.vt-b:disabled{opacity:.35;}',
-			'.vt-div{flex:0 0 auto;width:1px;height:22px;margin:0 3px;background:color-mix(in srgb, var(--icon-color,#5c7080) 22%, transparent);',
+			'.vt-div{flex:0 0 auto;width:1px;height:22px;margin:0 2px;background:color-mix(in srgb, var(--icon-color,#5c7080) 22%, transparent);',
 			'  max-width:0;opacity:0;transition:max-width .2s,opacity .15s,margin .2s;}',
 			'.vt-div.vt-on{max-width:1px;opacity:1;}',
 			'.vt-spacer{flex:1 1 auto;}',
@@ -448,10 +584,14 @@ window.ViktorCmdbar = (function () {
 			'  transform:translate(-50%,-50%);box-shadow:0 1px 4px rgba(0,0,0,.45),0 0 0 1.5px var(--bg-color,#182026);transition:transform .12s ease;}',
 			'.vt-knob[data-grab]::before{transform:translate(-50%,-50%) scale(1.3);box-shadow:0 1px 4px rgba(0,0,0,.45),0 0 0 8px rgba(47,155,249,.16),0 0 0 9.5px var(--bg-color,#182026);}',
 			'.vt-knob.vt-cross{transition:left .16s ease,top .16s ease;}', // animate ONLY when the knob crosses to the other end
-			'#vt-tick{position:absolute;width:3px;border-radius:1.5px;background:' + BLUE + ';opacity:.6;pointer-events:none;transition:left .14s ease,top .14s ease,height .14s ease;}',
+			/* NO transition on the tick: it must never "fly in" from the previous selection's spot
+			   (user-reported artifact) nor smear behind scrolling — it snaps, always. */
+			'#vt-tick{position:absolute;width:3px;border-radius:1.5px;background:' + BLUE + ';opacity:.6;pointer-events:none;}',
 			'#vt-chip{position:absolute;pointer-events:none;min-width:22px;height:22px;padding:0 6px;border-radius:11px;',
 			'  background:' + BLUE + ';color:#fff;font:700 12px/22px -apple-system,sans-serif;text-align:center;',
 			'  box-shadow:0 1px 4px rgba(0,0,0,.4);}',
+			/* new selection session: handles SNAP into place (never fly in from the last session) */
+			'#vt-handles.vt-snap #vt-tick,#vt-handles.vt-snap .vt-knob{transition:none!important;}',
 
 			/* HUD */
 			'#vt-hud{position:fixed;left:8px;top:8px;z-index:9999;pointer-events:none;display:none;max-width:70vw;',
@@ -491,7 +631,8 @@ window.ViktorCmdbar = (function () {
 		bar.appendChild(mkBtn('redo', ICON.redo, 'Redo'));
 		var d2 = el('div', 'vt-d2', 'vt-div'); bar.appendChild(d2);
 		bar.appendChild(mkBtn('wikilink', '<span class="vt-txt">[[</span>', 'Page link'));
-		bar.appendChild(mkBtn('blockref', '<span class="vt-txt">((</span>', 'Block ref'));
+		bar.appendChild(mkBtn('todo', ICON.todo, 'Todo checkbox'));
+		bar.appendChild(mkBtn('media', ICON.media, 'Upload image'));
 		bar.appendChild(mkBtn('slash', '<span class="vt-txt">/</span>', 'Command'));
 		bar.appendChild(mkBtn('del', ICON.del, 'Delete blocks'));
 		bar.appendChild(el('div', null, 'vt-spacer'));
@@ -516,7 +657,7 @@ window.ViktorCmdbar = (function () {
 	// which buttons show in which form
 	var FORM = {
 		IDLE: ['undo', 'redo*', 'close'],
-		EDITING: ['select', 'd1', 'outdent', 'indent', 'moveUp', 'moveDown', 'undo', 'redo*', 'd2', 'wikilink', 'blockref', 'slash'],
+		EDITING: ['select', 'd1', 'outdent', 'indent', 'moveUp', 'moveDown', 'undo', 'redo*', 'd2', 'wikilink', 'todo', 'media', 'slash'],
 		SELECTING: ['extendUp', 'extendDown', 'd1', 'outdent', 'indent', 'moveUp', 'moveDown', 'undo', 'd2', 'del', 'done']
 	};
 	function paintForm() {
@@ -526,6 +667,7 @@ window.ViktorCmdbar = (function () {
 			if (id === 'redo*') { if (redoAvail) on.redo = 1; }
 			else on[id] = 1;
 		});
+		if (on.redo && on.media) delete on.media;   // slot-share: 390pt budget (redo is transient)
 		for (var id in btns) btns[id].classList.toggle('vt-on', !!on[id]);
 		document.getElementById('vt-d1').classList.toggle('vt-on', !!on.d1);
 		document.getElementById('vt-d2').classList.toggle('vt-on', !!on.d2);
@@ -569,6 +711,18 @@ window.ViktorCmdbar = (function () {
 		var t = node.querySelector('.rm-block-text') || node;
 		return t.getBoundingClientRect();
 	}
+	function handlesSnap() {
+		// new selection session: paint in place, no transitions from the previous session's spot
+		if (!hLayer) return;
+		hLayer.classList.add('vt-snap');
+		knob.classList.remove('vt-cross');
+		if (crossT) { clearTimeout(crossT); crossT = null; }
+		prevFocusBottom = null;
+		updateHandles();
+		requestAnimationFrame(function () { requestAnimationFrame(function () {
+			if (hLayer) hLayer.classList.remove('vt-snap');
+		}); });
+	}
 	function updateHandles() {
 		var sel = getSel();
 		if (!sel.length) { root.dataset.handles = '0'; prevFocusBottom = null; return; }
@@ -603,16 +757,18 @@ window.ViktorCmdbar = (function () {
 
 	// ---------- the EVENT SHIELD + gesture engine ----------
 	// Everything inside #vt-cmd-root is invisible to Roam (window-capture stop) and we act on our
-	// own pointer gestures. Untrusted clicks pass through (our proxy clicks must reach React).
+	// own pointer gestures. Our own synthetic page-targeted events carry ev.__vt and are exempt
+	// FIRST (the drag-ownership clause below would otherwise eat our shift-click mouseup mid-drag).
 	var SHIELD_TYPES = ['pointerdown', 'pointermove', 'pointerup', 'pointercancel',
 		'mousedown', 'mousemove', 'mouseup', 'touchstart', 'touchmove', 'touchend', 'touchcancel',
 		'click', 'contextmenu', 'dblclick'];
 	function inRoot(t) { return !!(t && t.closest && t.closest('#' + ROOT_ID)); }
 	function shield(e) {
+		if (e.__vt) return;                                   // our own synthetics — Roam must see them
 		var inside = inRoot(e.target);
 		// during a knob drag we own the whole screen's move/up events
 		if (!inside && !(drag && (e.type.indexOf('move') > 0 || e.type.indexOf('up') > 0 || e.type.indexOf('cancel') > 0 || e.type.indexOf('end') > 0))) return;
-		if (e.type === 'click' && !e.isTrusted) return;       // our proxies / programmatic clicks
+		if (e.type === 'click' && !e.isTrusted) return;       // other modules' programmatic clicks
 		if (inside || drag) e.stopPropagation();
 		if (e.type === 'touchstart' || e.type === 'touchmove' || e.type === 'mousedown' || e.type === 'contextmenu') {
 			if (e.cancelable) e.preventDefault();             // keep focus+selection, kill zoom/callout/scroll
@@ -678,19 +834,31 @@ window.ViktorCmdbar = (function () {
 		}
 	}
 	function gestureCancel() { gestureEnd(false); }
-	// --- knob drag (closed loop; one extend per crossed block; edge auto-scroll) ---
+	// --- knob drag (ABSOLUTE: selection follows the finger via assertRange; edge auto-scroll) ---
 	// Auto-scroll grammar (WebKit/Android/pragmatic-dnd constants): zones are INERT until the finger
 	// travels ≥48px toward that edge (directional arming) and ≥120ms passed; velocity is linear in
 	// zone depth (50→550px/s) × a 400ms time-ramp that resets on zone exit; per-frame cap 9px.
-	// Extending under a stationary finger while content scrolls is the universal grammar — kept.
+	// Extending under a stationary finger while content scrolls is the universal grammar — kept
+	// (the scroll slides new blocks under the finger ⇒ new target ⇒ assertRange).
 	var AS = { ARM_PX: 48, ARM_MS: 120, ZONE: 90, TOPZ: 80, VMIN: 50, VMAX: 550, RAMP: 400, CAP: 9 };
+	function dragTarget(x, y) {
+		var hit = document.elementFromPoint(x, Math.max(2, Math.min(window.innerHeight - 2, y)));
+		var cont = hit && hit.closest ? hit.closest('.roam-block-container') : null;
+		if (!cont) return null;
+		var emb = cont.closest('.rm-embed-container');           // embeds are a foreign page —
+		if (emb) cont = emb.closest('.roam-block-container');    // address their HOST block instead
+		if (!cont || cont.closest('#' + ROOT_ID)) return null;
+		return cont;
+	}
 	function dragStart(pid, p) {
 		if (ctx !== 'SELECTING') return;
+		var gi = selExtent();
 		drag = {
-			pid: pid, startY: p.y, x: p.x, y: p.y, moved: false, busy: false, raf: 0,
+			pid: pid, startY: p.y, x: p.x, y: p.y, moved: false, raf: 0,
 			t0: now(), lastT: now(), minY: p.y, maxY: p.y,
 			armUp: false, armDown: false, engUp: 0, engDown: 0,
-			seenEl: null, seen: {}
+			scope: gi ? gi.scope : articleOf(null),
+			lastCont: null, clickT: 0, retries: 0, extentSig: ''
 		};
 		knob.setAttribute('data-grab', '1');
 		log('drag start');
@@ -727,46 +895,25 @@ window.ViktorCmdbar = (function () {
 				var vU = (AS.VMIN + depthU * (AS.VMAX - AS.VMIN)) * Math.min(1, (t - drag.engUp) / AS.RAMP);
 				sc.scrollBy(0, -Math.max(1, Math.min(AS.CAP, vU * dt / 1000)));
 			} else drag.engUp = 0;
-			// --- extend toward the finger (coverage test; one keypress per settle; oscillation guard) ---
-			if (!drag.busy) {
-				var hit = document.elementFromPoint(drag.x, Math.max(2, Math.min(window.innerHeight - 2, drag.y)));
-				var targetEl = hit && hit.closest ? hit.closest('.roam-block-container') : null;
-				if (targetEl) {
-					// covered = the finger's block is already part of the selection (incl. via a
-					// selected ancestor — children of a selected parent are never independently addressable)
-					var covered = targetEl.classList.contains('block-highlight-blue') ||
-						!!targetEl.closest('.block-highlight-blue') ||
-						!!targetEl.querySelector('.block-highlight-blue');
-					var gi = selGapInfo();
-					var list = allBlocks();
-					var tIdx = list.indexOf(targetEl);
-					var key = null;
-					if (gi && tIdx >= 0) {
-						if (!covered && tIdx > gi.max) key = K.extendDown;
-						else if (!covered && tIdx < gi.min) key = K.extendUp;
-						else if (covered) {
-							// inside the range: shrink the working edge toward the finger
-							if (lastEdge === 'bottom' && tIdx < gi.max) key = K.extendUp;
-							else if (lastEdge === 'top' && tIdx > gi.min) key = K.extendDown;
-						}
-					}
-					if (key) {
-						if (drag.seenEl !== targetEl) { drag.seen = {}; drag.seenEl = targetEl; }
-						var sig = selUids().slice().sort().join(',') + '|' + (key === K.extendDown ? 'd' : 'u');
-						if (!drag.seen[sig]) {        // never repeat a press that produced a seen state
-							drag.seen[sig] = 1;
-							drag.busy = true;
-							var pre = selUids().slice().sort().join(',');
-							fire(window, key);
-							lastEdge = (key === K.extendDown) ? 'bottom' : 'top';
-							var t0s = now();
-							(function settle() {
-								if (!drag) return;
-								var cur = selUids().slice().sort().join(',');
-								if (cur !== pre || now() - t0s > 200) { drag.busy = false; updateHandles(); }
-								else setTimeout(settle, 40);
-							})();
-						}
+			// --- ABSOLUTE extend: selection = anchor..finger (Roam computes; idempotent) ---
+			if (t - drag.clickT >= 120) {
+				var cont = dragTarget(drag.x, drag.y);
+				if (cont && drag.scope.contains(cont)) {
+					var gi = selExtent();
+					var sig = gi ? gi.min + ':' + gi.max : '';
+					if (sig !== drag.extentSig) { drag.extentSig = sig; drag.retries = 0; }
+					var tIdx = gi ? gi.list.indexOf(cont) : -1;
+					var covered = gi && tIdx >= gi.min && tIdx <= gi.max;
+					var isNew = cont !== drag.lastCont;
+					// new row ⇒ re-assert (absolute, handles shrink too); same row uncovered ⇒
+					// retry ≤4 until the extent covers it (unreachable targets must not click-storm)
+					if (isNew || (!covered && drag.retries < 4)) {
+						if (isNew) { drag.lastCont = cont; drag.retries = 0; } else drag.retries++;
+						assertRange(cont);
+						drag.clickT = t;
+						if (gi && tIdx > gi.max) lastEdge = 'bottom';
+						else if (gi && tIdx >= 0 && tIdx < gi.min) lastEdge = 'top';
+						setTimeout(updateHandles, 60);
 					}
 				}
 			}
@@ -775,12 +922,27 @@ window.ViktorCmdbar = (function () {
 	}
 	function dragEnd() {
 		if (!drag) return;
+		var x = drag.x, y = drag.y, lastCont = drag.lastCont, scope = drag.scope;
 		if (drag.raf) cancelAnimationFrame(drag.raf);
 		drag = null;
 		knob.removeAttribute('data-grab');
+		// final assert: a fast flick can lift inside the 120ms throttle window — the selection
+		// must still end exactly at the finger
+		var cont = dragTarget(x, y) || lastCont;
+		if (cont && scope.contains(cont)) {
+			var gi = selExtent();
+			var tIdx = gi ? gi.list.indexOf(cont) : -1;
+			if (gi && tIdx >= 0 && (tIdx < gi.min || tIdx > gi.max)) {
+				assertRange(cont);
+				if (tIdx > gi.max) lastEdge = 'bottom'; else lastEdge = 'top';
+			}
+		}
 		log('drag end sel=' + getSel().length);
-		updateHandles();
-		healGaps('drag');   // selection-memory resurrection mid-drag → rebuild contiguous
+		setTimeout(function () {
+			updateHandles();
+			healGaps('drag');
+			seedCheck('drag-end');
+		}, 200);
 	}
 
 	// ---------- state machine ----------
@@ -798,11 +960,14 @@ window.ViktorCmdbar = (function () {
 		}
 		var prev = ctx; ctx = c;
 		lastSelN = getSel().length;
+		if (c !== 'SELECTING') { seedUid = null; seedWin = null; }
 		root.dataset.bar = (c === 'EDITING' || c === 'SELECTING' || (c === 'IDLE' && open)) ? '1' : '0';
 		root.dataset.fab = (c === 'IDLE' && !open) ? '1' : '0';
 		root.dataset.handles = (c === 'SELECTING') ? '1' : '0';
 		paintForm();
-		if (c === 'SELECTING') updateHandles();
+		if (c === 'SELECTING') {
+			if (prev !== 'SELECTING') handlesSnap(); else updateHandles();
+		}
 		if (c === 'EDITING' && prev !== 'EDITING') checkContract();
 		document.body.classList.toggle('vt-bar-open', root.dataset.bar === '1');
 		place();
@@ -857,7 +1022,7 @@ window.ViktorCmdbar = (function () {
 			if (debugOn()) hudPaint();
 		}, 280);
 		applyCtx(true);
-		log('cmdbar v0.2 up');
+		log('cmdbar v0.4 up');
 	}
 	function stop() {
 		if (!added) return; added = false;
@@ -876,7 +1041,7 @@ window.ViktorCmdbar = (function () {
 	start();
 	return {
 		isAdded: function () { return added; }, start: start, stop: stop,
-		_state: function () { return { ctx: ctx, sel: selUids(), open: open, redoAvail: redoAvail, kb: overlap(), contract: contract }; },
+		_state: function () { return { ctx: ctx, sel: selUids(), seed: seedUid, open: open, redoAvail: redoAvail, kb: overlap(), contract: contract }; },
 		_log: function () { return logRing.slice(); },
 		_force: function (v) { lsSet('VBS_force', v ? '1' : '0'); }
 	};
