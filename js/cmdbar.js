@@ -1,6 +1,8 @@
 /*
  * Viktor's Roam Mobile Command Bar — THE mobile toolbar (replaces Roam's native gray bar).
- * version: 0.4.2  (2026-06-12)  — divider right of [⌫] (was visually glued to [Done]);
+ * version: 0.4.3  (2026-06-12)  — count chip anchors to the KNOB (measured width + mirrored
+ *   8px gap), fixing the chip drifting ~17px left of the dot when extending the selection upward
+ * v0.4.2 — divider right of [⌫] (was visually glued to [Done]);
  *   hidden flex items no longer contribute the bar's 1px gap (⌫ sat asymmetric between dividers)
  * author: @ViktorTabori
  *
@@ -754,7 +756,12 @@ window.ViktorCmdbar = (function () {
 		tick.style.top = ar.top + 'px';
 		tick.style.height = ar.height + 'px';
 		chip.textContent = String(rects.length);
-		chip.style.left = (focusIsBottom ? Math.min(kr.right + 22, vw - 38) : Math.max(8, kr.left - 52)) + 'px';
+		// chip hugs the KNOB on both edges (anchor to the knob's clamped position, not the block
+		// rect): measure the chip and mirror the bottom case's ~8px dot-edge gap when extending
+		// upward — the old fixed kr.left-52 sat ~17px off the dot (user-reported, 2026-06-12).
+		var kx = parseFloat(knob.style.left) || 0;
+		var cw = chip.offsetWidth || 22;
+		chip.style.left = (focusIsBottom ? Math.min(kx + 16, vw - cw - 4) : Math.max(4, kx - 16 - cw)) + 'px';
 		chip.style.top = (focusIsBottom ? kr.bottom + 2 : kr.top - 26) + 'px';
 	}
 
@@ -1033,7 +1040,7 @@ window.ViktorCmdbar = (function () {
 			if (debugOn()) hudPaint();
 		}, 280);
 		applyCtx(true);
-		log('cmdbar v0.4.2 up');
+		log('cmdbar v0.4.3 up');
 	}
 	function stop() {
 		if (!added) return; added = false;

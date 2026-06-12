@@ -1,12 +1,21 @@
 /*
- * Viktor's Roam plugin: Mobile sidebar tap-to-close
- * version: 0.1  (2026-05-29)
+ * Viktor's Roam plugin: Mobile sidebar tap-to-close (+ mobile UX shims)
+ * version: 0.2  (2026-06-12)  — search-tap keyboard relay: tapping the topbar search icon
+ *   now autofocuses the full-screen search input WITH the iOS keyboard
  * author: @ViktorTabori
  *
  * On mobile the left sidebar (.roam-sidebar-container) opens as an overlay ON TOP of the
  * page with no backdrop, so there is no way to dismiss it by tapping the content (like a
  * normal drawer). This module adds a dimming scrim behind the open sidebar; tapping it
  * closes the sidebar.
+ *
+ * v0.2 search-tap keyboard relay: the mobile topbar search icon opens the full-screen
+ * find-or-create modal; Roam DOES focus #rm-find-or-create-modal-input, but it does so
+ * AFTER the modal mounts — outside the tap's user-gesture window — so iOS Safari/PWA shows
+ * a focused input with NO keyboard (and to the user, "no autofocus"). Fix: in the tap's
+ * click handler (still a trusted gesture) focus a tiny offscreen input SYNCHRONOUSLY —
+ * that opens the keyboard — then hand focus to the modal input once it mounts
+ * (editable→editable focus moves KEEP the iOS keyboard, same rule scrolldamper relies on).
  *
  * How it works (reverse-engineered from current Roam, May 2026):
  *  - Open/closed is driven by an inline style on .roam-sidebar-container: open sets
@@ -73,6 +82,53 @@ window.ViktorMobilesidebar = (function () {
 		if (backdrop && backdrop.parentElement) backdrop.parentElement.removeChild(backdrop);
 	}
 
+	// ---------- v0.2: search-tap keyboard relay ----------
+	var RELAY_ID = 'viktor-search-kbd-relay';
+	var MODAL_INPUT = 'rm-find-or-create-modal-input';
+	var relayRaf = 0;
+
+	function relayInput() {
+		var tmp = document.getElementById(RELAY_ID);
+		if (!tmp) {
+			tmp = document.createElement('input');
+			tmp.id = RELAY_ID;
+			tmp.type = 'text';
+			tmp.setAttribute('autocapitalize', 'off');
+			tmp.setAttribute('autocorrect', 'off');
+			tmp.setAttribute('aria-hidden', 'true');
+			// NOT display:none (unfocusable); 16px font so iOS doesn't zoom; opacity ~0 offscreen-ish
+			tmp.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;padding:0;border:0;' +
+				'opacity:0.01;font-size:16px;background:transparent;color:transparent;caret-color:transparent;';
+			document.body.appendChild(tmp);
+		}
+		return tmp;
+	}
+
+	function removeRelay() {
+		if (relayRaf) { cancelAnimationFrame(relayRaf); relayRaf = 0; }
+		var tmp = document.getElementById(RELAY_ID);
+		if (tmp) tmp.remove();
+	}
+
+	function onSearchTap(e) {
+		if (!isMobile()) return;
+		// mobile topbar search trigger = a bp3-button wrapping bp3-icon-search (the desktop
+		// layout has no such button — its icon is a plain span beside #find-or-create-input)
+		var btn = e.target && e.target.closest && e.target.closest('.rm-topbar .bp3-button');
+		if (!btn || !btn.querySelector('.bp3-icon-search')) return;
+		// synchronous focus INSIDE the trusted tap → iOS opens the keyboard
+		relayInput().focus({ preventScroll: true });
+		// hand off to the modal input as soon as React mounts it (editable→editable keeps the kbd)
+		var t0 = performance.now();
+		(function poll() {
+			relayRaf = 0;
+			var inp = document.getElementById(MODAL_INPUT);
+			if (inp) { inp.focus({ preventScroll: true }); removeRelay(); return; }
+			if (performance.now() - t0 < 2500) relayRaf = requestAnimationFrame(poll);
+			else removeRelay();
+		})();
+	}
+
 	function sync() {
 		var el = sidebarEl();
 		// Re-attach the style observer if Roam re-created the sidebar node.
@@ -99,6 +155,7 @@ window.ViktorMobilesidebar = (function () {
 		treeObserver.observe(app, { childList: true });
 		window.addEventListener('resize', sync);
 		window.addEventListener('orientationchange', sync);
+		document.addEventListener('click', onSearchTap, true);
 		sync();
 	}
 
@@ -107,6 +164,8 @@ window.ViktorMobilesidebar = (function () {
 		if (treeObserver) { treeObserver.disconnect(); treeObserver = null; }
 		window.removeEventListener('resize', sync);
 		window.removeEventListener('orientationchange', sync);
+		document.removeEventListener('click', onSearchTap, true);
+		removeRelay();
 		watched = null;
 		hideBackdrop();
 		backdrop = null;

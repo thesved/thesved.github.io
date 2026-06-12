@@ -1174,3 +1174,16 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
   overflow-y: auto !important;
   max-height: 100% !important;
 }
+
+/* ============================================================
+   2026-06-12 (session 3) — topbar search cleanup
+   ============================================================ */
+
+/* --- hide the "Open advanced search" button ---
+   The .bp3-input-action button mounts on focus at the right of #find-or-create-input
+   and opens the same find-or-create modal the search already gives — redundant chrome
+   next to the input (user request 2026-06-12). Scoped to the find-or-create wrapper so
+   other Blueprint input-actions are untouched; #app prefix beats azlen deterministically. */
+#app .rm-topbar .rm-find-or-create-wrapper .bp3-input-action {
+  display: none !important;
+}
