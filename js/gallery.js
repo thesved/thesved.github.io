@@ -1,6 +1,16 @@
 /*
- * Viktor's Roam gallery v1.0 — PhotoSwipe 5
+ * Viktor's Roam gallery v1.1 — PhotoSwipe 5
  * author: @ViktorTabori
+ *
+ * v1.1 (2026-06-12): iPhone-feedback fixes.
+ *  - Long-press sheet no longer vanishes on finger release in the iOS PWA: the release fires
+ *    a GHOST CLICK (iOS compatibility click after touchend, even though touchend was
+ *    preventDefault'd) that landed on the fresh backdrop and closed it. The sheet now only
+ *    honors clicks that were preceded by a pointerdown ON the sheet after it opened —
+ *    ghost clicks never are.
+ *  - Zoom open/close animation is back (v4 feel): showHideAnimationType 'zoom' + thumbEl
+ *    filter pointing at the in-page img, so the thumbnail flies up instead of a blank wait.
+ *  - Zoom button hidden in the modal top bar (zoom: false); pinch/double-tap still zoom.
  *
  * v1.0 (2026-06-12): PhotoSwipe 4.1.3 (custom SVG fork) → 5.4.4 stock ESM from cdnjs.
  *  - SVG (mermaid) needs no fork anymore: serialized to a blob: URL, revoked on close.
@@ -184,9 +194,13 @@ window.ViktorGallery = (function(){
 			var pswp = new PhotoSwipe({
 				dataSource: items,
 				index: index,
-				showHideAnimationType: 'none', // v4 had showAnimationDuration:0
+				showHideAnimationType: 'zoom',
+				zoom: false, // no zoom button (pinch/double-tap still work)
 				wheelToZoom: true,
 			});
+			// zoom animation needs the thumbnail element; our items aren't in a pswp-markup
+			// gallery, so hand it the in-page img/svg directly
+			pswp.addFilter('thumbEl', function(thumbEl, data){ return data._dom || thumbEl; });
 			pswp.on('uiRegister', function(){
 				pswp.ui.registerElement({
 					name: 'copy-image',
@@ -258,7 +272,16 @@ window.ViktorGallery = (function(){
 		var cancel = button('Cancel', function(){});
 		cancel.classList.add('vg-cancel');
 		backdrop.appendChild(sheet);
-		backdrop.addEventListener('click', function(e){ if (e.target == backdrop) closeSheet(); });
+		// iOS PWA: releasing the long-press fires a GHOST CLICK (compatibility click after
+		// touchend, despite preventDefault) at the touch point — which is now this backdrop —
+		// and would instantly close/activate the sheet. Real taps always begin with a
+		// pointerdown ON the open sheet; ghost clicks never do. Swallow the unarmed ones.
+		var armed = false;
+		backdrop.addEventListener('pointerdown', function(){ armed = true; }, true);
+		backdrop.addEventListener('click', function(e){
+			if (!armed) { e.preventDefault(); e.stopPropagation(); return; }
+			if (e.target == backdrop) closeSheet();
+		}, true);
 		document.body.appendChild(backdrop);
 
 		function button(label, fn) {
