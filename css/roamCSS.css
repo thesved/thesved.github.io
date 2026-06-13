@@ -1203,3 +1203,8 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
     opacity: 0.2 !important;
   }
 }
+/* keep azlen's top-level hide (.rm-level-0>.rm-multibar{opacity:0}) — our broad
+   rule above outranks it, so re-pin level-0 with higher specificity (both modes). */
+#app .rm-level-0 > .rm-multibar {
+  opacity: 0 !important;
+}
