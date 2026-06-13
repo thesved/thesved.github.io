@@ -1,6 +1,20 @@
 /*
- * Viktor's Roam gallery v1.1 — PhotoSwipe 5
+ * Viktor's Roam gallery v1.2 — PhotoSwipe 5
  * author: @ViktorTabori
+ *
+ * v1.2 (2026-06-13): snappier motion + glass backdrop + Esc layering.
+ *  - Tuned durations: open 200ms / close 180ms (showAnimationDuration/hideAnimationDuration),
+ *    double-tap+pinch 200ms (zoomAnimationDuration; default was 333). Live-tunable from the
+ *    console: ViktorGallery.dur(open,hide,zoom) — open/hide apply on next open, zoom applies
+ *    live to the open modal too.
+ *  - Apple-ish frosted glass backdrop: a body-level .vg-glass layer (sibling of .pswp) carries
+ *    blur(24px) saturate(180%) + rgba(0,0,0,.5) tint, ramped 0→full in sync with the open zoom.
+ *    MUST be a .pswp SIBLING: .pswp is a "backdrop root" (transform+contain+will-change), so a
+ *    backdrop-filter on .pswp or its .pswp__bg child samples nothing. The sibling's backdrop is
+ *    the page. pswp bgOpacity:0 (tint moved to the glass layer). z = pswp z - 1 (image stays crisp).
+ *  - Esc layering: when the copy sheet is open, Esc closes the SHEET first (modal stays); a
+ *    capture-phase keydown handler beats PhotoSwipe's own Esc→close. destroy() also closes the
+ *    sheet as a safety net so closing the modal never orphans it.
  *
  * v1.1 (2026-06-12): iPhone-feedback fixes.
  *  - Long-press sheet no longer vanishes on finger release in the iOS PWA: the release fires
@@ -36,6 +50,10 @@ window.ViktorGallery = (function(){
 	var PSWP_CSS = 'https://cdnjs.cloudflare.com/ajax/libs/photoswipe/5.4.4/photoswipe.min.css';
 	var SVG_ZOOM = 3;     // rasterization scale for svg images
 	var LP_MS    = 500;   // long-press duration
+	var OPEN_MS  = 200;   // zoom-in duration (small img → fullscreen), ms
+	var HIDE_MS  = 180;   // zoom-out duration (fullscreen → small img), ms
+	var ZOOM_MS  = 200;   // double-tap / pinch zoom transition, ms (PhotoSwipe default 333)
+	var BLUR_PX  = 24;    // glass backdrop blur radius, px (animated 0 → this on open)
 	var MOVE_TOL = 12;    // px of touch movement that cancels tap/long-press
 	var COPY_ICON = '<svg aria-hidden="true" viewBox="0 0 32 32" width="32" height="32" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)"><path fill="currentColor" d="M20 5H8a2 2 0 0 0-2 2v14h2V7h12V5zm4 4H12a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V11a2 2 0 0 0-2-2zm0 16H12V11h12v14z"/></svg>';
 
@@ -43,6 +61,7 @@ window.ViktorGallery = (function(){
 	var pswpModulePromise = null;
 	var activePswp = null;
 	var touch = null; // in-block long-press state: {img, x, y, timer, fired}
+	var sheetKeydown = null; // Escape handler active while the copy sheet is open
 
 	start();
 
@@ -50,6 +69,16 @@ window.ViktorGallery = (function(){
 		isStarted:()=>started,
 		start: start,
 		stop: stop,
+		// live zoom-speed tuning, ms — [open, hide] apply on NEXT gallery open;
+		// zoom (double-tap/pinch) applies LIVE to the open modal too:
+		//   ViktorGallery.dur()              → [open, hide, zoom] current
+		//   ViktorGallery.dur(200,180,220)   → set all three
+		dur: function(open, hide, zoom){
+			if (open!=null) OPEN_MS=open;
+			if (hide!=null) HIDE_MS=hide;
+			if (zoom!=null) { ZOOM_MS=zoom; if (activePswp) activePswp.options.zoomAnimationDuration=zoom; }
+			return [OPEN_MS, HIDE_MS, ZOOM_MS];
+		},
 	};
 
 	function start() {
@@ -195,6 +224,10 @@ window.ViktorGallery = (function(){
 				dataSource: items,
 				index: index,
 				showHideAnimationType: 'zoom',
+				showAnimationDuration: OPEN_MS,
+				hideAnimationDuration: HIDE_MS,
+				zoomAnimationDuration: ZOOM_MS, // double-tap / pinch
+				bgOpacity: 0,                   // tint lives on the .vg-glass layer (Tier 2 masked)
 				zoom: false, // no zoom button (pinch/double-tap still work)
 				wheelToZoom: true,
 			});
@@ -211,7 +244,25 @@ window.ViktorGallery = (function(){
 					onClick: function(){ showSheet(pswp.currSlide && pswp.currSlide.data); },
 				});
 			});
+			// Tier-2 glass layer, behind the modal. Ramp blur+opacity in/out so it tracks the zoom.
+			var glass = document.createElement('div');
+			glass.className = 'vg-glass';
+			glass.style.opacity = '0';
+			document.body.appendChild(glass);
+			function setGlass(blur, ms, op){
+				glass.style.transition = 'backdrop-filter '+ms+'ms ease,-webkit-backdrop-filter '+ms+'ms ease,opacity '+ms+'ms ease';
+				glass.style.webkitBackdropFilter = glass.style.backdropFilter = 'blur('+blur+'px) saturate(1.8)';
+				glass.style.opacity = op;
+			}
+			pswp.on('openingAnimationStart', function(){
+				var pe = pswp.element;
+				if (pe) glass.style.zIndex = ((parseInt(getComputedStyle(pe).zIndex) || 100000) - 1);
+				setGlass(BLUR_PX, OPEN_MS, '1');
+			});
+			pswp.on('closingAnimationStart', function(){ setGlass(0, HIDE_MS, '0'); });
 			pswp.on('destroy', function(){
+				glass.remove();
+				closeSheet(); // Esc closes the modal — don't leave the copy sheet orphaned
 				items.forEach(function(i){ if (i._blob) URL.revokeObjectURL(i.src); });
 				if (activePswp == pswp) activePswp = null;
 			});
@@ -283,6 +334,15 @@ window.ViktorGallery = (function(){
 			if (e.target == backdrop) closeSheet();
 		}, true);
 		document.body.appendChild(backdrop);
+		// Esc closes the sheet FIRST (one layer at a time). Capture-phase + stopPropagation
+		// beats PhotoSwipe's own Escape→close, so the modal stays open behind the sheet.
+		sheetKeydown = function(e){
+			if (e.key == 'Escape' || e.keyCode == 27) {
+				e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+				closeSheet();
+			}
+		};
+		document.addEventListener('keydown', sheetKeydown, true);
 
 		function button(label, fn) {
 			var b = document.createElement('button');
@@ -300,6 +360,7 @@ window.ViktorGallery = (function(){
 	}
 
 	function closeSheet() {
+		if (sheetKeydown) { document.removeEventListener('keydown', sheetKeydown, true); sheetKeydown = null; }
 		var b = document.querySelector('.vg-backdrop');
 		if (b) b.remove();
 	}
@@ -365,6 +426,13 @@ window.ViktorGallery = (function(){
 		var s = document.createElement('style');
 		s.id = 'vg-style';
 		s.textContent = [
+			// TIER 1 frosted glass on the modal backdrop: a body-level layer (sibling of .pswp, so
+			// its backdrop IS the page — .pswp itself is a "backdrop root" via transform+contain+
+			// will-change and would sample nothing). Carries the blur + dark tint, full-screen and
+			// uniform. Sits just under .pswp so the image stays crisp.
+			'.pswp{-webkit-backdrop-filter:none;backdrop-filter:none}',
+			'.vg-glass{position:fixed;inset:0;pointer-events:none;background:rgba(0,0,0,.5);' +
+				'-webkit-backdrop-filter:blur(0px) saturate(1);backdrop-filter:blur(0px) saturate(1)}',
 			'.vg-backdrop{position:fixed;inset:0;z-index:2000000;background:rgba(0,0,0,.35);display:flex;align-items:flex-end;justify-content:center}',
 			'.vg-sheet{width:min(420px,calc(100% - 16px));margin-bottom:max(8px,env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:1px;border-radius:14px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.35)}',
 			'.vg-btn{appearance:none;border:0;margin:0;padding:15px 16px;font-size:16px;line-height:1.2;text-align:center;cursor:pointer;background:rgba(40,42,46,.96);color:#eaeaea}',
