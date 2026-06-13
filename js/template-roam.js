@@ -21,6 +21,12 @@ window.ViktorRoamOpts = window.ViktorRoamOpts || {
 	ignoreNodes: [/#ignore|\[\[ignore\]\]/i]	// ignore these nodes when resolving templates
 };
 
+// :?: / :help: date-syntax cheat-sheet (one-liner, inserted in place)
+window.ViktorDateCheatsheet = window.ViktorDateCheatsheet ||
+	'date syntax: :next fri: :tomorrow: · :3: (+3d) :-1: (yesterday) · :06-11: :0611: · ' +
+	':last week of month: :first month of q3: :3rd sunday of q2: · :eom:/:eow:/:eoq:/:eoy: (end-of) · ' +
+	':friday in 2 weeks: · :fullmoon: · append `YYYY.MM.DD EEE` for a custom format';
+
 // lib to manipulate inputs and keyboard
 if (window.ViktorInputLib && typeof window.ViktorInputLib.stop === 'function') window.ViktorInputLib.stop();
 window.ViktorInputLib = (function(){
@@ -177,6 +183,16 @@ window.ViktorInputLib = (function(){
 			return;
 		}
 
+		// :?: cheat-sheet — parseTxt's exclude regex filters a leading "?", so intercept it directly here
+		if (e.data == ':' && /:\?:$/.test(elem.value.substring(0, elem.selectionEnd))) {
+			var _end = elem.selectionEnd, _start = _end - 3; // ":?:"
+			var _ins = window.ViktorDateCheatsheet + (ViktorRoamOpts.onelinerExtraSpace ? ' ' : '');
+			ViktorInputLib.nativeSetter.call(elem, elem.value.slice(0, _start) + _ins + elem.value.slice(_end));
+			elem.selectionStart = elem.selectionEnd = _start + _ins.length;
+			ViktorInputLib.simulateInputEvent(elem);
+			return;
+		}
+
 		// resolve templates when user types `:template name:`
 		var text = elem.value;
 		var commands = ViktorRoamLib.parseTxt(text.substr(0,elem.selectionEnd), ':', ':', '::""`'+'`', 2, /^:[^a-z0-9\-\+]|\s:$/i);
@@ -189,8 +205,13 @@ window.ViktorInputLib = (function(){
 				var args = v.replace(/\s*;\s*/g,';').split(';');
 				v = args.shift();
 
+				// :?: / :help: -> date-syntax cheat-sheet (one-liner, replaces the trigger in place)
+				if (!tmp && /^(\?|help)$/i.test(v)) {
+					tmp = {'text/plain': window.ViktorDateCheatsheet};
+				}
+
 				// lookup random node
-				if (v.match(/^rand(om)?\W/i)) {
+				if (!tmp && v.match(/^rand(om)?\W/i)) {
 					tmp = {'text/plain':ViktorRoamLib.getRandomNode( (_.match(/^:rand(?:om)?(\W.*):$/i)||['',''])[1] )};
 				}
 

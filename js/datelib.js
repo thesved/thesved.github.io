@@ -30,6 +30,7 @@
 		const days = O.nameDays || EN_DAYS.slice();
 		const daysShort = O.nameDaysShort || EN_DAYS_SHORT.slice();
 		const weekStartIdx = resolveWeekStart(O.weekStart);
+		const nativeFallback = O.nativeDateFallback !== false;   // default ON (parity); false = honest-failure
 		const conflicts = [];
 
 		// ----- locale-insensitive token helpers -----
@@ -174,6 +175,12 @@
 		// NEW periods: quarter Q1-Q4 / "quarter", half-year H1-H2 / "half[ year]"
 		const regexQuarter = /\bq([1-4])\b/i, regexQuarterWord = /\bquarter\b/i;
 		const regexHalf = /\bh([12])\b/i, regexHalfWord = /\bhalf(?:[\s-]*year)?\b/i;
+		// NEW inner-of-outer: [ordinal] <inner unit> "of" <outer scope>. groups: 1=ord(first|last|N) 2=inner 3=outer.
+		// inner = day|week|month (NOT a weekday, so existing "<ord> weekday of …" rules are untouched);
+		// outer = week|month|year|quarter[1-4]|half[1-2]. English/structural (parser runs on lowercased text).
+		const RE_INNER = '(d(?:ays?)?|w(?:[ea]+ks?)?|m(?:o*n[th]+s?)?)';
+		const RE_OUTER = '(w(?:[ea]+ks?)?|m(?:o*n[th]+s?)?|y(?:[ae]+rs?)?|q(?:uarter)?[1-4]?|h(?:alf)?(?:[\\s-]*year)?[12]?)';
+		const reInnerOuter = new RegExp('\\b(?:(first|last|\\d+)\\s*(?:st|nd|rd|th)?\\s+)?' + RE_INNER + '\\s+of\\s+' + RE_OUTER + '\\b', 'i');
 
 		// ---- period helpers (quarter/half as month ranges within a year) ----
 		function periodRange(period, year, refMonth) {
@@ -200,14 +207,73 @@
 			return d;
 		}
 
+		// ---- inner-of-outer matrix ("<ord> <day|week|month> of <week|month|quarter|half|year>")  [NEW] ----
+		// outer scope -> [start,end] range. quarter/half roll forward when past & year is implicit (matches the
+		// `period` rule); week/month/year mean "the CURRENT one" (no roll). idx for periods reuses ret.period.
+		// all dates built at NOON so compareDates (toISOString/UTC) keeps the right calendar day under any TZ
+		// offset (midnight-local dates skew back a day in +UTC zones and falsely trip the roll/clamp checks).
+		function noon(y, m, d) { return new Date(y, m, d, 12, 0, 0, 0); }
+		function outerRangeOf(outer, period, ref, hasYear) {
+			const y = ref.getFullYear(), m = ref.getMonth();
+			if (outer === 'week') { const s = startOfWeek(ref); s.setHours(12, 0, 0, 0); return [s, addDay(6, s)]; }
+			if (outer === 'month') return [noon(y, m, 1), noon(y, m + 1, 0)];
+			if (outer === 'year') return [noon(y, 0, 1), noon(y, 11, 31)];
+			let se = periodStartEnd(period, y, m);                                   // quarter | half
+			se[0].setHours(12, 0, 0, 0); se[1].setHours(12, 0, 0, 0);
+			const refNoon = new Date(ref); refNoon.setHours(12, 0, 0, 0);            // compare at same time-of-day
+			if (!hasYear && compareDates(se[1], refNoon) < 0) { se = periodStartEnd(period, y + 1, m); se[0].setHours(12, 0, 0, 0); se[1].setHours(12, 0, 0, 0); }
+			return se;
+		}
+		// first/last/Nth day|week|month within [rangeStart..rangeEnd]; isLast overrides n; Nth-beyond clamps to last
+		function nthDayInRange(n, isLast, rs, re) {
+			if (isLast) return getNewDate(re);
+			const d = addDay((n || 1) - 1, rs);
+			return compareDates(d, re) > 0 ? getNewDate(re) : d;
+		}
+		function nthWeekInRange(n, isLast, rs, re) {
+			const lastWk = startOfWeek(re);
+			if (isLast) return lastWk;
+			const d = addWeek((n || 1) - 1, startOfWeek(rs));
+			return compareDates(d, lastWk) > 0 ? lastWk : d;
+		}
+		function nthMonthInRange(n, isLast, rs, re) {
+			if (isLast) return noon(re.getFullYear(), re.getMonth(), 1);
+			const d = noon(rs.getFullYear(), rs.getMonth() + ((n || 1) - 1), 1);
+			return compareDates(d, re) > 0 ? noon(re.getFullYear(), re.getMonth(), 1) : d;
+		}
+
 		// slot extraction: text -> {slots, ref} (ref is mutated by year + recursive subdate resolution)
 		function collect(rawText, ref) {
-			const ret = { static: '', fullmoon: '', direction: '', unit: '', shadowUnit: '', number: '', day: '', month: '', year: '', firstlast: '', period: null };
+			const ret = { static: '', fullmoon: '', direction: '', unit: '', shadowUnit: '', number: '', day: '', month: '', year: '', firstlast: '', period: null, inner: '', outer: '' };
 			let text = ('' + rawText).toLowerCase();
 			ref = getNewDate(ref);
 
+			// end-of-period shorthands: eow/eom/eoq/eoy -> "last day of <week|month|quarter|year>"  [NEW]
+			text = text.replace(/\beo([wmqy])\b/i, (_m, u) => 'last day of ' + { w: 'week', m: 'month', q: 'quarter', y: 'year' }[u.toLowerCase()]);
+
 			// year
 			if (regexYear.exec(text)) { ret.year = parseInt(regexYear.exec(text)[1]); ref.setFullYear(ret.year); text = text.replace(new RegExp(regexYear, 'gi'), ''); }
+
+			// inner-of-outer matrix: "<ord> <day|week|month> of <week|month|quarter|half|year>"  [NEW]
+			// captured + STRIPPED here (before the subdate/unit/period passes) so "last month of q3" isn't eaten
+			// as a "last month" subdate. A weekday inner (friday/monday) never matches RE_INNER -> the existing
+			// "<ord> <weekday> of <period|month>" rules keep their phrases untouched.
+			const mIO = reInnerOuter.exec(text);
+			if (mIO) {
+				const innerCh = mIO[2][0];
+				ret.inner = innerCh === 'd' ? 'Day' : innerCh === 'w' ? 'Week' : 'Month';
+				const o = mIO[3];
+				if (o[0] === 'q') { ret.outer = 'quarter'; const d = o.match(/[1-4]/); ret.period = { kind: 'quarter', idx: d ? parseInt(d[0], 10) - 1 : null }; }
+				else if (o[0] === 'h') { ret.outer = 'half'; const d = o.match(/[12]/); ret.period = { kind: 'half', idx: d ? parseInt(d[0], 10) - 1 : null }; }
+				else if (o[0] === 'w') ret.outer = 'week';
+				else if (o[0] === 'y') ret.outer = 'year';
+				else ret.outer = 'month';
+				const ord = mIO[1] || '';
+				if (ord === 'last') ret.firstlast = 'last';
+				else if (ord === 'first') { ret.firstlast = 'first'; ret.number = 1; }
+				else if (/^\d+$/.test(ord)) ret.number = parseInt(ord, 10);
+				text = text.replace(mIO[0], ' ');
+			}
 
 			// subdate recursion: "next year", "prev 2 month", "this week" ... resolved first, mutating ref
 			let shadowSubtxt = '';
@@ -277,6 +343,17 @@
 				let r = range(); d = nthWeekdayInRange(s.day, (s.number || 1), s.firstlast === 'last', new Date(r[0], r[1], 1), new Date(r[0], r[2] + 1, 0));
 				if (compareDates(d, ref) < 0 && s.year === '') { y++; r = periodRange(s.period, y, ref.getMonth()); d = nthWeekdayInRange(s.day, (s.number || 1), s.firstlast === 'last', new Date(r[0], r[1], 1), new Date(r[0], r[2] + 1, 0)); }
 				return d;
+			} },
+			// Nth inner unit of an outer scope: "last week of month", "first month of q3", "2nd week of year"  [NEW]
+			// MUST precede `period`: day/week/month-of-quarter-or-half also routes here (day-of-period reproduces
+			// the `period` rule's first/last-day result; week/month-of-period is genuinely new). bare/relative
+			// periods ("q3", "next quarter") have no inner unit -> they fall through to `period`.
+			{ id: 'inner-of-outer', when: s => s.inner && s.outer && s.day === '', build: (s, ref) => {
+				const [rs, re] = outerRangeOf(s.outer, s.period, ref, s.year !== '');
+				const isLast = s.firstlast === 'last', n = s.number === '' ? 1 : s.number;
+				if (s.inner === 'Day') return nthDayInRange(n, isLast, rs, re);
+				if (s.inner === 'Week') return nthWeekInRange(n, isLast, rs, re);
+				return nthMonthInRange(n, isLast, rs, re);
 			} },
 			// first/last day of a period, or bare/relative period: "last day of Q2", "first day of H1", "q3", "next quarter"  [NEW]
 			{ id: 'period', when: s => s.period && s.day === '', build: (s, ref) => {
@@ -402,9 +479,14 @@
 			const { slots, ref, done } = collect(text, date);
 			if (done) return done;
 			for (const rule of RULES) if (rule.when(slots)) return rule.build(slots, ref);
-			// fallback: try native Date parse of the original text
-			const nat = getNewDate(origi.trim());
-			if (compareDates(ref, nat) !== 0) return nat;
+			// native Date fallback. BLIND by default (parity). Honest mode (nativeDateFallback:false) only
+			// accepts a confident date-like string (ISO / bare year), so a typo'd phrase fails cleanly
+			// (returns false -> no insertion / no preview) instead of silently producing a wrong date.
+			const trimmed = origi.trim();
+			if (nativeFallback || /^\d{4}(-\d{1,2}){0,2}$/.test(trimmed)) {
+				const nat = getNewDate(trimmed);
+				if (compareDates(ref, nat) !== 0) return nat;
+			}
 			return false;
 		}
 
