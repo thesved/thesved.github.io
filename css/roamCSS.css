@@ -1208,3 +1208,7 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
 #app .rm-level-0 > .rm-multibar {
   opacity: 0 !important;
 }
+/* ...but reveal it on hover (azlen's .rm-level-0>.rm-multibar:hover{opacity:1}). */
+#app .rm-level-0 > .rm-multibar:hover {
+  opacity: 1 !important;
+}
