@@ -1187,3 +1187,19 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
 #app .rm-topbar .rm-find-or-create-wrapper .bp3-input-action {
   display: none !important;
 }
+
+/* ============================================================
+   2026-06-13 — .rm-multibar opacity
+   ============================================================ */
+
+/* --- .rm-multibar (collapsed-block child-count multibar) opacity ---
+   user request 2026-06-13: dial the multibar back. Light 0.5, dark 0.2.
+   #app prefix beats azlen deterministically. */
+#app .rm-multibar {
+  opacity: 0.5 !important;
+}
+@media (prefers-color-scheme: dark) {
+  #app .rm-multibar {
+    opacity: 0.2 !important;
+  }
+}
