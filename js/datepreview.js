@@ -1,18 +1,22 @@
 /*
- * ViktorDatepreview (v0.1) — live "ghost" preview of a resolving :date: while you type.
+ * ViktorDatepreview (v0.2) — live "ghost" preview of a resolving :date: while you type.
  *
  * As you type an OPEN colon template (`:next fri…` with no closing `:` yet) inside a block, a small
- * frosted pill shows the resolved date BEFORE you commit — removing the "type-and-hope" + the silent-
- * wrong-date risk. Advisory only: it NEVER mutates block text (commit still happens on the closing `:`
- * via template-roam's resolveTemplate).
+ * frosted pill shows the resolved date BEFORE you commit. Click it to insert the date immediately.
  *
- * Design (board+think synthesis, planning/05):
+ * Design (board+think synthesis, planning/05) + fixes:
  *  - Bubble lives on document.body (NOT the block subtree) -> immune to Roam's React remounts.
- *  - Positioned from the live active <textarea> rect each rAF; hidden when activeElement isn't a block.
- *  - Honest-failure: no parse -> no bubble (doubles as the no-wrong-date cue).
- *  - Format MATCHES what the user will SEE post-commit: dateformatter's format when that feature is on
- *    (it reformats the committed [[Month Dth, YYYY]] page-ref on display), else the template format.
- *  - rAF-debounced; pointer-events:none; AbortController teardown (stop() = clean inverse).
+ *  - WHOLE-SEGMENT, caret-independent: resolves the entire open `:segment` (opener ":" .. next ":" or
+ *    end-of-line), not the text up to the caret — so `:3|rd thu next month` == `:3rd thu next month|`.
+ *    This is exactly what the commit path (resolveTemplate) will see.
+ *  - CHAINING: the segment is split on ";" and folded left-to-right (`:fullmoon; +1 month`), each part
+ *    resolved relative to the previous result — same as parseFormatDate.
+ *  - HONEST preview: the preview lib forces nativeDateFallback:false, so a blind native-Date guess
+ *    (e.g. V8's 2001 garbage) NEVER previews; unresolvable -> no pill (the no-wrong-date cue).
+ *  - CLICK-TO-INSERT: click (or tap) the pill to close the template + commit via resolveTemplate.
+ *  - Format MATCHES post-commit display: dateformatter's format when that feature is on, else the
+ *    template format ([[ ]] stripped, as Roam renders it).
+ *  - rAF-debounced; AbortController teardown (stop() = clean inverse).
  *
  * Toggle: window.ViktorRoamOpts.livePreview !== false (default ON). Needs window.ViktorDateLib loaded.
  */
@@ -20,45 +24,85 @@ if (window.ViktorDatepreview && typeof window.ViktorDatepreview.stop === 'functi
 window.ViktorDatepreview = (function () {
 	'use strict';
 	var bubble = null, raf = 0, started = false, ac = null, libCache = null, libKey = '';
-	// an OPEN colon template at the caret: a ":" after start/space/bracket, then non-space/non-colon content.
-	// Requiring the colon NOT to follow a word char kills prose false-positives ("Note: today").
-	var OPEN_RE = /(?:^|[\s([{>])\:([^\s:`\n][^:`\n]{0,48})$/;
+	var curEl = null, curEnd = null;   // the textarea + insert index (end of the open segment) currently previewed
+	// a template-opener ":" = a colon after start/space/bracket, followed by non-space content.
+	// Requiring NOT-after-a-word-char kills prose false-positives ("Note: today").
+	var OPENER_RE = /(?:^|[\s([{>])\:(?=[^\s:`\n])/g;
 
 	function opts() { return window.ViktorRoamOpts || {}; }
 	function enabled() { return opts().livePreview !== false; }
 
-	// reuse the same opts as the commit path so the preview equals what will be inserted; recreate on change
+	// preview lib mirrors commit opts BUT forces honest-failure so a blind native guess never previews
 	function lib() {
 		var o = opts(), key;
-		try { key = JSON.stringify({ w: o.weekStart, nf: o.nativeDateFallback, nd: o.nameDays, nm: o.nameMonths, a: o.dateAliases }); } catch (e) { key = ''; }
-		if (!libCache || key !== libKey) { try { libCache = window.ViktorDateLib.create(o); libKey = key; } catch (e) { libCache = null; } }
+		try { key = JSON.stringify({ w: o.weekStart, nd: o.nameDays, nm: o.nameMonths, a: o.dateAliases }); } catch (e) { key = ''; }
+		if (!libCache || key !== libKey) {
+			try { libCache = window.ViktorDateLib.create(Object.assign({}, o, { nativeDateFallback: false })); libKey = key; }
+			catch (e) { libCache = null; }
+		}
 		return libCache;
 	}
-	// preview format = dateformatter's display format when that feature is active, else the template format
 	function fmt() {
 		var df = window.ViktorDateformatter;
 		if (df && df.dateformat && (typeof df.isStarted !== 'function' || df.isStarted())) return df.dateformat;
 		return '[[Month Dth, YYYY]]';
 	}
 
+	function activeTextarea() {
+		var el = document.activeElement;
+		return (el && el.nodeName === 'TEXTAREA' && /^block-input-/.test(el.id || '')) ? el : null;
+	}
+	// the OPEN colon-template segment the caret is inside -> {partial, end} (end = insert index for ":"),
+	// or null. Caret-INDEPENDENT within the segment. A closing ":" on the line => not open => null.
+	function openSegment(val, caret) {
+		var le = val.indexOf('\n', caret); if (le === -1) le = val.length;       // end of current line
+		var head = val.slice(0, caret);
+		OPENER_RE.lastIndex = 0;
+		var open = -1, mm;
+		while ((mm = OPENER_RE.exec(head)) !== null) open = mm.index + mm[0].length - 1; // index of last opener ":" <= caret
+		if (open === -1) return null;
+		var rest = val.slice(open + 1, le);
+		if (rest.indexOf(':') !== -1) return null;        // closing ":" present -> resolveTemplate commits it
+		var seg = rest.replace(/\s+$/, '');
+		if (!seg.trim() || seg.length > 80) return null;
+		return { partial: seg, end: open + 1 + seg.length };
+	}
+	// fold the segment over ";" exactly like parseFormatDate's chaining
+	function resolveChain(L, partial) {
+		var parts = partial.split(';'), got = false;
+		var d = parts.reduce(function (ref, s) {
+			var r; try { r = L.parse(s, ref); } catch (e) { r = false; }
+			if (r) got = true;
+			return r || ref;
+		}, undefined);
+		return got && d && !isNaN(d.valueOf()) ? d : null;
+	}
+
 	function ensureBubble() {
 		if (bubble) return bubble;
 		bubble = document.createElement('div');
 		bubble.className = 'vt-datepreview';
-		bubble.style.cssText = 'position:fixed;z-index:2147483600;pointer-events:none;display:none;opacity:0;'
+		bubble.title = 'Click to insert';
+		bubble.style.cssText = 'position:fixed;z-index:2147483600;pointer-events:auto;cursor:pointer;display:none;opacity:0;'
 			+ 'font:12px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;'
 			+ 'padding:3px 9px;border-radius:9px;color:#fff;max-width:60vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'
 			+ 'background:rgba(28,30,36,.86);-webkit-backdrop-filter:blur(10px) saturate(1.4);backdrop-filter:blur(10px) saturate(1.4);'
 			+ 'box-shadow:0 4px 18px rgba(0,0,0,.30),inset 0 0 0 .5px rgba(255,255,255,.12);'
-			+ 'transition:opacity .12s ease;';
+			+ 'transition:opacity .12s ease;user-select:none;-webkit-user-select:none;';
+		// keep the textarea focused on press (so commit() can fire input on it), then commit on click/tap
+		var keepFocus = function (e) { e.preventDefault(); };
+		bubble.addEventListener('mousedown', keepFocus);
+		bubble.addEventListener('touchstart', keepFocus, { passive: false });
+		bubble.addEventListener('click', commit);
 		document.body.appendChild(bubble);
 		return bubble;
 	}
-	function hide() { if (bubble) { bubble.style.opacity = '0'; bubble.style.display = 'none'; } }
-	function show(text, el) {
+	function hide() { curEl = null; curEnd = null; if (bubble) { bubble.style.opacity = '0'; bubble.style.display = 'none'; } }
+	function show(text, el, end) {
 		var b = ensureBubble();
-		b.textContent = '→ ' + text;            // "→ <date>"
+		b.textContent = '→ ' + text;
 		b.style.display = 'block';
+		curEl = el; curEnd = end;
 		var r = el.getBoundingClientRect(), bw = b.offsetWidth, bh = b.offsetHeight;
 		var top = r.bottom + 4, left = r.left;
 		if (top + bh > window.innerHeight - 4) top = r.top - bh - 4;        // flip above if no room below
@@ -68,25 +112,32 @@ window.ViktorDatepreview = (function () {
 		b.style.opacity = '1';
 	}
 
-	function activeTextarea() {
-		var el = document.activeElement;
-		return (el && el.nodeName === 'TEXTAREA' && /^block-input-/.test(el.id || '')) ? el : null;
+	// close the open template + let resolveTemplate commit it, exactly as if the user typed the ":"
+	function commit(e) {
+		if (e) { e.preventDefault(); e.stopPropagation(); }
+		var el = curEl, end = curEnd;
+		if (!el || end == null) return;
+		var v = el.value, nv = v.slice(0, end) + ':' + v.slice(end);
+		var set = (window.ViktorInputLib && window.ViktorInputLib.nativeSetter)
+			|| Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+		el.focus();
+		set.call(el, nv);
+		el.selectionStart = el.selectionEnd = end + 1;
+		el.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, data: ':', inputType: 'insertText' }));
+		hide();
 	}
 
 	function update() {
 		raf = 0;
 		if (!enabled()) return hide();
 		var el = activeTextarea(); if (!el) return hide();
-		var before = el.value.substring(0, el.selectionEnd);
-		var m = OPEN_RE.exec(before); if (!m) return hide();
-		var partial = m[1]; if (!partial || !partial.trim()) return hide();
+		var seg = openSegment(el.value, el.selectionEnd); if (!seg) return hide();
 		var L = lib(); if (!L) return hide();
-		var d; try { d = L.parse(partial); } catch (e) { d = false; }
-		if (!d || isNaN(d.valueOf && d.valueOf())) return hide();
+		var d = resolveChain(L, seg.partial); if (!d) return hide();
 		var out; try { out = L.dateFormat(d, fmt()); } catch (e) { out = ''; }
-		out = ('' + out).replace(/^\[\[|\]\]$/g, '');   // strip page-ref brackets (Roam renders them away)
+		out = ('' + out).replace(/^\[\[|\]\]$/g, '');     // strip page-ref brackets (Roam renders them away)
 		if (!out) return hide();
-		show(out, el);
+		show(out, el, seg.end);
 	}
 	function schedule() { if (!raf) raf = requestAnimationFrame(update); }
 	function onScrollResize() { if (bubble && bubble.style.display !== 'none') schedule(); }
@@ -108,10 +159,10 @@ window.ViktorDatepreview = (function () {
 		if (ac) { ac.abort(); ac = null; }
 		if (raf) { cancelAnimationFrame(raf); raf = 0; }
 		if (bubble) { bubble.remove(); bubble = null; }
-		libCache = null; libKey = '';
+		libCache = null; libKey = ''; curEl = null; curEnd = null;
 	}
 	function isStarted() { return started; }
 
 	start();
-	return { start: start, stop: stop, isStarted: isStarted, update: update, _OPEN_RE: OPEN_RE, _fmt: fmt };
+	return { start: start, stop: stop, isStarted: isStarted, update: update, commit: commit, _openSegment: openSegment };
 })();

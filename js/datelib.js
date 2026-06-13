@@ -390,6 +390,9 @@
 				if (compareDates(d, ref) < 0 && s.year === '') d = addYear(1, d);
 				return d;
 			} },
+			// "<month subdate> <number>" e.g. "next month 5" / "this month 12" -> the Nth day of the
+			// (subdate-shifted) month. Without this the stray number falls to native Date -> V8 garbage.  [NEW]
+			{ id: 'day-of-subdate-month', when: s => s.number !== '' && s.shadowUnit === 'Month' && s.day === '' && s.month === '' && s.unit === '' && !s.period && s.firstlast === '' && s.direction === '', build: (s, ref) => noon(ref.getFullYear(), ref.getMonth(), s.number) },
 			// month + number + direction: "2 last jan"
 			{ id: 'dir-month', when: s => s.direction && s.number !== '' && s.month !== '', build: (s, ref) => {
 				let diff = (12 - ref.getMonth() + s.month) % 12 + s.direction * 12 * s.number;
