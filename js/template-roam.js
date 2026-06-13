@@ -342,9 +342,19 @@ window.ViktorFuzzyDate = (function(){
 			value: ['first','last'],
 		};
 
+	// --- Epic Roam v2 engine swap: delegate the 4 public methods to ViktorDateLib when it's loaded and
+	// enabled (ViktorRoamOpts.fuzzyDateV2 !== false, default ON). Lazy per-call so load order doesn't
+	// matter; falls back to THIS engine if the lib is absent or the flag is off (instant rollback).
+	var _v2 = null;
+	function v2() {
+		if (_v2) return _v2;
+		try { if (typeof window !== 'undefined' && window.ViktorDateLib && (window.ViktorRoamOpts || {}).fuzzyDateV2 !== false) _v2 = window.ViktorDateLib.create(window.ViktorRoamOpts || {}); } catch (e) {}
+		return _v2;
+	}
+
 	return {
-		parse: parse,
-		parseFormatDate: parseFormatDate,
+		parse: function (t, d) { var L = v2(); return L ? L.parse(t, d) : parse(t, d); },
+		parseFormatDate: function (t, d) { var L = v2(); return L ? L.parseFormatDate(t, d) : parseFormatDate(t, d); },
 		addDay: addDay,
 		addWeek: addWeek,
 		addMonth: addMonth,
@@ -357,9 +367,9 @@ window.ViktorFuzzyDate = (function(){
 		getDateForWeekOfYear: getDateForWeekOfYear,
 		getMaxWeekOfYear: getMaxWeekOfYear,
 		getNewDate: getNewDate,
-		dateFormat: dateFormat,
+		dateFormat: function (d, f) { var L = v2(); return L ? L.dateFormat(d, f) : dateFormat(d, f); },
 		compareDates: compareDates,
-		parseEmbed: parseEmbed,
+		parseEmbed: function (t) { var L = v2(); return L ? L.parseEmbed(t) : parseEmbed(t); },
 		nextFullMoon: nextFullMoon,
 		startOfWeek: startOfWeek,
 		weekOffset: weekOffset,
