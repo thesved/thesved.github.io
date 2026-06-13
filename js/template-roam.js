@@ -20,12 +20,23 @@ window.ViktorRoamOpts = window.ViktorRoamOpts || {
 	pasteRoamData: true, // the RoamData copy-paste data structure may change in the future, if it is broken set this to false
 	ignoreNodes: [/#ignore|\[\[ignore\]\]/i]	// ignore these nodes when resolving templates
 };
+// Optional date-engine v2 (datelib) settings, all read straight off ViktorRoamOpts (defaults shown):
+//   fuzzyDateV2: true            — use the v2 engine (set false for instant rollback to the old cascade)
+//   weekStart: 'monday'          — 'monday'..'sunday' | 'auto' (Intl) | 0..6; affects week ranges only
+//   dateDirection: 'future'      — default roll for AMBIGUOUS bare dates (weekday/month/day/numeric/period):
+//                                  'future'=next occurrence (default) | 'past'=most recent | 'nearest'=closer.
+//                                  Per-phrase override: "in"/"coming" force future, "recently" forces past;
+//                                  "next/last/prev" + "in 2 weeks"/today are never affected.
+//   nameMonths / nameDays / nameMonthsShort / nameDaysShort — localized name arrays
+//   dateAliases: { 'hét':'Monday' } — custom day/month aliases (conflict-checked)
+//   nativeDateFallback: true     — false = honest-failure (no blind new Date() guess on a typo)
 
 // :?: / :help: date-syntax cheat-sheet (one-liner, inserted in place)
 window.ViktorDateCheatsheet = window.ViktorDateCheatsheet ||
 	'date syntax: :next fri: :tomorrow: · :3: (+3d) :-1: (yesterday) · :06-11: :0611: · ' +
 	':last week of month: :first month of q3: :3rd sunday of q2: · :eom:/:eow:/:eoq:/:eoy: (end-of) · ' +
-	':friday in 2 weeks: · :fullmoon: · append `YYYY.MM.DD EEE` for a custom format';
+	':friday in 2 weeks: · :in friday:/:recently fri: (force future/past) · :fullmoon: · ' +
+	'append `YYYY.MM.DD EEE` for a custom format';
 
 // lib to manipulate inputs and keyboard
 if (window.ViktorInputLib && typeof window.ViktorInputLib.stop === 'function') window.ViktorInputLib.stop();

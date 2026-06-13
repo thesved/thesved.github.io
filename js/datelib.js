@@ -12,6 +12,13 @@
  *
  * Built as a faithful, parity-tested re-architecture of ViktorFuzzyDate (the live engine is the
  * oracle); adds quarter/half-year periods and fixes "last <weekday>" = previous (see RULES).
+ *
+ * Config note — `dateDirection` ('future' default | 'past' | 'nearest', or +1/-1/0): default roll for
+ * AMBIGUOUS bare-occurrence phrases (a weekday/month/day-of-month/numeric-md/bare-period with NO explicit
+ * direction word). 'future' = next occurrence (legacy, parity-identical), 'past' = most recent, 'nearest'
+ * = whichever is closer. Per-phrase override words beat it: "in"/"coming"/"upcoming" force future,
+ * "recently" forces past. Direction-neutral phrases ("in 2 weeks", "friday in 2 weeks", today/tomorrow)
+ * are never biased. Explicit "next/last/prev" always win.
  */
 (function (root) {
 	'use strict';
@@ -30,6 +37,7 @@
 		const days = O.nameDays || EN_DAYS.slice();
 		const daysShort = O.nameDaysShort || EN_DAYS_SHORT.slice();
 		const weekStartIdx = resolveWeekStart(O.weekStart);
+		const dirDefault = resolveDirection(O.dateDirection);    // +1 future (default) / -1 past / 0 nearest
 		const nativeFallback = O.nativeDateFallback !== false;   // default ON (parity); false = honest-failure
 		const conflicts = [];
 
@@ -242,11 +250,33 @@
 			return compareDates(d, re) > 0 ? noon(re.getFullYear(), re.getMonth(), 1) : d;
 		}
 
+		// ---- date-direction: roll a "this-cycle" occurrence to the configured direction relative to ref ----
+		// dir: +1 future (earliest occurrence >= ref), -1 past (latest <= ref), 0 nearest. stepCycle(base,n)
+		// shifts base by n whole cycles (a year for the date-of-year rules, a week for weekdays). At dir=+1
+		// this reproduces the legacy "roll forward when the candidate already passed" branch EXACTLY, so the
+		// default (future) path stays byte-identical to the 2449-case oracle.
+		function rollOccurrence(base, ref, dir, stepCycle) {
+			if (dir < 0) return compareDates(base, ref) > 0 ? stepCycle(base, -1) : base;
+			if (dir === 0) {
+				const next = compareDates(base, ref) < 0 ? stepCycle(base, 1) : base;
+				const prev = compareDates(base, ref) > 0 ? stepCycle(base, -1) : base;
+				return Math.abs(next.getTime() - ref.getTime()) <= Math.abs(ref.getTime() - prev.getTime()) ? next : prev;
+			}
+			return compareDates(base, ref) < 0 ? stepCycle(base, 1) : base;
+		}
+
 		// slot extraction: text -> {slots, ref} (ref is mutated by year + recursive subdate resolution)
 		function collect(rawText, ref) {
-			const ret = { static: '', fullmoon: '', direction: '', unit: '', shadowUnit: '', number: '', day: '', month: '', year: '', firstlast: '', period: null, inner: '', outer: '' };
+			const ret = { static: '', fullmoon: '', direction: '', unit: '', shadowUnit: '', number: '', day: '', month: '', year: '', firstlast: '', period: null, inner: '', outer: '', bias: dirDefault };
 			let text = ('' + rawText).toLowerCase();
 			ref = getNewDate(ref);
+
+			// per-expression date-direction override (beats the dateDirection setting for THIS phrase only).
+			// "in"/"coming"/"upcoming" force future, "recent"/"recently" force past. Detect-only (not stripped):
+			// these words are inert in the legacy grammar (e.g. "in 2 weeks" already routes to unit-offset, which
+			// ignores bias), so this is a pure no-op at the default future setting -> parity stays byte-identical.
+			if (/\b(?:in|coming|upcoming)\b/i.test(text)) ret.bias = 1;
+			else if (/\brecent(?:ly)?\b/i.test(text)) ret.bias = -1;
 
 			// end-of-period shorthands: eow/eom/eoq/eoy -> "last day of <week|month|quarter|year>"  [NEW]
 			text = text.replace(/\beo([wmqy])\b/i, (_m, u) => 'last day of ' + { w: 'week', m: 'month', q: 'quarter', y: 'year' }[u.toLowerCase()]);
@@ -369,10 +399,12 @@
 					const idx = ((steps % per) + per) % per;
 					return new Date(y, idx * span, 1);
 				}
-				// first/last day of period
+				// first/last day of period — bare ("q3") honors dateDirection; explicit year pins it
 				const se = periodStartEnd(s.period, ref.getFullYear(), ref.getMonth());
-				if (s.firstlast === 'last') { let e = se[1]; if (compareDates(e, ref) < 0 && s.year === '') e = periodStartEnd(s.period, ref.getFullYear() + 1, ref.getMonth())[1]; return e; }
-				let start = se[0]; if (compareDates(start, ref) < 0 && s.year === '') start = periodStartEnd(s.period, ref.getFullYear() + 1, ref.getMonth())[0]; return start;
+				const end = s.firstlast === 'last';
+				const base = se[end ? 1 : 0];
+				if (s.year !== '') return base;
+				return rollOccurrence(base, ref, s.bias, (b, n) => periodStartEnd(s.period, ref.getFullYear() + n, ref.getMonth())[end ? 1 : 0]);
 			} },
 			// ordinal weekday of month: "1st Monday of January", "3rd Sunday of May", "last Friday of June"
 			{ id: 'ordinal-weekday-of-month', when: s => s.day !== '' && (s.month !== '' || s.shadowUnit === 'Month'), build: (s, ref) => {
@@ -384,11 +416,11 @@
 				const n = s.number * (s.direction === '' ? 1 : s.direction);
 				return addDay((s.day - weekStartIdx + 7) % 7, addDay(n * 7, startOfWeek(ref)));
 			} },
-			// day of month: "jan 2", "4th of May", "June 1st"
+			// day of month: "jan 2", "4th of May", "June 1st" — bare (no explicit year) honors dateDirection
 			{ id: 'day-of-month', when: s => !s.direction && s.number !== '' && s.month !== '', build: (s, ref) => {
-				let d = new Date(ref.getFullYear(), s.month, s.number);
-				if (compareDates(d, ref) < 0 && s.year === '') d = addYear(1, d);
-				return d;
+				const base = new Date(ref.getFullYear(), s.month, s.number);
+				if (s.year !== '') return base;
+				return rollOccurrence(base, ref, s.bias, (b, n) => new Date(b.getFullYear() + n, s.month, s.number));
 			} },
 			// "<month subdate> <number>" e.g. "next month 5" / "this month 12" -> the Nth day of the
 			// (subdate-shifted) month. Without this the stray number falls to native Date -> V8 garbage.  [NEW]
@@ -416,19 +448,24 @@
 			{ id: 'ordinal-weekday-of-year', when: s => s.day !== '' && (s.number !== '' || s.firstlast !== ''), build: (s, ref) => {
 				return ordinalWeekdayRolling(s.day, (s.number || 1), s.firstlast === 'last', ref, s.year !== '', 0, 11);
 			} },
-			// plain weekday: "monday", "this/next/last monday" (direction-driven)
+			// plain weekday: "monday", "this/next/last monday" (direction-driven); bare "monday" honors dateDirection
 			{ id: 'plain-weekday', when: s => s.day !== '', build: (s, ref) => {
-				let diff = (7 - getDayOfWeek(ref) + s.day + s.direction * 7) % 7;
-				if (diff === 0) diff = 7 * s.direction;
-				return addDay(diff, ref);
+				if (s.direction !== '') {                          // explicit this/next/prev — unchanged
+					let diff = (7 - getDayOfWeek(ref) + s.day + s.direction * 7) % 7;
+					if (diff === 0) diff = 7 * s.direction;
+					return addDay(diff, ref);
+				}
+				// bare weekday: base = soonest occurrence on/after ref (== legacy result); bias rolls it
+				const base = addDay((s.day - getDayOfWeek(ref) + 7) % 7, ref);
+				return rollOccurrence(base, ref, s.bias, (b, n) => addDay(n * 7, b));
 			} },
-			// month only: "jan", "last day of feb", "first day of March 2024"
+			// month only: "jan", "last day of feb", "first day of March 2024" — bare honors dateDirection
 			{ id: 'month-only', when: s => s.month !== '', build: (s, ref) => {
 				let month = s.month, day = 1;
 				if (s.firstlast === 'last') { month++; day = 0; }
-				let d = new Date(ref.getFullYear(), month, day);
-				if (compareDates(d, ref) < 0 && s.year === '') d = new Date(ref.getFullYear() + 1, month, day);
-				return d;
+				const base = new Date(ref.getFullYear(), month, day);
+				if (s.year !== '') return base;
+				return rollOccurrence(base, ref, s.bias, (b, n) => new Date(b.getFullYear() + n, month, day));
 			} },
 			// "last week/month/year" alone = the PREVIOUS one (FIX of old "last month" = last DAY of this month).
 			// Only a SINGLE bare period word (unitCount===1) — so "last week of month" (2 units) keeps old behavior.  [QUIRK FIX Q2]
@@ -477,7 +514,7 @@
 			const mMD = /^\s*(\d{1,2})\s*[-\/\. ]\s*(\d{1,2})\s*$/.exec(low) || /^\s*(\d{2})(\d{2})\s*$/.exec(low);
 			if (mMD) {
 				const mo = parseInt(mMD[1], 10), dy = parseInt(mMD[2], 10), ref = getNewDate(date);
-				if (mo >= 1 && mo <= 12 && dy >= 1 && dy <= 31) { let d = new Date(ref.getFullYear(), mo - 1, dy); if (compareDates(d, ref) < 0) d = new Date(ref.getFullYear() + 1, mo - 1, dy); return d; }
+				if (mo >= 1 && mo <= 12 && dy >= 1 && dy <= 31) { const base = new Date(ref.getFullYear(), mo - 1, dy); return rollOccurrence(base, ref, dirDefault, (b, n) => new Date(b.getFullYear() + n, mo - 1, dy)); }
 			}
 			const { slots, ref, done } = collect(text, date);
 			if (done) return done;
@@ -548,7 +585,7 @@
 			addDay, addWeek, addMonth, addYear, getDayOfWeek, weekOffset, startOfWeek,
 			getWeekOfYear, getWeekOfMonth, getDateForWeekOfYear, getDateForWeekOfMonth,
 			getMaxWeekOfYear, getMaxWeekOfMonth, nextFullMoon, compareDates, getNewDate,
-			getWeekStart: () => weekStartIdx, aliasConflicts: conflicts, _regexMonth: regexMonth, _regexDay: regexDay,
+			getWeekStart: () => weekStartIdx, getDateDirection: () => dirDefault, aliasConflicts: conflicts, _regexMonth: regexMonth, _regexDay: regexDay,
 		};
 	}
 
@@ -571,7 +608,23 @@
 		return map[k] != null ? map[k] : 0;
 	}
 
-	const ViktorDateLib = { create, resolveWeekStart };
+	// date-direction setting -> default roll for AMBIGUOUS bare-occurrence expressions (a weekday/month/
+	// day-of-month/numeric-md/bare-period with no explicit direction word). +1 future (next occurrence,
+	// the legacy default), -1 past (most recent), 0 nearest. Unknown -> future, so default is parity-safe.
+	function resolveDirection(d) {
+		if (d == null || d === '') return 1;
+		if (typeof d === 'number') return d > 0 ? 1 : d < 0 ? -1 : 0;
+		const k = ('' + d).toLowerCase().trim();
+		const fwd = { future: 1, forward: 1, next: 1, upcoming: 1, coming: 1, ahead: 1, soonest: 1 };
+		const back = { past: -1, back: -1, backward: -1, previous: -1, prev: -1, last: -1, ago: -1, recent: -1 };
+		const near = { nearest: 0, closest: 0, near: 0, any: 0 };
+		if (k in fwd) return 1;
+		if (k in back) return -1;
+		if (k in near) return 0;
+		return 1;
+	}
+
+	const ViktorDateLib = { create, resolveWeekStart, resolveDirection };
 	if (typeof module !== 'undefined' && module.exports) module.exports = ViktorDateLib;
 	if (root) root.ViktorDateLib = ViktorDateLib;
 })(typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this));
