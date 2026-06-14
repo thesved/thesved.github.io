@@ -472,6 +472,7 @@ window.ViktorCmdbar = (function () {
 		var pre = gi.min + ':' + gi.max + ':' + getSel().length;
 		assertRange(target);
 		setTimeout(function () {
+			if (extShrink) return;                               // a collapse started meanwhile — it owns the window
 			var g2 = selExtent();
 			var post = g2 ? g2.min + ':' + g2.max + ':' + getSel().length : '';
 			if (post === pre) {                                  // no progress
