@@ -321,6 +321,7 @@ window.ViktorColonmenu = (function () {
 		if (!el || el !== snap.el) return null;
 		var seg = openSegment(el.value, el.selectionEnd);
 		if (!seg || seg.start !== snap.start || seg.partial !== snap.partial) return null;
+		seg.el = el;                                         // carry the live textarea to commit paths (insertOneLine/PATH B read seg.el)
 		return seg;
 	}
 	// PATH A: overwrite [start,end) with a one-line string; caretOffset = caret within the inserted text
