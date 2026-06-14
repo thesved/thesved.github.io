@@ -253,6 +253,7 @@ window.ViktorColonmenu = (function () {
 		if (!rowsEl || Math.abs(touchVel) < 50) return;       // too slow → no fling
 		var amplitude = 0.8 * touchVel, target = rowsEl.scrollTop + amplitude, start = Date.now();
 		(function frame() {
+			if (!rowsEl) { inertiaRaf = 0; return; }
 			var delta = amplitude * Math.exp(-(Date.now() - start) / 325);
 			if (Math.abs(delta) > 0.5) {
 				rowsEl.scrollTop = target - delta;
@@ -640,6 +641,7 @@ window.ViktorColonmenu = (function () {
 		started = false;
 		if (ac) { ac.abort(); ac = null; }
 		if (raf) { cancelAnimationFrame(raf); raf = 0; }
+		cancelInertia();                                   // a fling rAF would throw on the nulled rowsEl
 		if (menu) { menu.remove(); menu = null; rowsEl = null; footEl = null; }
 		cur = null; libCache = null; libKey = ''; idxCache = null; committing = false;
 	}
