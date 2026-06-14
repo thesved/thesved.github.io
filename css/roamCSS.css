@@ -1,8 +1,1688 @@
-/* IMPORT CORE THEME */
-@import url('https://azlen.github.io/roam-themes/core.css');
+/* GOOGLE FONTS (must precede all rules). NOTE: 'family=family=' is a typo -> this import is
+   BROKEN (Source Sans Pro never loads; falls back to Inter). Fix tracked separately for sign-off. */
+@import url('https://fonts.googleapis.com/css2?family=family=Source+Sans+Pro:ital,wght@0,400;0,700;1,400;1,700&display=swap');
 
-/* GOOGLE FONTS */
-@import url('https://fonts.googleapis.com/css2?family=family=Source+Sans+Pro:ital,wght@0,400;0,700;1,400;1,700&display=swap');	
+/* ============================================================================
+   VENDORED azlen core.css - frozen snapshot of https://azlen.github.io/roam-themes/core.css
+   Inlined 2026-06-14 (TASK C): removes the external runtime dependency -> self-contained,
+   Depot-ready stylesheet. azlen is unmaintained (2021 DOM); the audit-driven dead-rule pass
+   below strips what no longer matches on current Roam. Our overrides live BELOW this block and
+   win via later cascade position + #app specificity. DO NOT hand-edit the vendored block except
+   to delete provably-dead rules (audit: zero live-DOM matches across ALL UI states).
+   ============================================================================ */
+:root {
+    --page-width: 616px;
+    --page-order: row-reverse;
+}
+
+html, body, .roam-app {
+    background-color: var(--bg-color) !important;
+    overflow: hidden !important;
+}
+
+/* hide scrollbars */
+::-webkit-scrollbar {
+    width: 0px;
+    background: transparent; /* Chrome/Safari/Webkit */
+}
+
+/* hide scrollbars */
+* {
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none;  /* IE 10+ */
+}
+
+h1, h2, h3,  h4, h5, h6, h1 > a, h2 > a, h3 > a, h4 > a, .rm-title-textarea {
+    font-family: var(--header-font) !important;
+    color: var(--text-color) !important;
+}
+
+h1.level2, h1.level2 > a, h2.level2 > a {
+    font-size: 26px !important;
+    font-weight: bold !important;
+    height: auto !important;
+    line-height: 1.5 !important;
+}
+h1.rm-title-display, .rm-title-textarea {
+    margin-left: 20px;
+}
+
+.bp3-button.bp3-minimal:hover {
+    background: rgba(var(--color-primary), 0.4) !important;
+    color: var(--text-color) !important;
+}
+.bp3-button.bp3-minimal::before, .bp3-button.bp3-minimal *, .bp3-button.bp3-minimal *::before {
+    color: var(--icon-color) !important;
+}
+.bp3-button.bp3-minimal:hover::before, .bp3-button.bp3-minimal:hover *, .bp3-button.bp3-minimal:hover *::before {
+    color: var(--text-color) !important;
+}
+
+
+div,
+textarea, a {
+    font-family: var(--body-font) !important;
+    color: var(--text-color) !important;
+}
+.bp3-popover {
+    color: var(--color-secondary-contrast) !important;
+}
+
+*[class*="bp3-icon"], *[class*="bp3-icon"]::before {
+    color: var(--icon-color) !important;
+}
+
+.roam-highlight {
+    background-color: rgba(var(--color-primary), 0.5);
+}
+
+.rm-block-ref {
+    border-bottom: 2px solid rgba(var(--color-primary), 0.2)
+}
+.rm-block-ref:hover {
+    background-color: rgba(var(--color-primary), 0.2);
+}
+
+.rm-alias-external, .rm-alias-external:hover {
+    color: rgb(var(--color-secondary)) !important;
+    font-weight: bold;
+}
+
+.rm-alias-block, .rm-alias-block:hover {
+    color: rgb(var(--color-primary)) !important;
+    font-weight: bold;
+}
+
+.rm-page-ref, .rm-alias-page, .rm-alias-page:hover {
+    color: rgb(var(--color-primary)) !important;
+    font-weight: bold;
+}
+
+.rm-page-ref-tag {
+    color: var(--color-primary-contrast) !important;
+    background-color: rgb(var(--color-primary));
+    padding: 1px 6px;
+    border-radius: 4px;
+}
+
+.block-highlight-blue {
+    background-color: rgba(var(--color-primary), 0.2)
+}
+
+.starred-pages a {
+    color: rgb(var(--color-primary)) !important;
+}
+
+.version-bullet {
+    background-color: rgb(var(--color-primary)) !important;
+    color: var(--color-primary-contrast) !important;
+}
+
+.roam-bullet-closed {
+    background-color: var(--bullet-color) !important;
+}
+.simple-bullet-inner {
+    background-color: var(--bullet-color) !important;
+}
+
+.rm-saving-icon .rm-synced {
+    background-color: rgb(var(--color-primary));
+}
+.rm-saving-icon .rm-saving-remote {
+    background-color: rgb(var(--color-secondary));
+}
+
+/* set width and other attributes of pages */
+.roam-article {
+    padding: 0 !important;
+    width: var(--page-width) !important;
+}
+.roam-article, #all-pages-search, .sidebar-content > * {
+    margin: 50px 0px 100px 0px !important;
+    box-sizing: border-box;
+    height: auto !important;
+    max-width: var(--page-width);
+}
+
+/* make blocks respect --page-width */
+.roam-block-container {
+    max-width: var(--page-width);
+}
+
+*[style*="background-color: white"] {
+    background-color: var(--page-color) !important;
+}
+*[style*="background-color: rgb(213, 218, 223)"] {
+    background-color: rgba(var(--color-primary), 0.3) !important;
+}
+
+/* -------------------------- */
+/*         PAGE CARDS         */
+/* -------------------------- */
+
+.roam-article > div {
+    padding: 20px 50px 30px 40px;
+}
+
+.roam-article > div {
+    background: var(--page-color);
+    /* position: relative; */
+    border-radius: 10px;
+}
+
+.roam-article > div:first-child, .sidebar-content > * > * {
+    box-shadow: var(--page-shadow);
+}
+
+/* set min-width for collapsed sidebar*/
+.sidebar-content > * {
+    min-width: 58.5px;
+}
+
+.roam-body-main {
+    top: 0 !important;
+    height: 100% !important;
+    width: auto !important;
+    position: relative !important;
+    padding-left: 50px;
+}
+
+.roam-main {
+    width: unset !important;
+    max-width: 100% !important;
+    height: 100%;
+    
+    overflow-x: scroll;
+    overflow-y: hidden;
+    margin: auto;
+    transition: padding-left 0.15s ease-out;
+}
+
+/* -------------------------- */
+/*       RIGHT SIDEBAR        */
+/* -------------------------- */
+
+#right-sidebar {
+    display: inline-flex !important;
+    vertical-align: top;
+    background-color: transparent !important;
+    border: none !important;
+    flex-direction: row !important;
+    padding-right: 100px;
+    /*min-height: 100vh;*/
+}
+/* hide icon to close sidebar */
+#right-sidebar > .flex-h-box {
+    display: none;
+}
+
+/* spacing and scrolling */
+.sidebar-content > * {
+    margin: 0px 0px 0 20px !important;
+    overflow-x: visible;
+    /*overflow-y: auto !important;*/
+    max-height: 100vh;
+    padding: 50px 0px 100px 0px;
+    
+    /* pesky bottom border/outline in chrome won't go away! */
+    /* this does not fix it */
+    border: none !important;
+    outline: none !important;
+}
+
+.sidebar-content {
+    visibility: visible;
+    display: flex !important;
+    flex-direction: var(--page-order) !important;
+    align-items: flex-start; /* allow pages to have their own height */
+    justify-content: flex-end;
+}
+
+.roam-center > div:not(.rm-dnd-separator):first-child {
+    padding: 0 !important;
+}
+.roam-body-main > * {
+    display: inline-block;
+}
+
+.sidebar-content > *:not(.rm-dnd-separator) {
+    display: block !important;
+    max-width: var(--page-width);
+    position: relative !important;
+    margin-bottom: 200px;
+    flex-shrink: 0;
+
+    overflow-y: auto !important;
+}
+
+.sidebar-content > *:not(.rm-dnd-separator) > div:not(.rm-dnd-separator) > div:first-child:not(:last-child) {
+    min-width: var(--page-width);
+}
+
+.sidebar-content > * > div[style*="margin-left:"][style*="margin-right:"] {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding: 0 !important;
+    margin-bottom: 100px;
+}
+
+.sidebar-content > *:not(.rm-dnd-separator) > .flex-h-box {
+    display: block !important;
+
+    padding: 15px 10px !important;
+}
+.sidebar-content > *:not(.rm-dnd-separator) > div:not(.rm-dnd-separator) {
+    background: var(--page-color);
+}
+.sidebar-content > *:not(.rm-dnd-separator) > div:not(.rm-dnd-separator):first-child {
+    border-radius: 10px 10px 0px 0px;
+}
+.sidebar-content > *:not(.rm-dnd-separator) > div:not(.rm-dnd-separator):first-child:last-child {
+    border-radius: 10px;
+}
+.sidebar-content > *:not(.rm-dnd-separator) > div:not(.rm-dnd-separator) > div:last-child:not(:first-child) {
+    border-radius: 0px 0px 10px 10px;
+    padding-bottom: 50px !important;
+    width: var(--page-width);
+}
+.sidebar-content > div:not(.rm-dnd-separator) > div:not(.rm-dnd-separator):not(.flex-h-box) {
+    padding: 0px 50px 0px 40px;
+}
+.sidebar-content > div:not(.rm-dnd-separator) > .flex-h-box > .bp3-button, #roam-right-sidebar-content .flex-h-box > .bp3-popover-wrapper {
+    margin: auto !important;
+    width: 20px !important;
+    text-align: center;
+    
+}
+
+.sidebar-content > div > div > div[style*="padding-bottom: 8px"] {
+    padding: 8px 40px !important;
+}
+
+.sidebar-content .window-headers {
+    flex-direction: column;
+}
+
+.sidebar-content > div .bp3-icon-plus ~ * {
+    display: block;
+}
+/* when collapsed, hide all icons but `expand` and `close` */
+.sidebar-content > div .bp3-icon-plus ~ .bp3-button:not(.bp3-icon-cross), .sidebar-content > div .bp3-icon-plus ~ .bp3-popover-wrapper {
+    display: none !important;
+}
+.sidebar-content > div .bp3-icon-plus ~ .bp3-button.bp3-icon-cross {
+    display: block;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    margin: 20px auto 0px auto !important;
+}
+.sidebar-content > div .bp3-icon-plus ~ .bp3-button.bp3-icon-cross::before {
+    margin-top: 5px;
+}
+
+/* position minus button */
+.sidebar-content > div .bp3-icon-minus, .sidebar-content > div .bp3-icon-plus {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+}
+/* position filter button */
+#roam-right-sidebar-content > div .bp3-icon-minus ~ .bp3-popover-wrapper {
+    position: absolute;
+    top: 20px;
+    left: 50px;
+}
+/* position references button */
+#roam-right-sidebar-content > div .bp3-icon-minus ~ button.bp3-button {
+    position: absolute;
+    top: 20px;
+    left: 80px;
+    color: var(--icon-color);
+}
+/* position close button */
+#roam-right-sidebar-content > div .bp3-icon-minus ~ .bp3-button.bp3-icon-cross {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+}
+
+/* position close button */
+#roam-right-sidebar-content > div .bp3-icon-minus ~ .bp3-button.bp3-icon-pin,
+#roam-right-sidebar-content > div .bp3-icon-minus ~ .bp3-button.bp3-icon-unpin {
+    position: absolute;
+    top: 20px;
+    right: 50px;
+}
+
+#roam-right-sidebar-content > div .bp3-icon-minus ~ .bp3-button.bp3-icon-unpin {
+    background: rgba(var(--color-primary), 0.4)
+}
+
+#roam-right-sidebar-content > div .bp3-icon-minus + * {
+    margin: 20px 20px 5px 50px !important;
+}
+
+#roam-right-sidebar-content > div .bp3-icon-plus ~ h1 {
+    margin-top: 15px !important;
+    padding-left:10px;
+}
+#roam-right-sidebar-content > div .bp3-icon-plus ~ div:not([class]):not([style]) {
+    margin-top: 15px !important;
+    padding-left:20px;
+    padding-right:0px;
+}
+#roam-right-sidebar-content > div .bp3-icon-plus ~ .bp3-button:last-child { margin-top: 20px !important; }
+#roam-right-sidebar-content > div .bp3-icon-plus, #roam-right-sidebar-content > div .bp3-icon-plus ~ * {
+    display: block;
+    flex: none !important;
+}
+#roam-right-sidebar-content > div .bp3-icon-plus + * {
+    white-space: nowrap;
+    writing-mode: vertical-rl;
+    min-width: 0;
+}
+#roam-right-sidebar-content > div .bp3-icon-plus + div {
+    padding: 0px 12.5px;
+}
+
+
+.roam-topbar .bp3-icon-star::before {
+    color: rgb(var(--color-primary)) !important;
+    color: rgb(var(--color-secondary)) !important;
+}
+/* fix positioning problems with menu icon */
+.roam-topbar *[class*="icon-menu"]::before {
+    position: absolute !important;
+    top: 4px !important;
+    left: 4px !important;
+}
+.roam-topbar .bp3-icon-menu-open::before {
+    content: ""; /* prevent menu icon from changing on hover */
+}
+
+
+
+
+.window-headers {
+    align-items: baseline;
+}
+.window-headers:hover {
+    background-color: rgba(var(--color-primary), 0.1);
+}
+
+.sidebar-content > .rm-dnd-separator .rm-dnd-drop-area {
+    z-index: 999999999999;
+    position: fixed;
+    top: 0;
+    /*margin-left: calc(var(--page-width) * -1);
+    width: 100% !important;*/
+    width: 50px !important;
+    height: 100vh !important;
+    /*background-color: rgba(255, 0, 0, 0.1) !important;*/
+    
+}
+.sidebar-content > div > .rm-dnd-separator {
+    position: absolute;
+    top: 0;
+    left: 0;
+    max-width: 100px !important;
+}
+.sidebar-content > div > .rm-dnd-separator .rm-dnd-drop-area {
+    position: absolute !important;
+    top: 0;
+    z-index: 10000;
+    height: 100vh !important;
+    /*border-left: 20px solid #FF0099 !important;*/
+    box-shadow: none;
+    /*transform: translateX(-30px);*/
+}
+.rm-dnd-drop-area {
+    position: absolute;
+    background-color: rgba(var(--color-primary), 0.1) !important;
+    margin-left: -60px !important;
+    width: 100px;
+    max-width: 100px;
+}
+.rm-dnd-drop-bar {
+    margin-left:-15px;
+    width: 10px !important;
+    height: 100vh !important;
+    background-color: rgba(var(--color-primary), 1) !important;
+    box-shadow: 0px 0px 50px rgba(var(--color-primary), 1);
+    
+}
+.sidebar-content > .rm-dnd-separator {
+    margin-left: -20px;
+}
+.sidebar-content > .rm-dnd-separator > .rm-dnd-drop-area {
+    position: absolute;
+}
+
+
+/*.rm-dnd-drop-area::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 40px;
+    height: 100vh;
+    border-right: 10px solid var(--color-primary);
+    box-shadow: 0px 0px 100px #FF0000;
+}
+
+.rm-dnd-drop-area:-moz-drag-over:before {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 40px;
+    height: 100vh;
+    border-right: 10px solid #FF0000;
+    box-shadow: 0px 0px 100px #FF0000;
+}*/
+
+/*.rm-dnd-drop-area:-moz-drag-over {
+    background-color: rgba(255, 0, 0, 0.5) !important;
+}*/
+
+.ghost {
+    opacity: 1;
+    background: none;
+}
+
+/* -------------------------- */
+/*        LEFT SIDEBAR        */
+/* -------------------------- */
+
+/* HIDE LOGO*/
+#roam-sidebar-logo {
+    display: none;
+}
+
+.roam-sidebar-content * {
+    color: var(--icon-color) !important;
+}
+
+.starred-pages > a > .page:hover {
+    background-color: transparent !important;
+    color: rgb(var(--primary-color)) !important;
+}
+.log-button * {
+    /* this did not do what I expected */
+    /* but it accomplished what I wanted */
+    color: rgb(var(--primary-color)) !important;
+}
+.log-button {
+    background: none !important;
+}
+.log-button:hover, .log-button:hover * {
+    color: var(--text-color) !important;
+}
+.roam-sidebar-content {
+    color: var(--text-color) !important;
+}
+
+
+.roam-topbar {
+    opacity: 1 !important;
+    background-color: transparent !important;
+    
+    margin-top: 70px;
+    width: 20px;
+    display: inline-block;
+    padding-left: 0 !important;
+    position: relative !important;
+    
+    position: sticky !important;
+    left: 0px;
+    transition: none !important;
+    z-index: 999;
+    
+    border: none !important;
+}
+.roam-sidebar-container > .roam-sidebar-content::before {
+    content: "";
+    position: absolute;
+    top: -70px; right: -68px;
+    width: 400px;
+    height: 100vh;
+    background: var(--bg-color) !important;
+    opacity: 0.7;
+    z-index: -1;
+}
+
+.roam-sidebar-container {
+    border: none !important;
+    top: 0px !important;
+    padding: 70px 68px 50px 0px;
+
+    visibility: hidden; /* hide background */
+    transition: all .25s ease-out;
+    width: 300px !important;
+    backdrop-filter: blur(5px);
+    background: #000000 !important;
+
+    /* fix scrolling */
+    overflow-y: auto;
+}
+
+.roam-sidebar-container > .roam-sidebar-content {
+    display: block !important;
+    height: auto !important;
+    visibility: visible; /* show contents */
+}
+.roam-sidebar-container > .roam-sidebar-content > * {
+    opacity: 0 !important;
+    transition: opacity .6s ease-out !important
+}
+.roam-sidebar-container:not([style*="top: 0px"]) {
+    left: -245px !important;
+}
+.roam-sidebar-container[style*="top: 0px"] > .roam-sidebar-content > * {
+    opacity: 1 !important;
+}
+.roam-sidebar-container[style*="top: 0px"] + .roam-main {
+    padding-left: 250px;
+}
+
+/* separator between "ALL PAGES" and "SHORTCUTS" */
+.starred-pages-wrapper > div[style*="background"] {
+    background: var(--icon-color) !important;
+    opacity: 0.5;
+  }
+
+
+/* fix height with absolute positioning of email address */
+.roam-sidebar-content > .flex-h-box {
+    height: 40px;
+}
+.roam-sidebar-content > .flex-h-box > * {
+    pointer-events: auto;
+} 
+.roam-sidebar-content > .flex-h-box ~ * {
+    pointer-events: all;
+}
+.roam-sidebar-content > .flex-h-box > .flex-h-box {
+    position: absolute;
+    left: 45px;
+    top: 5px;
+}
+
+.roam-topbar > .flex-h-box {
+    width: 50px;
+    flex-direction: column;
+    height: 1px !important;
+    align-items: start !important;
+    text-align: center;
+    
+    position: -webkit-sticky !important;
+    position: sticky !important;
+    left: 0px;
+}
+.roam-topbar > .flex-h-box > * {
+    flex: 0 0 20px !important;
+    margin: auto !important;
+    max-width: 20px !important;
+    max-height: 20px !important;
+}
+.roam-topbar > div >.bp3-button:first-child {
+    align-self: start !important;
+    position: fixed !important;
+    left: 16px;
+    top: 78px;
+    z-index: 9999999 !important;
+}
+.roam-topbar > div > *:nth-child(2) {
+    margin-top:20px !important;
+}
+
+
+
+
+
+.rm-reference-item {
+    background-color: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    font-size: 13px !important;
+}
+
+.rm-ref-page-view-title a {
+    color: #000000;
+    font-weight: bold;
+}
+
+/* SOME BLACKMAGIC TO GET SEARCH ICON TO FUNCTION LIKE OTHER BUTTONS */
+
+.roam-topbar .bp3-icon-search {
+    padding: 4px;
+    border-radius: 3px;
+    margin: 0 !important;
+    cursor: pointer;
+}
+
+/* style contains `200px` if search bar is NOT selected */
+/* hovering search bar in this mode == hovering icon itself */
+/* we must however have the search bar in front of the icon (but invisible) so that it can focus on click */
+/* very hacky :P */
+.rm-find-or-create-wrapper[style*="200px"]:hover .bp3-icon-search, .roam-topbar .bp3-icon-search:hover {
+    background-color: rgba(var(--color-primary), 0.4);
+    color: var(--text-color) !important;
+}
+.roam-topbar .bp3-icon-search svg { padding: 1px; }
+/* fix centering on calendar icon */
+.roam-topbar .bp3-icon-calendar { margin: 0 !important }
+
+.rm-find-or-create-wrapper {
+    width: 20px !important;
+}
+.rm-find-or-create-wrapper .bp3-overlay {
+    position: fixed;
+    top: 50px;
+    left: calc(50% - 325px);
+    width: 650px;
+}
+
+.roam-body-main {
+    display: block;
+}
+
+
+
+
+/* -------------------------- */
+/*       POPOVER STYLES       */
+/* -------------------------- */
+
+.bp3-menu-divider {
+    border-color: rgba(255, 255, 255, 0.25) !important;
+}
+.bp3-text-small {
+    color: var(--text-color) !important;
+    opacity: 0.6;
+}
+
+
+.bp3-transition-container {
+    /* not very good at these z-indexes huh? */
+    z-index: 9999999999 !important;
+}
+.bp3-popover {
+    min-width: 230px; /* fix width */
+    pointer-events: none; /* prevent from getting in the way of hover*/
+}
+.bp3-popover .bp3-menu, .bp3-popover .bp3-popover-content {
+    pointer-events: auto;
+    background-color: var(--page-color) !important;
+}
+
+.bp3-popover .bp3-button {
+    background-color: var(--bg-color)
+}
+
+.bp3-popover .bp3-popover-arrow svg * {
+    fill: var(--page-color);
+}
+
+#app .bp3-popover .bp3-popover-arrow svg * {
+    fill: rgb(var(--color-secondary));
+    fill: var(--page-color);
+}
+
+/* what a mess! */
+
+/*.roam-body-main .bp3-popover .bp3-popover-content, .roam-body-main .bp3-menu,
+.roam-sidebar-container .bp3-popover .bp3-popover-content, .roam-sidebar-container .bp3-menu {
+    background-color: rgb(var(--color-secondary)) !important;
+}
+.roam-body-main .bp3-popover .bp3-popover-content, .roam-body-main .bp3-popover .bp3-popover-content *,
+.roam-sidebar-container .bp3-popover .bp3-popover-content, .roam-sidebar-container .bp3-popover .bp3-popover-content * {
+    color: var(--color-secondary-contrast) !important;
+}*/
+
+
+body > .bp3-portal .bp3-menu {
+    background-color: var(--page-color) !important;
+}
+body > .bp3-portal .bp3-popover-content, body > .bp3-portal .bp3-popover-content * {
+    color: var(--text-color) !important;
+}
+
+.bp3-popover .bp3-button, .bp3-popover .bp3-button * {
+    color: var(--text-color) !important;
+}
+
+
+body > .bp3-portal *[style*="rgba(72, 176, 240, 0.5)"] {
+    background-color: rgb(var(--color-primary)) !important;
+    color: var(--color-secondary-contrast) !important;
+}
+body > .bp3-portal *[style*="rgba(72, 176, 240, 0.5)"] > span::before, body > .bp3-portal *[style*="rgba(72, 176, 240, 0.5)"] * {
+    color: var(--color-secondary-contrast) !important;
+}
+body > .bp3-portal .bp3-menu-divider {
+    border-color: rgba(0, 0, 0, 0.2) !important;
+}
+body > .bp3-portal .bp3-text-small {
+    color: rgba(0, 0, 0, 0.5) !important;
+}
+
+.emoji-mart {
+    border: none !important;
+}
+
+
+/* -------------------------- */
+/*      EMBEDDING BLOCKS      */
+/* -------------------------- */
+.rm-embed-container{
+    background-color:var(--page-color) !important;
+}
+
+/* -------------------------- */
+/*         SEARCH BAR         */
+/* -------------------------- */
+
+#find-or-create-input {
+    opacity: 0;
+    z-index: 10000; /* bring in front of icon to keep clickable */
+    cursor: pointer;
+}
+
+/*#find-or-create-input:active, */#find-or-create-input:focus {
+    opacity: 1;
+    position: fixed;
+    width: 600px;
+    top: 100px;
+    left: calc(50% - 600px / 2);
+    cursor: text;
+}
+
+
+#find-or-create-input {
+    border-radius: 10px 10px 0px 0px;
+    font-size: 18px;
+    padding: 20px 20px;
+}
+/* if input is empty (no menu) then use all-around border-radius*/
+#find-or-create-input[value=""] {
+    border-radius: 10px;
+}
+
+/* highlight around search box */
+#find-or-create-input:focus {
+    box-shadow: 0 0 0 1px rgb(var(--color-primary)), 0 0 0 3px rgba(var(--color-primary), 0.3), inset 0 1px 1px rgba(16,22,26, 0.2);
+}
+
+/* styling dropdown menu*/
+.rm-find-or-create-wrapper .bp3-popover {
+    border-radius: 0px 0px 10px 10px;
+    overflow: hidden;
+    background: var(--page-color);
+    backdrop-filter: blur(5px);
+}
+
+/* prevent coloured menu */
+.rm-find-or-create-wrapper .bp3-popover-content, .rm-find-or-create-wrapper .bp3-menu {
+    background-color: transparent !important;
+}
+
+/* properly position search menu overlay */
+.rm-find-or-create-wrapper .bp3-overlay {
+    top: 142px;
+    width: 600px;
+    left: calc(50% - 300px);
+    z-index: 999999;
+}
+
+/* new page text */
+.rm-find-or-create-wrapper .rm-new-page {
+    color: rgb(var(--color-primary)) !important;
+}
+
+/* selected search result */
+.rm-find-or-create-wrapper .rm-menu-item[style*="background"] {
+    background-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+/* search results highlighted words */
+.rm-find-or-create-wrapper .rm-menu-item .rm-search-list-item span[style*="yellow"],
+.rm-pages-title-col span[style*="yellow"]{
+    background-color: rgba(var(--color-primary), 0.4) !important;
+    color: var(--text-color);
+}
+
+.bp3-input {
+    background-color: var(--page-color) !important;
+    color: var(--text-color) !important;
+}
+.bp3-input::placeholder {
+    background-color: var(--page-color) !important;
+    color: var(--text-color) !important;
+    opacity: 0.3;
+}
+
+.rm-search-list-item {
+    color: var(--text-color) !important;
+    opacity: 0.6;
+}
+
+/* -------------------------- */
+/*          DIAGRAM           */
+/* -------------------------- */
+
+
+
+.rm-block-text svg :not(.katex) {
+    background-color: var(--bg-color) !important;
+    border: none !important;
+}
+.bp3-button, .roam-block div[style*="100vh"] > button {
+    background-image: none !important;
+    padding: 0px 10px !important;
+    border: none !important;
+    border-radius: 5px !important;
+}
+.roam-block div[style*="100vh"] > button {
+    background-color: var(--bg-color) !important;
+}
+
+.bp3-button:hover, .roam-block div[style*="100vh"] > button:hover {
+    background-color: rgba(var(--color-primary), 0.5) !important;
+}
+.roam-block div[style*="100vh"] div[style*="background-color: white"] {
+    background-color: var(--page-color) !important;
+    border-color: var(--bg-color) !important;
+}
+
+.roam-center svg > g > rect:first-child, #roam-right-sidebar-content > div svg  > g > rect:first-child {
+    display: none;
+}
+
+.roam-center svg > g > foreignObject, #roam-right-sidebar-content > div svg > g > foreignObject {
+    background-color: var(--page-color);
+    border-radius: 8px;
+    filter: drop-shadow( 0px 4px 6px rgba(0, 0, 0, .05));
+    border: 1px solid transparent;
+}
+
+/* SELECTION */
+
+.roam-center svg > g > rect[stroke="red"] + foreignObject,
+#roam-right-sidebar-content > div svg > g > rect[stroke="red"] + foreignObject {
+    border-color: rgb(var(--color-secondary));
+}
+
+.roam-center svg > g > rect[style*="stroke: red"] + foreignObject,
+#roam-right-sidebar-content > div svg > g > rect[style*="stroke: red"] + foreignObject{
+    border-color: rgb(var(--color-secondary));
+    
+}
+
+.roam-center svg > g > rect[style*="rgba"] + foreignObject,
+#roam-right-sidebar-content > div svg > g > rect[style*="rgba"] + foreignObject{
+    background-color: rgba(255, 255, 255, 0.4)
+}
+
+.roam-center svg > g > foreignObject > input:first-child,
+#roam-right-sidebar-content > div svg > g > foreignObject > input:first-child{
+    background-color: rgb(var(--color-primary)) !important;
+    color: var(--color-primary-contrast);
+    height: 30px;
+}
+
+.roam-center svg > line[style*="stroke: red"],
+#roam-right-sidebar-content > div svg > line[style*="stroke: red"]{
+    stroke: rgb(var(--color-secondary)) !important;
+}
+
+.roam-center svg > rect[style*="fill: rgba(55, 141, 240, 0.5)"],
+#roam-right-sidebar-content > div svg > rect[style*="fill: rgba(55, 141, 240, 0.5)"]{
+    fill: rgba(var(--color-secondary), 0.5) !important;
+    stroke: rgb(var(--color-secondary)) !important;
+}
+
+/* -------------------------- */
+/*       DATE PICKER          */
+/* -------------------------- */
+
+.bp3-datepicker{
+    background-color:var(--page-color);
+}
+
+.DayPicker-Day:hover{
+    background: rgb(var(--color-primary)) !important;
+}
+
+
+/* -------------------------- */
+/*       SEARCH PAGE          */
+/* -------------------------- */
+
+#all-pages-search {
+    max-height: calc(100% - 50px);
+    overflow-y: auto;
+    padding-bottom: 100px !important;
+}
+#all-pages-search > div {
+    padding: 0 !important;
+}
+.rm-pages-row-header {
+    background-color: rgba(var(--color-primary), 0.4) !important;
+    color: var(--color-secondary-contrast) !important;
+    border: none !important;
+}
+.rm-pages-row[style] .bp3-icon::before {
+    margin-left: 5px;
+    color: var(--color-secondary-contrast) !important;
+}
+.rm-pages-row-highlight {
+    background-color: var(--page-color);
+}
+.rm-pages-row[style] .rm-pages-action-col {
+    color: transparent !important;
+}
+/* use wrench icon for actions header rather than "AC..." */
+.rm-pages-row[style] .rm-pages-action-col::before {
+    font-family: "Icons16";
+    content: "";
+    color: var(--color-secondary-contrast);
+    position: absolute;
+    margin-left: 10px;
+}
+
+/* style new page button */
+.bp3-intent-success {
+    color: rgb(var(--color-primary)) !important;
+}
+.bp3-intent-success:hover {
+    background-color: rgba(73, 197, 91, 0.2) !important;
+}
+.bp3-intent-success:active {
+    background-color: rgba(73, 197, 91, 0.4) !important;
+}
+
+/* new search page */
+
+.bp3-control-indicator {
+    background-color: var(--page-color) !important;
+    background-image: none !important;
+    border: 1px solid rgba(var(--color-primary), 0.6) !important;
+}
+
+.bp3-control input:checked ~ .bp3-control-indicator {
+    background-color: rgb(var(--color-primary)) !important;
+    box-shadow: none !important; /* sliders */
+}
+.bp3-checkbox > input:checked ~ .bp3-control-indicator::before {
+    width: 0.9em !important;
+    height: 0.9em !important;
+}
+
+.rm-clickable-pill {
+    background-color: rgba(var(--color-primary), 0.4) !important;
+}
+.rm-clickable-pill.empty-pill {
+    background-color: var(--page-color) !important;
+}
+
+.rm-pages-col-word-count > div > span:first-child,
+.rm-pages-col-word-count + div > div > span:first-child{
+    display: none
+}
+/*.rm-pages-col-word-count > div > .sorting-button-group::before {
+    content: "WORDS";
+    font-size: 0.8em;
+}
+.rm-pages-col-word-count + div > div > .sorting-button-group::before {
+    content: "REFS";
+    font-size: 0.8em;
+}*/
+.sorted-header-text {
+    color: var(--text-color) !important;
+}
+
+.rm-pages-row .rm-pages-col {
+    flex: 0 0 60px !important;
+}
+.rm-pages-row .rm-pages-col:nth-last-child(1),
+.rm-pages-row .rm-pages-col:nth-last-child(2){
+    flex: 0 0 140px !important;
+}
+.rm-all-pages .table > div {
+    max-width: var(--page-width) !important;
+    min-width: var(--page-width) !important;
+}
+
+.sort-button::before {
+    color: var(--text-color) !important;
+}
+.sort-button.focused::before {
+    color: rgb(var(--color-primary)) !important;
+}
+
+.rm-pages-row {
+    border-bottom: none !important;
+}
+.rm-pages-row:nth-child(2n+1) {
+    background-color: rgba(var(--color-primary), 0.15);
+    border-radius:3px;
+}
+
+/* fix width change on border */
+.rm-all-pages .bp3-input {
+    border: 1px solid transparent;
+}
+
+.rm-all-pages .bp3-input.focused {
+    border: 1px solid rgb(var(--color-primary)) !important;
+}
+
+/* -------------------------- */
+/*           MISC             */
+/* -------------------------- */
+
+/* for when filter is active on page */
+.bp3-icon-filter[style*="color"] {
+    color: rgb(var(--color-secondary)) !important;
+}
+
+/* better caret positioning in linked references */
+.bp3-icon-caret-down::before {
+    color: var(--bullet-color) !important;
+}
+.bp3-icon-caret-down {
+    display: inline-block !important;
+    /*margin-bottom: 8px;*/
+    /* fix positioning when rotated 90 deg */
+    /*transform-origin: 9px 13px;*/
+    
+}
+
+/* */
+.roam-center > div[style*="width: 100%; height: 100%;"] {
+    width: var(--page-width) !important;
+}
+.roam-center > div[style*="width: 100%; height: 100%;"] > div {
+    position: fixed !important;
+    top: 0; left: 0;
+    width: 100vw !important;
+    height: 100vw !important;
+}
+
+/* GRAPH VIEW */
+
+/* you can't actually style the graph view because it uses canvas elements, but we *can* apply CSS filters to it to slightly change the appearance */
+canvas[data-id="layer2-node"] {
+    /*filter: invert(1) drop-shadow(0px 3px 4px rgba(0,0,0,0.1));*/
+    filter: invert(1) hue-rotate(110deg) saturate(2.5);
+    opacity: 0.3;
+    transition: opacity .2s ease-out;
+}
+
+*[id*="cyto-wrapper"]:hover canvas[data-id="layer2-node"] {
+    opacity: 1;
+}
+
+
+/* SLIDER */
+
+.bp3-intent-primary {
+    background-color: rgb(var(--color-primary)) !important;
+}
+.bp3-slider-handle {
+    border-radius: 10px;
+}
+
+
+/* QUERY */
+
+.rm-query {
+  border: 0.5px solid #38332e;
+  border-top-left-radius: 7px;
+  border-top-right-radius: 7px;
+  border-radius: 10px;
+}
+
+.rm-query .rm-query-title {
+  background-color: #38332e;
+  font-size: .8em;
+}
+
+/* CHECKBOX */
+
+.check-container {
+    padding-right: 2px;
+    vertical-align: text-bottom;
+    top: -5px;
+}
+
+.check-container .checkmark {
+    width: 14px;
+    height: 14px;
+}
+.check-container .checkmark::after {
+    left: 4.5px;
+    top: 1px;
+}
+.check-container input[checked] + .checkmark {
+    background-color: rgb(var(--color-primary)) !important;
+}
+
+/* versioning tab underline */
+span[style*="border-bottom: 2px solid rgb(138, 155, 168)"] {
+    border-bottom: 3px solid rgb(var(--color-primary)) !important;
+}
+
+blockquote {
+    font-size: 14px;
+    border-color: var(--bullet-color);
+    opacity: 0.5;
+}
+
+code {
+    background: var(--bg-color);
+    border: none;
+    color: var(--text-color);
+    padding: 4px 7px;
+    line-height: 0.5;
+    border-radius: 0;
+}
+
+.block-border-left {
+    border-color: var(--bullet-color);
+  }
+  
+
+/* help button / popup */
+#buffer {
+    background: transparent !important;
+    right: 7px !important;
+    bottom: 10px !important;
+}
+#buffer .bp3-popover-target >.bp3-button {
+    background: rgba(0, 0, 0, 0.1);
+    height: 30px;
+    width: 30px;
+}
+#buffer > div {
+    z-index: 99999 !important;
+    background: rgb(var(--color-secondary), 0.7) !important;
+    backdrop-filter: blur(5px);
+    border-radius: 10px;
+    padding: 2px 8px 8px 8px;
+    box-shadow: 0px 8px 14px rgba(0, 0, 0, 0.1)
+}
+#buffer > div .bp3-button::before {
+    color: #FFFFFF !important;
+    
+}
+#buffer .help-title {
+    color: var(--color-secondary-contrast) !important;
+}
+#buffer .help-sub-title {
+    color: var(--color-secondary-contrast) !important;
+    opacity: 0.5;
+}
+#buffer span {
+    color: rgba(255, 255, 255, 0.8) !important;
+}
+#buffer a {
+    text-decoration: underline;
+    color: var(--color-secondary-contrast) !important;
+}
+#buffer a:hover {
+    opacity: 0.5;
+}
+
+
+/* ------------- Red Pomodoro ------------- */
+/* credit: https://github.com/theianjones/roam-research-themes/blob/master/pomodoros.css */
+.rm-pomodoro {
+  background: transparent !important;
+  color: #ff4747 !important;
+  padding: 4px 14px;
+  line-height: 2em;
+  font-weight: 600;
+  border-radius: 2em;
+  border: 1px solid #ff474770;
+}
+
+.rm-pomodoro::first-letter {
+  margin-right: 8px;
+}
+
+
+/* BUTTON */
+.block-bullet-view .bp3-button:not([class*="bp3-icon"]) {
+    background: transparent !important;
+    color: rgb(var(--color-primary)) !important;
+    padding: 4px 14px;
+    line-height: 2em;
+    font-weight: 600;
+    border-radius: 2em !important;
+    border: 1px solid rgba(var(--color-primary), 0.5) !important;
+    box-shadow: none !important;
+}
+.block-bullet-view .bp3-button:hover {
+    background: rgba(var(--color-primary), 0.2) !important;
+
+}
+
+/* KANBAN */
+.kanban-board {
+    background-color: transparent;
+    padding: 0;
+    max-width: 500px;
+}
+.kanban-title {
+    background: rgb(var(--color-primary));
+    color: var(--color-primary-contrast) !important;
+    font-weight: bold;
+    padding: 0px !important;
+    max-height: 30px;
+    border: none;
+    display: flex;
+    align-items: center;
+}
+.kanban-title > span {
+    display: block;
+    margin: auto;
+}
+.kanban-column {
+    border-radius: 10px;
+    box-shadow: 0px 8px 14px rgba(0, 0, 0, 0.05);
+    padding: 0;
+    overflow: hidden;
+}
+.kanban-card {
+    border-radius: 10px;
+    box-shadow: 0px 8px 14px rgba(0, 0, 0, 0.05);
+}
+.kanban-card {
+    background-color: var(--page-color);
+    margin: 8px;
+    box-shadow: 0px 1px 2px #9EB3C0;
+    padding: 10px;
+    border-radius: 4px;
+    line-height: 1.3em;
+}
+.kanban-column {
+    background-color: ;
+    margin: 0px 4px 0px 4px;
+    min-width: 200px;
+    border-radius: 6px;
+}
+
+/* ASTROLABE */
+
+/* Breathing Loader */
+/* https://codepen.io/Mathi_C/pen/mMWaaW */
+.loading-astrolabe {
+    height: 100px;
+    width: 100px;
+    border-radius: 200px;
+    margin: auto;
+    
+}
+
+.loading-astrolabe {
+    animation-name: orb_1;
+    animation-duration: 3s;
+    animation-delay: 0s;
+    animation-iteration-count: infinite;
+    animation-timing-function: ease-in-out;
+    animation-direction: alternate;
+}
+
+@keyframes orb_1 {
+    from {
+        transform: scale(0.2);
+        background: rgb(var(--color-secondary));
+    }
+    to {
+        transform: scale(2);
+        background: rgb(var(--color-primary));
+    }
+}
+
+/* Hide original loader */
+.loading-astrolabe img {
+    display: none;
+}
+
+.bp3-spinner {
+    visibility: hidden;
+}
+.bp3-spinner > * {
+    visibility: visible;
+}
+
+.bp3-spinner-head {
+    stroke: rgb(var(--color-primary)) !important;
+}
+
+
+
+
+
+
+
+
+.roam-center > div > div > div svg :not(.katex) {
+    background-color: var(--bg-color) !important;
+}
+
+/* fix specific popover sizes and positions... */
+
+.roam-topbar .bp3-popover-wrapper:nth-child(6) .bp3-popover,
+.roam-topbar .bp3-popover-wrapper:nth-child(7) .bp3-popover{
+    width: 600px;
+    max-width: calc(100vw - 20px);
+}
+#roam-right-sidebar-content > div .flex-h-box > .bp3-popover-wrapper .bp3-transition-container {
+    transform: translate3d(-15px, 41px, 0px) !important;
+}
+#roam-right-sidebar-content > div .flex-h-box > .bp3-popover-wrapper .bp3-transition-container .bp3-popover-arrow {
+    left: 10px !important;
+}
+/* -------------------------- */
+/*         MOBILE             */
+/* -------------------------- */
+
+
+
+@media only screen and (max-width: 600px) {
+    .roam-topbar {
+        margin: 0px !important;
+        padding: 10px 0px 0px 0px !important;
+        width: 100%;
+        justify-content: center;
+        position: fixed !important;
+        top: 0px;
+        left: 0px;
+        backdrop-filter: blur(5px);
+    }
+    .roam-topbar::before {
+        content: "";
+        position: absolute;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        background-color: var(--bg-color) !important;
+        opacity: 0.7;
+        
+    }
+    .roam-topbar > .flex-h-box {
+        flex-direction: row;
+        height: 1px !important;
+        align-items: start !important;
+        text-align: center;
+
+        /*position: -webkit-sticky !important;
+        position: fixed !important;
+        left: 0px;
+        top: 0;*/
+        position: relative !important;
+        width: 300px !important;
+        margin: auto;
+        justify-content: space-evenly;
+    }
+    .roam-topbar > div >.bp3-button:first-child {
+        position: static !important;
+    }
+    
+    .roam-sidebar-container {
+        padding-right: 0;
+        width: 232px !important;
+    }
+    .roam-sidebar-container > .roam-sidebar-content::before {
+        right: 0px !important;
+    }
+    
+    .roam-body-main {
+        padding-left: 0 !important;
+    }
+    
+    #find-or-create-input {
+        max-width: calc(100% - 20px);
+        left: 10px !important;
+    }
+    
+    .roam-article,
+    .rm-all-pages > .table,
+    .rm-all-pages > .table > div {
+        max-width: calc(100vw - 20px) !important;
+        min-width: calc(100vw - 20px) !important;
+        width: calc(100vw - 20px) !important;
+    }
+    .rm-all-pages > .table {
+        margin-left: 10px;
+        margin-right: 10px;
+    }
+    .roam-article {
+        margin: 50px 10px !important;
+        margin-bottom: 100px !important;
+    }
+    .roam-article > div {
+        padding: 30px 30px 30px 20px;
+    }
+    
+    
+    #roam-right-sidebar-content > div > *{
+        max-width: calc(100vw - 20px) !important;
+    }
+    /* position minus button */
+    #roam-right-sidebar-content > div .bp3-icon-minus, #roam-right-sidebar-content > div .bp3-icon-plus {
+        top: 60px;
+    }
+    /* position filter button */
+    #roam-right-sidebar-content > div .bp3-icon-minus ~ .bp3-popover-wrapper {
+        top: 60px;
+    }
+    /* position references button */
+    #roam-right-sidebar-content > div .bp3-icon-minus ~ button.bp3-button {
+        top: 60px;
+    }
+    /* position close button */
+    #roam-right-sidebar-content > div .bp3-icon-minus ~ .bp3-button.bp3-icon-cross {
+        top: 60px;
+    }
+    
+    .rm-title-display, .rm-title-textarea {
+        margin-left: 0 !important;
+    }
+    #roam-right-sidebar-content > div .bp3-icon-minus + * {
+            margin: 30px 10px 5px 30px !important;
+    }
+    
+    .roam-topbar > div > *:nth-child(2) {
+        margin-top: 0 !important;
+    }
+    
+    #right-sidebar {
+        padding-right: 10px !important;
+    }
+    
+    .rm-find-or-create-wrapper .bp3-transition-container {
+        position: fixed !important;
+        max-width: calc(100vw - 20px);
+        top: 142px !important;
+        left: 10px !important;
+    }
+}
+
+#mobile-capture {
+    height: 100vh !important;
+    background-color: var(--bg-color) !important;
+}
+
+#mobile-capture textarea, #mobile-capture input {
+    background-color: var(--page-color) !important;
+}
+#mobile-capture textarea::placeholder, #mobile-capture input::placeholder {
+    color: var(--text-color) !important;
+    opacity: 0.3
+}
+#mobile-capture textarea {
+    margin-top: 10px;
+}
+
+#rm-mobile-bar {
+    max-width: 100vw;
+    background-color: rgb(var(--color-secondary)) !important;
+    position: fixed !important;
+    z-index: 999999;
+}
+#rm-mobile-bar .bp3-button {
+    vertical-align: top;
+    margin: 5px 0px !important;
+    
+}
+#rm-mobile-bar .bp3-button::before, #rm-mobile-bar .bp3-button i::before {
+    color: var(--color-secondary-contrast) !important;
+}
+
+
+.rm-find-or-create-wrapper .bp3-transition-container {
+    transform: none !important;
+}
+
+
+
+
+
+
+/* CREDIT TO VIKTOR TABORI & ROBERT KIRK FOR FIXES */
+
+
+/* FIXING resizable interface */
+
+/* fix: collapsed sidebar windows by @_robertkirk */
+.window-headers:only-child {
+text-orientation: mixed;
+writing-mode: vertical-lr;
+}
+
+/* left sidebar fix */
+.roam-sidebar-container {
+padding-left: 45px;
+}
+
+@media only screen and (max-width: 600px) {
+.roam-sidebar-container {
+    padding-left: 0;
+}
+}
+
+
+/* fix resizing */
+.roam-body .roam-app .roam-main {
+overflow-x:hidden;
+flex-direction: row !important;
+max-width: var(--page-width) !important;
+}
+
+@media only screen and (max-width: 600px) {
+.roam-body .roam-app .roam-main {
+    flex: 0 0 auto!important;
+}
+
+.roam-body .roam-app .roam-body-main {
+    flex: 0 0 auto!important;
+}
+}
+
+/* main panel size fix */
+.roam-body .roam-app .roam-body-main {
+flex: 0 0 100%!important;
+padding-left: 55px;
+}
+
+.roam-body .roam-app .roam-body-main > [style*="padding-right"] {
+max-width: 100%!important;
+padding-left:unset!important;
+padding-right:unset!important;
+}
+
+.rm-block-text {
+max-width: 100%!important;
+}
+
+/* make the main panel scroll */
+.roam-app > .flex-h-box {
+overflow-x: scroll;
+}
+
+.roam-article {
+max-width: 100%;!important;
+overflow-x: hidden;
+}
+
+/* right sidebar fix */
+#right-sidebar {
+flex: 0 0 auto!important;
+}
+
+#right-sidebar .rm-resize-handle {
+left:-4px!important; /* in the original code this has set to -4 which is invalid */
+}
+
+#roam-right-sidebar-content {
+flex: 0 0 auto!important;
+overflow: scroll;
+}
+
+#roam-right-sidebar-content .sidebar-content > * {
+max-width: 100%;
+overflow-x: hidden;
+padding-top: 45px;
+}
+
+/* right sidebar header fixes */
+#roam-right-sidebar-content .window-headers {
+margin-left: 5px!important;
+flex-direction: row !important;
+align-items: center!important;
+position: relative!important;
+}
+
+#roam-right-sidebar-content .window-headers .bp3-icon-cross {
+order: 1!important;
+margin-right: 10px;
+}
+
+#roam-right-sidebar-content .window-headers > :nth-child(1) {
+order: 2;
+}
+
+#roam-right-sidebar-content .window-headers > :nth-child(2) {
+order: 3;
+}
+
+#roam-right-sidebar-content .window-headers button.bp3-small {
+color: var(--text-color);
+order: 4;
+}
+
+#roam-right-sidebar-content .window-headers > [style*="0px"] {
+order: 5;
+}
+
+#roam-right-sidebar-content .sidebar-content > * > * {
+padding-right: 10px!important;
+}
+
+/* sidebar title editing */
+.rm-sidebar-outline .rm-title-editing-display {
+    display: inline-block;
+}
+.rm-sidebar-outline .rm-title-editing-display textarea {
+    margin-left: 0!important;
+}
+
+/* visualize the right sidebar resize-handle */
+.rm-resize-handle:hover, .rm-resize-handle:focus {
+    background-color: #66666640;
+}
+/* ===== END VENDORED azlen core.css - our overrides follow ===== */
 
 canvas[data-id="layer2-node"] {	
     filter: invert(1) hue-rotate(110deg) saturate(2.5);	
@@ -17,14 +1697,14 @@ canvas[data-id="layer2-node"] {
   margin-right:2px;
 }
 
-/* sidebar fix */
-#roam-right-sidebar-content > *, 
-{
-	max-width: var(--page-width-side)!important;
-	margin-left: 20px;
-}
-
-.sidebar-content > *, 
+/* sidebar fix — NOTE: removed a dead rule here (2026-06-15 TASK C): the selector
+   `#roam-right-sidebar-content > *,` had a DANGLING COMMA before `{`, making the whole rule a CSS
+   parse error (it never applied). The `#roam-right-sidebar-content`/`.sidebar-content`/
+   `.window-headers`/`.rm-sidebar-*` family below is LIVE on current Roam — VERIFIED with the right
+   sidebar OPEN + populated (#roam-right-sidebar-content, .sidebar-content, .window-headers,
+   .rm-sidebar-window, .rm-sidebar-outline all match). KEEP. (Earlier 0-matches were a CDP
+   render-state blind spot: the right sidebar doesn't render content while the tab is backgrounded.) */
+.sidebar-content > *,
 #roam-right-sidebar-content .roam-block-container,
 .sidebar-content > :not(.rm-dnd-separator)
 {
@@ -417,7 +2097,11 @@ strong {
      and crammed every menu icon into ~32px. Match Roam's native column.
      This file is @import'd after azlen core.css, so this wins the cascade. */
   flex-direction: column !important;
-  max-width: var(--page-width) !important;
+  /* WIDTH-HONOR (2026-06-15 TASK C): was `max-width: var(--page-width)` which hard-capped the
+     WHOLE column at 800 and made Roam's native page-width control (small/medium/large/full) a
+     no-op. Uncap the column so Roam's width can apply; the topbar + article column are centered
+     explicitly in the WIDTH-HONOR block below. */
+  max-width: none !important;
 }
 
 @media only screen and (max-width: 600px) {
@@ -437,7 +2121,8 @@ strong {
      Roam's native value: fill the height left after the 45px topbar. The
      .rm-files-dropzone (topbar wrapper, height:100%) then flex-shrinks to 45px. */
   flex: 0 0 calc(100% - 45px)!important;
-  padding-left: 55px;
+  /* WIDTH-HONOR (2026-06-15): dropped `padding-left: 55px` — an asymmetric left offset that
+     left-shifted the article once the column was uncapped. Centering is now explicit (below). */
 }
 
 .roam-body .roam-app .roam-body-main > [style*="padding-right"] {
@@ -450,13 +2135,43 @@ strong {
   max-width: 100%!important;
 }
 
+/* ============================================================================
+   WIDTH-HONOR (2026-06-15 TASK C) — make Roam's native page-width control work.
+   Roam's topbar icon (.bp3-icon-horizontal-distribution) opens a small/medium/large/full
+   picker and sets a width class (.rm-spacing--{size}) on .rm-article-wrapper; the article's
+   width comes from `width: var(--page-width)` (azlen rule, ~L136). The theme used to pin
+   --page-width to a fixed 800 at :root AND cap the column (above), so the picker was a NO-OP
+   (user request 2026-06-15: honor it). Fix: the column is now uncapped, and --page-width is set
+   PER width-class ON THE WRAPPER, so the article (a descendant) tracks the chosen width while the
+   topbar (NOT a descendant) keeps the :root 800 and stays a centered, readable bar. The article
+   column + topbar are centered explicitly since the column is full-width; the article's
+   `max-width: 100%` (azlen) prevents overflow on narrow viewports. Values are ours (sensible),
+   not Roam's exact px. */
+#app .rm-topbar {
+  max-width: var(--page-width) !important;   /* :root --page-width (800) → centered readable bar */
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+#app .roam-body .roam-app .roam-body-main {
+  padding-left: 0 !important;                /* symmetric → the centered wrapper sits true-center */
+  padding-right: 0 !important;
+}
+#app .rm-article-wrapper {
+  margin-left: auto !important;              /* center the article column in the full-width main */
+  margin-right: auto !important;
+}
+#app .rm-article-wrapper.rm-spacing--small  { --page-width: 800px; }
+#app .rm-article-wrapper.rm-spacing--medium { --page-width: 1100px; }
+#app .rm-article-wrapper.rm-spacing--large  { --page-width: 1400px; }
+#app .rm-article-wrapper.rm-spacing--full   { --page-width: calc(100vw - 100px); }
+
 /* make the main panel scroll */
 .roam-app > .flex-h-box {
   overflow-x: scroll;
 }
 
 .roam-article {
-  max-width: 100%;!important;
+  max-width: 100%;  /* was `100%;!important;` — the stray `!important;` was an orphan (junk) declaration, dropped 2026-06-15 */
   overflow-x: hidden;
 }
 
@@ -849,6 +2564,34 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
   .cm-editor .cm-content ::selection {
     background-color: #2f4a86 !important;
     color: inherit !important;
+  }
+}
+
+/* --- code blocks (CodeMirror 6) — delightful dark code card (2026-06-15 TASK C) ---
+   Roam's native ```code``` block (.rm-code-block) renders on a light rgb(245,245,245) surface
+   (built for light mode) — a glaring white box in dark mode. The old CM5 theming
+   (.CodeMirror{background:var(--bg-color)} in roamCSS-auto.css) is DEAD (CM6). Make it a
+   clearly-defined DARK INSET CARD: fill DARKER than the page card (--bg-color, so it reads as a
+   code well, not a blend), a hairline border + rounded corners (Apple-style card definition), and
+   a gutter that rides the card bg. CM6's own syntax token colors read fine on the dark surface.
+   The border-radius + clip apply in BOTH modes (pure delight); the dark fill is dark-mode only. */
+.rm-code-block {
+  border-radius: 8px !important;
+  overflow: hidden !important;   /* clip CM6's square corners to the rounded card */
+}
+@media (prefers-color-scheme: dark) {
+  .rm-code-block {
+    background-color: var(--bg-color) !important;   /* dark inset, darker than the page card */
+    border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  }
+  .rm-code-block .cm-gutters {
+    background-color: transparent !important;        /* gutter rides the card bg, no separate slab */
+    border-right: 1px solid rgba(255, 255, 255, 0.06) !important;
+  }
+  .rm-code-block .cm-editor { color: var(--text-color); }
+  .rm-code-block .cm-activeLine,
+  .rm-code-block .cm-activeLineGutter {
+    background-color: rgba(255, 255, 255, 0.04) !important;
   }
 }
 
