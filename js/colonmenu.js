@@ -38,7 +38,7 @@ window.ViktorColonmenu = (function () {
 	'use strict';
 
 	var menu = null, rowsEl = null, footEl = null, raf = 0, started = false, ac = null;
-	var touchStartY = 0, touchLastY = 0, touchMoved = false;   // tap-vs-scroll on the (height-capped) row list
+	var touchStartY = 0, touchLastY = 0, touchLastT = 0, touchVel = 0, touchMoved = false, inertiaRaf = 0;  // kinetic scroll of the (height-capped) row list
 	var libCache = null, libKey = '';
 	var idxCache = null, idxAt = 0, idxKey = '';           // template index cache
 	var IDX_TTL = 4000;                                    // ms; re-query templates at most this often
@@ -245,6 +245,24 @@ window.ViktorColonmenu = (function () {
 	}
 
 	// ============================================================ DOM
+	// kinetic momentum: after a swipe, glide scrollTop toward target with exp decay (Apple's model:
+	// amplitude ∝ release velocity, time-constant 325ms). scrollTop self-clamps at the list bounds.
+	function cancelInertia() { if (inertiaRaf) { cancelAnimationFrame(inertiaRaf); inertiaRaf = 0; } }
+	function startInertia() {
+		cancelInertia();
+		if (!rowsEl || Math.abs(touchVel) < 50) return;       // too slow → no fling
+		var amplitude = 0.8 * touchVel, target = rowsEl.scrollTop + amplitude, start = Date.now();
+		(function frame() {
+			var delta = amplitude * Math.exp(-(Date.now() - start) / 325);
+			if (Math.abs(delta) > 0.5) {
+				rowsEl.scrollTop = target - delta;
+				inertiaRaf = requestAnimationFrame(frame);
+			} else {
+				rowsEl.scrollTop = target;
+				inertiaRaf = 0;
+			}
+		})();
+	}
 	function ensureMenu() {
 		if (menu) return menu;
 		menu = document.createElement('div');
@@ -263,19 +281,30 @@ window.ViktorColonmenu = (function () {
 		// keep textarea focused on press; pick on click (mousedown so it beats blur)
 		menu.addEventListener('mousedown', function (e) { e.preventDefault(); });
 		// touchstart preventDefault keeps the textarea focused (no blur, no iOS callout) but ALSO kills
-		// native scroll — so when the list is height-capped we drive the scroll ourselves and only let a
-		// row pick on a real TAP (touchMoved stays false). A swipe scrolls instead of inserting.
+		// native scroll — so when the list is height-capped we drive the scroll (and its momentum) ourselves,
+		// and only let a row pick on a real TAP (touchMoved stays false). A swipe scrolls/flings, not inserts.
 		menu.addEventListener('touchstart', function (e) {
 			e.preventDefault();
-			var t = e.touches[0]; touchStartY = touchLastY = t ? t.clientY : 0; touchMoved = false;
+			cancelInertia();
+			var t = e.touches[0];
+			touchStartY = touchLastY = t ? t.clientY : 0;
+			touchLastT = Date.now(); touchVel = 0; touchMoved = false;
 		}, { passive: false });
 		menu.addEventListener('touchmove', function (e) {
 			e.preventDefault();
 			var t = e.touches[0]; if (!t) return;
+			var nowT = Date.now();
 			var dy = t.clientY - touchLastY; touchLastY = t.clientY;
+			var dt = nowT - touchLastT; touchLastT = nowT;
 			if (Math.abs(t.clientY - touchStartY) > 6) touchMoved = true;
-			if (touchMoved) rowsEl.scrollTop -= dy;  // content follows the finger (only once it's a real drag, so a tap doesn't twitch)
+			if (touchMoved) {
+				rowsEl.scrollTop -= dy;                                  // content follows the finger
+				if (dt > 0) touchVel = 0.8 * (-dy / dt * 1000) + 0.2 * touchVel;   // smoothed velocity, px/s
+			}
 		}, { passive: false });
+		// on release of a SWIPE, fling with iOS-like exponential decay (a tap stops propagation in rowHTML,
+		// so this never runs for taps → no inertia after a pick).
+		menu.addEventListener('touchend', function () { if (touchMoved) startInertia(); }, { passive: true });
 		document.body.appendChild(menu);
 		return menu;
 	}
@@ -295,11 +324,11 @@ window.ViktorColonmenu = (function () {
 		d.addEventListener('mouseenter', function () { setActive(i); });
 		d.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); pick(i); });
 		// mobile: the menu's touchstart is preventDefault'd (keeps the textarea focused, kills the synthetic
-		// click) — so tap-to-pick rides touchend directly. But ignore a touchend that was a SCROLL swipe
-		// (touchMoved), else dragging the list would insert a row instead of scrolling it.
+		// click) — so tap-to-pick rides touchend directly. A SCROLL swipe (touchMoved) must NOT pick and must
+		// be left to bubble to the menu's touchend so the fling starts; only a real tap stops propagation.
 		d.addEventListener('touchend', function (e) {
-			e.preventDefault(); e.stopPropagation();
 			if (touchMoved) return;
+			e.preventDefault(); e.stopPropagation();
 			pick(i);
 		});
 		return d;
@@ -379,6 +408,7 @@ window.ViktorColonmenu = (function () {
 	function showMenu() { ensureMenu(); menu.style.display = 'flex'; render(); position(); }
 	function hide() {
 		cur = null;
+		cancelInertia();
 		if (menu) menu.style.display = 'none';
 	}
 	function isOpen() { return !!(cur && menu && menu.style.display !== 'none'); }
