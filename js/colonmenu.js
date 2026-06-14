@@ -274,7 +274,7 @@ window.ViktorColonmenu = (function () {
 			var t = e.touches[0]; if (!t) return;
 			var dy = t.clientY - touchLastY; touchLastY = t.clientY;
 			if (Math.abs(t.clientY - touchStartY) > 6) touchMoved = true;
-			rowsEl.scrollTop -= dy;                  // content follows the finger
+			if (touchMoved) rowsEl.scrollTop -= dy;  // content follows the finger (only once it's a real drag, so a tap doesn't twitch)
 		}, { passive: false });
 		document.body.appendChild(menu);
 		return menu;
@@ -405,7 +405,10 @@ window.ViktorColonmenu = (function () {
 		showMenu();
 	}
 	function schedule() { if (!raf) raf = requestAnimationFrame(update); }
-	function onScrollResize() { if (isOpen()) { position(); } }
+	function onScrollResize(e) {
+		if (e && e.target === rowsEl) return;   // our own manual inner-list scroll — don't re-measure each frame
+		if (isOpen()) { position(); }
+	}
 
 	// ============================================================ keyboard (capture phase, before CM6)
 	function onKeydown(e) {

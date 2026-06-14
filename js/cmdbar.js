@@ -459,6 +459,7 @@ window.ViktorCmdbar = (function () {
 			tries++;
 			setTimeout(function () {
 				var len = getSel().length;
+				if (!len) { fallback(); return; }                                    // native overshot to empty → recover now
 				if (!subtreeOk(seedUid) && len === prevLen) { fallback(); return; }   // native won't shrink further
 				prevLen = len;
 				step();
