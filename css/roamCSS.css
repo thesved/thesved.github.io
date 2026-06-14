@@ -1003,19 +1003,39 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
   }
 }
 
-/* --- iOS PWA status-bar color "bleed" during system dialogs: NOT theme-fixable (board-verified) ---
-   When an iOS native overlay appears over the standalone PWA (the clipboard/paste progress pill that
-   `navigator.clipboard.read()` triggers; system permission/consent dialogs), the TOP status-bar strip
-   momentarily takes that dialog's colour (white pill -> white, green dialog -> green) and reverts on
-   dismiss. ROOT CAUSE: Roam's shell ships `viewport=width=device-width,maximum-scale=1` (NO
-   viewport-fit=cover) so pwacompat sets `apple-mobile-web-app-status-bar-style: black` -> the webview
-   lays out BELOW the status bar and that strip is a NATIVE iOS region, NOT web content. iOS composites
-   its own system-UI appearance into it. No injected CSS/JS can paint there: env(safe-area-inset-top)=0
-   (webview never reaches the strip), and status-bar-style/viewport-fit are read ONCE at launch from the
-   cached home-screen shell — mutating them or <meta theme-color> after load has no effect (Opus+Gemini+
-   Codex unanimous; Apple Safari meta-tag docs + WebKit iPhone-X blog). Only Roam's served index.html/
-   manifest could change it, which we can't edit. Left intentionally unhandled. See
-   learnings/2026-06-14-colonmenu-paste-statusbar-cmdbar-desktop.md. */
+/* --- theme Roam's Blueprint TOASTS (upload-progress + warning/consent) ---
+   CORRECTED diagnosis (frame + live-DOM, 2026-06-14): the white "upload box" and the yellow/orange
+   "consent box" are NOT iOS-native dialogs — they are Blueprint `.bp3-toast`s (white by default;
+   `bp3-intent-warning` = orange) that Roam mounts at the TOP of the viewport (body > .bp3-portal >
+   .bp3-toast-container). On the iOS PWA the top status-bar strip visually takes that colour. They are
+   web elements, so theme them to the dark/light theme: the bright cards stop looking "off", and IF the
+   strip is reflecting the toast layer (vs iOS's own manifest background_color #FFF — undetermined off
+   device) the strip bleed goes away too. Toasts mount OUTSIDE #app (under body), so NO #app prefix.
+   Keep a thin intent accent + the progress bar so warning/success/upload semantics survive. */
+.bp3-toast-container .bp3-toast,
+.bp3-portal .bp3-toast {
+  background-color: var(--bg-color, #182026) !important;
+  color: var(--text-color, #e8e8e8) !important;
+  box-shadow: 0 0 0 1px rgba(127, 127, 127, 0.25), 0 6px 20px rgba(0, 0, 0, 0.5) !important;
+}
+.bp3-toast-container .bp3-toast .bp3-button,
+.bp3-portal .bp3-toast .bp3-button,
+.bp3-toast-container .bp3-toast .bp3-icon,
+.bp3-portal .bp3-toast .bp3-icon,
+.bp3-toast-container .bp3-toast a,
+.bp3-portal .bp3-toast a {
+  color: var(--text-color, #e8e8e8) !important;
+}
+.bp3-toast-container .bp3-toast.bp3-intent-warning { border-left: 3px solid #d9822b !important; }
+.bp3-toast-container .bp3-toast.bp3-intent-success { border-left: 3px solid #0f9960 !important; }
+.bp3-toast-container .bp3-toast.bp3-intent-danger  { border-left: 3px solid #db3737 !important; }
+.bp3-toast-container .bp3-toast.bp3-intent-primary { border-left: 3px solid #2f9bf9 !important; }
+/* mobile: also paint the toast CONTAINER strip dark — it spans the full width at the top, the band most
+   likely to bleed into the iOS status-bar strip. Only renders while a toast is up; scoped to phones so
+   desktop keeps a floating card, not a full-width band. */
+@media only screen and (max-width: 600px) {
+  .bp3-toast-container { background-color: var(--bg-color, #182026) !important; }
+}
 
 /* --- mobile bullet long-press hit area ---
    Roam opens the block context menu only when the (long-press →) contextmenu target is the
