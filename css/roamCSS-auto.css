@@ -21,8 +21,11 @@
     --page-order: row;
     --page-width: 800px;
     --page-width-side: 616px;
-    --header-font: "Source Sans Pro", "Inter", sans-serif;  
-    --body-font: "Source Sans Pro", "Inter", sans-serif;  
+    /* Apple-first font stack (2026-06-15): real SF Pro on macOS/iOS, Inter (which Roam bundles
+       as a variable font) everywhere else. No external font fetch — self-contained, like the
+       vendored azlen. Replaced the broken Google "Source Sans Pro" @import that never loaded. */
+    --header-font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter var", "Inter", system-ui, sans-serif;
+    --body-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter var", "Inter", system-ui, sans-serif;
 
     --bg-color: hsl(0,0%,3%);
     --page-color: hsl(10,10%,10%);

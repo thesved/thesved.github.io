@@ -1,6 +1,8 @@
-/* GOOGLE FONTS (must precede all rules). NOTE: 'family=family=' is a typo -> this import is
-   BROKEN (Source Sans Pro never loads; falls back to Inter). Fix tracked separately for sign-off. */
-@import url('https://fonts.googleapis.com/css2?family=family=Source+Sans+Pro:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+/* FONTS (2026-06-15): no external @import. The theme uses an Apple-first system stack
+   (--header-font / --body-font in the roam/css :root block): real SF Pro on macOS/iOS, Inter
+   (bundled by Roam) elsewhere. The old Google "Source Sans Pro" @import had a `family=family=`
+   typo and never loaded anyway; dropping it removes an external runtime dependency. Crisp Apple
+   antialiasing is set on the text rule below. */
 
 /* ============================================================================
    VENDORED azlen core.css - frozen snapshot of https://azlen.github.io/roam-themes/core.css
@@ -63,6 +65,9 @@ div,
 textarea, a {
     font-family: var(--body-font) !important;
     color: var(--text-color) !important;
+    /* Apple-grade crisp text (matches native SF Pro rendering on macOS/iOS). */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 .bp3-popover {
     color: var(--color-secondary-contrast) !important;
@@ -2035,9 +2040,11 @@ svg.rm-mermaid {
   	box-shadow: rgba(var(--box-shadow-color), 0.2) 0px 0px 5px 3px!important;
 }
 
-/* lighter highlight text */
+/* Body text weight (2026-06-15): was 200 (extra-light) — designed for Source Sans Pro, which
+   never actually loaded, so text fell back to Inter at 200 and looked wispy/thin. 400 (regular)
+   is the crisp, legible Apple body weight for SF Pro / Inter at this size. */
 .roam-article, #roam-right-sidebar-content {
-    font-weight: 200;
+    font-weight: 400;
 }
 
 /* font weight contrast fix */
@@ -2097,10 +2104,8 @@ strong {
      and crammed every menu icon into ~32px. Match Roam's native column.
      This file is @import'd after azlen core.css, so this wins the cascade. */
   flex-direction: column !important;
-  /* WIDTH-HONOR (2026-06-15 TASK C): was `max-width: var(--page-width)` which hard-capped the
-     WHOLE column at 800 and made Roam's native page-width control (small/medium/large/full) a
-     no-op. Uncap the column so Roam's width can apply; the topbar + article column are centered
-     explicitly in the WIDTH-HONOR block below. */
+  /* Full-width main; the 800px content column is centered explicitly below (NOT capped here —
+     capping .roam-main makes its own margin:auto center asymmetrically around the sidebars). */
   max-width: none !important;
 }
 
@@ -2121,8 +2126,8 @@ strong {
      Roam's native value: fill the height left after the 45px topbar. The
      .rm-files-dropzone (topbar wrapper, height:100%) then flex-shrinks to 45px. */
   flex: 0 0 calc(100% - 45px)!important;
-  /* WIDTH-HONOR (2026-06-15): dropped `padding-left: 55px` — an asymmetric left offset that
-     left-shifted the article once the column was uncapped. Centering is now explicit (below). */
+  /* No left-rail offset — the 800px column is centered in the full-width main (block below).
+     An asymmetric padding-left would shove the column off-center and overflow on narrow pages. */
 }
 
 .roam-body .roam-app .roam-body-main > [style*="padding-right"] {
@@ -2136,34 +2141,33 @@ strong {
 }
 
 /* ============================================================================
-   WIDTH-HONOR (2026-06-15 TASK C) — make Roam's native page-width control work.
-   Roam's topbar icon (.bp3-icon-horizontal-distribution) opens a small/medium/large/full
-   picker and sets a width class (.rm-spacing--{size}) on .rm-article-wrapper; the article's
-   width comes from `width: var(--page-width)` (azlen rule, ~L136). The theme used to pin
-   --page-width to a fixed 800 at :root AND cap the column (above), so the picker was a NO-OP
-   (user request 2026-06-15: honor it). Fix: the column is now uncapped, and --page-width is set
-   PER width-class ON THE WRAPPER, so the article (a descendant) tracks the chosen width while the
-   topbar (NOT a descendant) keeps the :root 800 and stays a centered, readable bar. The article
-   column + topbar are centered explicitly since the column is full-width; the article's
-   `max-width: 100%` (azlen) prevents overflow on narrow viewports. Values are ours (sensible),
-   not Roam's exact px. */
+   FIXED-WIDTH CENTERED COLUMN (2026-06-15) — pin the content to 800px, centered, no picker.
+   Roam's page-width control (.bp3-icon-horizontal-distribution) sets .rm-spacing--{size} on
+   .rm-article-wrapper, and the article width = `width: var(--page-width)` (azlen). User 2026-06-15:
+   the picker isn't wanted — pin every size to the :root 800 (no per-class override below) and HIDE
+   the icon. The column lives in a FULL-WIDTH .roam-main and is centered with margin:auto (centering
+   .roam-main itself would be asymmetric around the sidebars). Symmetric body-main padding + a
+   centered topbar keep the bar and the article on the same vertical axis; no h-overflow. */
 #app .rm-topbar {
-  max-width: var(--page-width) !important;   /* :root --page-width (800) → centered readable bar */
+  max-width: var(--page-width) !important;   /* 800 → centered, readable topbar on the same axis */
   margin-left: auto !important;
   margin-right: auto !important;
+  /* Align ONLY the hamburger (the topbar's left padding) with the page content. Default 16px left
+     it ~24px LEFT of the title — a staircase. 40px puts the menu button directly above the page
+     title. Right-side icons are left untouched (their padding is unchanged). */
+  padding-left: 40px !important;
 }
 #app .roam-body .roam-app .roam-body-main {
-  padding-left: 0 !important;                /* symmetric → the centered wrapper sits true-center */
+  padding-left: 0 !important;
   padding-right: 0 !important;
 }
 #app .rm-article-wrapper {
-  margin-left: auto !important;              /* center the article column in the full-width main */
+  margin-left: auto !important;              /* center the 800px column in the full-width main */
   margin-right: auto !important;
 }
-#app .rm-article-wrapper.rm-spacing--small  { --page-width: 800px; }
-#app .rm-article-wrapper.rm-spacing--medium { --page-width: 1100px; }
-#app .rm-article-wrapper.rm-spacing--large  { --page-width: 1400px; }
-#app .rm-article-wrapper.rm-spacing--full   { --page-width: calc(100vw - 100px); }
+/* NO `.rm-spacing--{size} { --page-width }` overrides → every size inherits :root 800 (the hidden
+   picker can't change it). Hide the picker icon itself (the icon span is the .bp3-button). */
+.rm-topbar .bp3-button.bp3-icon-horizontal-distribution { display: none !important; }
 
 /* make the main panel scroll */
 .roam-app > .flex-h-box {
