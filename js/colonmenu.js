@@ -503,8 +503,7 @@ window.ViktorColonmenu = (function () {
 	}
 
 	// transient pill (paste feedback / clipboard-blocked hint). Returns the element so a caller can
-	// remove it early. z = 2147483646, one above the roamCSS body::before status-bar guard (2147483645);
-	// they never overlap (toast is bottom-anchored, the guard covers the TOP safe-area), so order is moot.
+	// remove it early. z = 2147483646 (max-ish) so it sits above Roam's portals; bottom-anchored.
 	function toast(msg, ms) {
 		try {
 			var t = document.createElement('div'); t.className = 'vt-cm-toast'; t.textContent = msg;
