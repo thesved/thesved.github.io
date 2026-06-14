@@ -1,5 +1,9 @@
 /*
  * Viktor's Roam Mobile Command Bar — THE mobile toolbar (replaces Roam's native gray bar).
+ * version: 0.5.0  (2026-06-14)  — extend ↑/↓ = native iOS Shift+Arrow (anchor fixed, focus edge derived
+ *   LIVE each press from selExtent vs anchor — no stored focus); collapse-to-single is KEYBOARD-FREE via
+ *   native Shift+Arrow toward the anchor (plain-click focus flashed the iOS keyboard). extShrink guards the
+ *   async collapse window. See learnings/2026-06-14-cmdbar-selection-colonmenu-nativescroll.md.
  * version: 0.4.3  (2026-06-12)  — count chip anchors to the KNOB (measured width + mirrored
  *   8px gap), fixing the chip drifting ~17px left of the dot when extending the selection upward
  * v0.4.2 — divider right of [⌫] (was visually glued to [Done]);
