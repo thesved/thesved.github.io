@@ -77,10 +77,6 @@ textarea, a {
     color: var(--icon-color) !important;
 }
 
-.roam-highlight {
-    background-color: rgba(var(--color-primary), 0.5);
-}
-
 .rm-block-ref {
     border-bottom: 2px solid rgba(var(--color-primary), 0.2)
 }
@@ -101,13 +97,6 @@ textarea, a {
 .rm-page-ref, .rm-alias-page, .rm-alias-page:hover {
     color: rgb(var(--color-primary)) !important;
     font-weight: bold;
-}
-
-.rm-page-ref-tag {
-    color: var(--color-primary-contrast) !important;
-    background-color: rgb(var(--color-primary));
-    padding: 1px 6px;
-    border-radius: 4px;
 }
 
 .block-highlight-blue {
@@ -143,7 +132,10 @@ textarea, a {
     width: var(--page-width) !important;
 }
 .roam-article, #all-pages-search, .sidebar-content > * {
-    margin: 50px 0px 100px 0px !important;
+    /* Top gap tightened 50px → 16px (2026-06-15): 50px left a large dead band between the topbar
+       and the page title. 16px sits the card comfortably under the bar (Apple-tight). Bottom stays
+       100px for scroll breathing room. */
+    margin: 16px 0px 100px 0px !important;
     box-sizing: border-box;
     height: auto !important;
     max-width: var(--page-width);
@@ -391,20 +383,7 @@ textarea, a {
 }
 
 
-.roam-topbar .bp3-icon-star::before {
-    color: rgb(var(--color-primary)) !important;
-    color: rgb(var(--color-secondary)) !important;
-}
 /* fix positioning problems with menu icon */
-.roam-topbar *[class*="icon-menu"]::before {
-    position: absolute !important;
-    top: 4px !important;
-    left: 4px !important;
-}
-.roam-topbar .bp3-icon-menu-open::before {
-    content: ""; /* prevent menu icon from changing on hover */
-}
-
 
 
 
@@ -526,23 +505,6 @@ textarea, a {
 }
 
 
-.roam-topbar {
-    opacity: 1 !important;
-    background-color: transparent !important;
-    
-    margin-top: 70px;
-    width: 20px;
-    display: inline-block;
-    padding-left: 0 !important;
-    position: relative !important;
-    
-    position: sticky !important;
-    left: 0px;
-    transition: none !important;
-    z-index: 999;
-    
-    border: none !important;
-}
 .roam-sidebar-container > .roam-sidebar-content::before {
     content: "";
     position: absolute;
@@ -611,34 +573,6 @@ textarea, a {
     top: 5px;
 }
 
-.roam-topbar > .flex-h-box {
-    width: 50px;
-    flex-direction: column;
-    height: 1px !important;
-    align-items: start !important;
-    text-align: center;
-    
-    position: -webkit-sticky !important;
-    position: sticky !important;
-    left: 0px;
-}
-.roam-topbar > .flex-h-box > * {
-    flex: 0 0 20px !important;
-    margin: auto !important;
-    max-width: 20px !important;
-    max-height: 20px !important;
-}
-.roam-topbar > div >.bp3-button:first-child {
-    align-self: start !important;
-    position: fixed !important;
-    left: 16px;
-    top: 78px;
-    z-index: 9999999 !important;
-}
-.roam-topbar > div > *:nth-child(2) {
-    margin-top:20px !important;
-}
-
 
 
 
@@ -657,25 +591,15 @@ textarea, a {
 
 /* SOME BLACKMAGIC TO GET SEARCH ICON TO FUNCTION LIKE OTHER BUTTONS */
 
-.roam-topbar .bp3-icon-search {
-    padding: 4px;
-    border-radius: 3px;
-    margin: 0 !important;
-    cursor: pointer;
-}
-
 /* style contains `200px` if search bar is NOT selected */
 /* hovering search bar in this mode == hovering icon itself */
 /* we must however have the search bar in front of the icon (but invisible) so that it can focus on click */
 /* very hacky :P */
-.rm-find-or-create-wrapper[style*="200px"]:hover .bp3-icon-search, .roam-topbar .bp3-icon-search:hover {
+.rm-find-or-create-wrapper[style*="200px"]:hover .bp3-icon-search {
     background-color: rgba(var(--color-primary), 0.4);
     color: var(--text-color) !important;
 }
-.roam-topbar .bp3-icon-search svg { padding: 1px; }
 /* fix centering on calendar icon */
-.roam-topbar .bp3-icon-calendar { margin: 0 !important }
-
 .rm-find-or-create-wrapper {
     width: 20px !important;
 }
@@ -1378,11 +1302,6 @@ code {
 
 /* fix specific popover sizes and positions... */
 
-.roam-topbar .bp3-popover-wrapper:nth-child(6) .bp3-popover,
-.roam-topbar .bp3-popover-wrapper:nth-child(7) .bp3-popover{
-    width: 600px;
-    max-width: calc(100vw - 20px);
-}
 #roam-right-sidebar-content > div .flex-h-box > .bp3-popover-wrapper .bp3-transition-container {
     transform: translate3d(-15px, 41px, 0px) !important;
 }
@@ -1396,43 +1315,6 @@ code {
 
 
 @media only screen and (max-width: 600px) {
-    .roam-topbar {
-        margin: 0px !important;
-        padding: 10px 0px 0px 0px !important;
-        width: 100%;
-        justify-content: center;
-        position: fixed !important;
-        top: 0px;
-        left: 0px;
-        backdrop-filter: blur(5px);
-    }
-    .roam-topbar::before {
-        content: "";
-        position: absolute;
-        top: 0; left: 0;
-        width: 100%; height: 100%;
-        background-color: var(--bg-color) !important;
-        opacity: 0.7;
-        
-    }
-    .roam-topbar > .flex-h-box {
-        flex-direction: row;
-        height: 1px !important;
-        align-items: start !important;
-        text-align: center;
-
-        /*position: -webkit-sticky !important;
-        position: fixed !important;
-        left: 0px;
-        top: 0;*/
-        position: relative !important;
-        width: 300px !important;
-        margin: auto;
-        justify-content: space-evenly;
-    }
-    .roam-topbar > div >.bp3-button:first-child {
-        position: static !important;
-    }
     
     .roam-sidebar-container {
         padding-right: 0;
@@ -1498,9 +1380,6 @@ code {
             margin: 30px 10px 5px 30px !important;
     }
     
-    .roam-topbar > div > *:nth-child(2) {
-        margin-top: 0 !important;
-    }
     
     #right-sidebar {
         padding-right: 10px !important;
@@ -1977,10 +1856,6 @@ body > .bp3-portal .bp3-menu {
 }
 
 /* color comment tag */
-.rm-page-ref-tag[data-tag='comment'] {
-    background-color: rgb(0, 128, 0);
-}
-
 /* fix color for alias */
 .rm-alias {
     color: rgb(var(--color-primary))!important;
@@ -2079,10 +1954,6 @@ strong {
 }
 
 /* topbar fix */
-.roam-topbar {
-  position: fixed!important;
-}
-
 /* left sidebar fix */
 .roam-sidebar-container {
   padding-left: 45px;
@@ -2152,10 +2023,10 @@ strong {
   max-width: var(--page-width) !important;   /* 800 → centered, readable topbar on the same axis */
   margin-left: auto !important;
   margin-right: auto !important;
-  /* Align ONLY the hamburger (the topbar's left padding) with the page content. Default 16px left
-     it ~24px LEFT of the title — a staircase. 40px puts the menu button directly above the page
-     title. Right-side icons are left untouched (their padding is unchanged). */
-  padding-left: 40px !important;
+  /* Hamburger sits at the page CARD's left edge (user 2026-06-15: moved it ~40px left). 0 left
+     padding → the menu button lines up with the left edge of the 800px page card, not the title
+     text inset. Right-side icons keep their own padding (untouched). */
+  padding-left: 0 !important;
 }
 #app .roam-body .roam-app .roam-body-main {
   padding-left: 0 !important;
@@ -2168,6 +2039,10 @@ strong {
 /* NO `.rm-spacing--{size} { --page-width }` overrides → every size inherits :root 800 (the hidden
    picker can't change it). Hide the picker icon itself (the icon span is the .bp3-button). */
 .rm-topbar .bp3-button.bp3-icon-horizontal-distribution { display: none !important; }
+/* Hide the "Open right sidebar" toggle too (user 2026-06-15): the right sidebar shows its content
+   automatically when there is any (shift-click a ref), so the manual toggle is redundant. SCOPED
+   to .rm-topbar — .bp3-icon-menu-closed is ALSO the left sidebar's close button, must not hide that. */
+.rm-topbar .bp3-button:has(.bp3-icon-menu-closed) { display: none !important; }
 
 /* make the main panel scroll */
 .roam-app > .flex-h-box {
@@ -2308,9 +2183,6 @@ strong {
 }
 
 @media only screen and (max-width: 600px) {
-    .roam-topbar {
-    	-webkit-backdrop-filter: blur(5px);
-    }
 }
 
 /* image border */
@@ -2598,6 +2470,14 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
     background-color: rgba(255, 255, 255, 0.04) !important;
   }
 }
+
+/* --- tables (2026-06-15): Roam renders a bare <table> on a solid WHITE background with light
+   grey-blue borders — a white box with invisible light text in dark mode. Make the table
+   transparent (sits on the page card) with subtle theme-coloured borders. Works in both modes
+   (--bullet-color adapts), so no per-scheme split needed. */
+.roam-article table { background: transparent !important; border-color: rgba(var(--bullet-color), 0.5) !important; }
+.roam-article th, .roam-article td { border-color: rgba(var(--bullet-color), 0.5) !important; }
+.roam-article th { background: rgba(var(--bullet-color), 0.08) !important; }
 
 /* --- topbar search icon: vertically center it + stop it overlapping the placeholder ---
    bp3's `.bp3-input-group > .bp3-icon { margin:7px }` centers a 16px icon in a 30px input,
