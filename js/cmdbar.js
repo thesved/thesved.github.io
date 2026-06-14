@@ -428,18 +428,42 @@ window.ViktorCmdbar = (function () {
 
 	// ---------- actions ----------
 	// show: which forms display the button (E/S/I); rep: auto-repeat on hold
-	// collapse the multiselect back to the single anchor block. assertRange can't (a shift-click on
-	// the anchor itself no-ops), so re-focus+promote — guarding seedUid + ctx across the async window.
-	function collapseToAnchor() {
+	// Collapse the multiselect back to the single anchor block WITHOUT focusing its textarea — a
+	// focus would mount edit mode and FLASH the iOS soft keyboard mid-shrink (the reported bug).
+	// Native Shift+Arrow TOWARD the anchor reduces the block-select in place (no edit mode); we
+	// verify it landed on the anchor (its own subtree), stepping again for deep subtrees, and only
+	// fall back to focus+promote (which flashes the keyboard) if the keyboard-free path stalls.
+	function collapseToAnchor(dirDown) {
 		extShrink = true;
 		lastEdge = 'bottom';
-		var sd = seedUid, sw = seedWin;
-		selectSingle(sd, function () {
-			seedUid = sd; seedWin = sw;            // restore (belt; applyCtx's extShrink guard prevents the wipe)
-			lastSelN = getSel().length;
-			applyCtx(true);                        // re-assert the SELECTING form on the single block
-			setTimeout(function () { extShrink = false; }, 40);   // clear AFTER act()'s 220ms follow-up (no spurious nudge)
-		});
+		var key = dirDown ? K.extendDown : K.extendUp;   // the press direction already points at the anchor
+		var t0 = now(), tries = 0, prevLen = getSel().length;
+		function clearLater() {                          // hold extShrink past act()'s +220ms follow-up (no spurious nudge)
+			var wait = Math.max(40, 240 - (now() - t0));
+			setTimeout(function () { extShrink = false; }, wait);
+		}
+		function finish() { lastSelN = getSel().length; updateHandles(); clearLater(); }
+		function fallback() {                            // keyboard-free path stalled — accept the flash
+			var sd = seedUid, sw = seedWin;
+			selectSingle(sd, function () {
+				seedUid = sd; seedWin = sw;             // restore (belt; applyCtx's extShrink guard prevents the wipe)
+				lastSelN = getSel().length;
+				applyCtx(true);
+				clearLater();
+			});
+		}
+		(function step() {
+			if (subtreeOk(seedUid)) { finish(); return; }            // reduced to just the anchor (+ its own subtree)
+			if (tries >= 6) { fallback(); return; }
+			fire(window, key);
+			tries++;
+			setTimeout(function () {
+				var len = getSel().length;
+				if (!subtreeOk(seedUid) && len === prevLen) { fallback(); return; }   // native won't shrink further
+				prevLen = len;
+				step();
+			}, 90);
+		})();
 	}
 	// Shift+Arrow semantics: the anchor (seedUid) is FIXED; the MOVING edge is the extent side away
 	// from the anchor — DERIVED LIVE each press (never stored), so it can't go stale on autorepeat,
@@ -464,7 +488,7 @@ window.ViktorCmdbar = (function () {
 			: (focusSide === 'max' ? gi.max - 1 : gi.min + 1);  // shrink inward toward the anchor
 		// shrinking onto / across the anchor ⇒ collapse to the single anchor block
 		if (!growing && anchorIdx >= 0 && (focusSide === 'max' ? nidx <= anchorIdx : nidx >= anchorIdx)) {
-			collapseToAnchor(); return;
+			collapseToAnchor(dirDown); return;
 		}
 		if (nidx < 0 || nidx >= gi.list.length) { nudge(btns[dirDown ? 'extendDown' : 'extendUp']); return; }
 		lastEdge = focusSide === 'max' ? 'bottom' : 'top';
@@ -476,7 +500,7 @@ window.ViktorCmdbar = (function () {
 			var g2 = selExtent();
 			var post = g2 ? g2.min + ':' + g2.max + ':' + getSel().length : '';
 			if (post === pre) {                                  // no progress
-				if (!growing) collapseToAnchor();                // a subtree re-closed → don't get stuck, collapse
+				if (!growing) collapseToAnchor(dirDown);         // a subtree re-closed → don't get stuck, collapse
 				else fire(window, dirDown ? K.extendDown : K.extendUp);   // grow boundary → one-shot legacy fallback
 			}
 		}, 150);

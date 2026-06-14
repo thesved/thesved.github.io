@@ -38,6 +38,7 @@ window.ViktorColonmenu = (function () {
 	'use strict';
 
 	var menu = null, rowsEl = null, footEl = null, raf = 0, started = false, ac = null;
+	var touchStartY = 0, touchLastY = 0, touchMoved = false;   // tap-vs-scroll on the (height-capped) row list
 	var libCache = null, libKey = '';
 	var idxCache = null, idxAt = 0, idxKey = '';           // template index cache
 	var IDX_TTL = 4000;                                    // ms; re-query templates at most this often
@@ -261,7 +262,20 @@ window.ViktorColonmenu = (function () {
 		menu.appendChild(rowsEl); menu.appendChild(footEl);
 		// keep textarea focused on press; pick on click (mousedown so it beats blur)
 		menu.addEventListener('mousedown', function (e) { e.preventDefault(); });
-		menu.addEventListener('touchstart', function (e) { e.preventDefault(); }, { passive: false });
+		// touchstart preventDefault keeps the textarea focused (no blur, no iOS callout) but ALSO kills
+		// native scroll — so when the list is height-capped we drive the scroll ourselves and only let a
+		// row pick on a real TAP (touchMoved stays false). A swipe scrolls instead of inserting.
+		menu.addEventListener('touchstart', function (e) {
+			e.preventDefault();
+			var t = e.touches[0]; touchStartY = touchLastY = t ? t.clientY : 0; touchMoved = false;
+		}, { passive: false });
+		menu.addEventListener('touchmove', function (e) {
+			e.preventDefault();
+			var t = e.touches[0]; if (!t) return;
+			var dy = t.clientY - touchLastY; touchLastY = t.clientY;
+			if (Math.abs(t.clientY - touchStartY) > 6) touchMoved = true;
+			rowsEl.scrollTop -= dy;                  // content follows the finger
+		}, { passive: false });
 		document.body.appendChild(menu);
 		return menu;
 	}
@@ -280,9 +294,14 @@ window.ViktorColonmenu = (function () {
 		d.appendChild(left); d.appendChild(right);
 		d.addEventListener('mouseenter', function () { setActive(i); });
 		d.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); pick(i); });
-		// mobile: the menu's touchstart is preventDefault'd (keeps the textarea focused, kills scroll) which
-		// ALSO suppresses the synthetic click — so tap-to-pick must ride touchend directly.
-		d.addEventListener('touchend', function (e) { e.preventDefault(); e.stopPropagation(); pick(i); });
+		// mobile: the menu's touchstart is preventDefault'd (keeps the textarea focused, kills the synthetic
+		// click) — so tap-to-pick rides touchend directly. But ignore a touchend that was a SCROLL swipe
+		// (touchMoved), else dragging the list would insert a row instead of scrolling it.
+		d.addEventListener('touchend', function (e) {
+			e.preventDefault(); e.stopPropagation();
+			if (touchMoved) return;
+			pick(i);
+		});
 		return d;
 	}
 	// FULL rebuild — only when the item SET changes (showMenu / re-rank). Never on mere hover/arrow:
