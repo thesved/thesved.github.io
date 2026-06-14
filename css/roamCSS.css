@@ -1030,12 +1030,9 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
 .bp3-toast-container .bp3-toast.bp3-intent-success { border-left: 3px solid #0f9960 !important; }
 .bp3-toast-container .bp3-toast.bp3-intent-danger  { border-left: 3px solid #db3737 !important; }
 .bp3-toast-container .bp3-toast.bp3-intent-primary { border-left: 3px solid #2f9bf9 !important; }
-/* mobile: also paint the toast CONTAINER strip dark — it spans the full width at the top, the band most
-   likely to bleed into the iOS status-bar strip. Only renders while a toast is up; scoped to phones so
-   desktop keeps a floating card, not a full-width band. */
-@media only screen and (max-width: 600px) {
-  .bp3-toast-container { background-color: var(--bg-color, #182026) !important; }
-}
+/* DO NOT background the .bp3-toast-container: it is also a `.bp3-overlay` that is position:fixed and
+   FULL-SCREEN while mounted, so a background on it paints a black sheet over the whole app (broke
+   mobile 2026-06-14 — black screen after the loader). Only ever theme the inner `.bp3-toast` card. */
 
 /* --- mobile bullet long-press hit area ---
    Roam opens the block context menu only when the (long-press →) contextmenu target is the
