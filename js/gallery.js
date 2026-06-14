@@ -268,40 +268,14 @@ window.ViktorGallery = (function(){
 			});
 			pswp.init();
 			activePswp = pswp;
-			hookModalLongpress(pswp);
 		}).catch(function(err){ console.error('gallery: PhotoSwipe load failed', err); });
 	}
 
-	// long-press inside the open modal → same copy sheet. PhotoSwipe drives its gestures
-	// with pointer events on descendants of pswp.element, so capture-phase listeners on
-	// pswp.element run FIRST and can swallow the pointerup after a fired long-press
-	// (otherwise pswp treats it as a tap and toggles/closes the UI).
-	function hookModalLongpress(pswp) {
-		var el = pswp.element, st = null;
-		function down(e){
-			if (e.pointerType != 'touch' && e.pointerType != 'pen') return;
-			clear();
-			st = {x: e.clientX, y: e.clientY, fired: false, timer: setTimeout(function(){
-				if (!st) return;
-				st.fired = true;
-				showSheet(pswp.currSlide && pswp.currSlide.data);
-			}, LP_MS)};
-		}
-		function move(e){
-			if (st && Math.hypot(e.clientX - st.x, e.clientY - st.y) > MOVE_TOL) clear();
-		}
-		function up(e){
-			if (!st) return;
-			var fired = st.fired;
-			clear();
-			if (fired) { e.preventDefault(); e.stopPropagation(); }
-		}
-		function clear(){ if (st) { clearTimeout(st.timer); st = null; } }
-		el.addEventListener('pointerdown', down, true);
-		el.addEventListener('pointermove', move, true);
-		el.addEventListener('pointerup', up, true);
-		el.addEventListener('pointercancel', clear, true);
-	}
+	// NOTE: no in-modal long-press sheet (removed 2026-06-14). Inside the open PhotoSwipe modal the image
+	// is a plain <img> (not a -webkit-touch-callout:none rendered block), so iOS Safari's NATIVE long-press
+	// callout (Save to Photos / Copy / Share…) fires on its own — our sheet would double up over it. The
+	// top-bar copy button still covers desktop. (In-block long-press sheet stays — Roam blocks suppress the
+	// native callout, so we still own that gesture; see onTouchStart.)
 
 	// ---- copy sheet --------------------------------------------------------
 

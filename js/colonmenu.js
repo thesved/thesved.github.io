@@ -20,9 +20,9 @@
  *    authenticated fetch with personal keys, remote import, clipboard reads). Rows show NAME + a static
  *    capability marker classified by STRING-SCANNING the body (not eval). Eval happens only on commit.
  *  - Capability tiers (dialog/network/remote-import/clipboard/dom); js present but unclassifiable =>
- *    "unknown JS" (fail loud, never silent-safe).
- *  - First commit of a js template VERSION shows a one-time trust gate keyed to uid+body-hash
- *    (setting templates.jsTrustPrompt, default on; edit => re-prompt). Then inserts.
+ *    "unknown JS" (fail loud, never silent-safe). Shown as a row badge — passive disclosure only.
+ *  - NO trust-confirm modal (owner decision 2026-06-14): the user authors their own js templates and the
+ *    row already badges the JS capability, so a per-pick confirm is pure friction. js runs on pick.
  *  - On commit of a js template: tear down the menu + refocus the textarea BEFORE resolving, so a
  *    modal/prompt the template opens can't orphan the menu DOM or lose clipboard user-activation.
  *
@@ -43,16 +43,21 @@ window.ViktorColonmenu = (function () {
 	var IDX_TTL = 4000;                                    // ms; re-query templates at most this often
 	var cur = null;                                        // {el, start, end, items, active}
 	var committing = false;                                // suppress re-rank during our own writes
-	var trusted = loadTrust();                             // {uid: bodyHash}
 
 	// a template-opener ":" = colon after start/space/bracket, then non-space, non-colon, non-backtick.
 	var OPENER_RE = /(?:^|[\s([{>])\:(?=[^\s:`\n])/g;
 	var MAX_ROWS = 8;
+	function keyOf(it) { return it.kind + ':' + (it.name || it.label); }
+	// curated date keywords surfaced on PREFIX (board Q3: "suggestable = resolvable today").
+	// solstice/equinox/easter intentionally absent — add to datelib first, then list them here.
+	var DATE_KEYWORDS = ['today', 'tomorrow', 'yesterday',
+		'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+		'january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december',
+		'fullmoon', 'newmoon', 'eom', 'eoy', 'eow', 'eoq', 'q1', 'q2', 'q3', 'q4', 'h1', 'h2'];
 
 	function opts() { return window.ViktorRoamOpts || {}; }
 	function enabled() { return opts().colonMenu !== false; }
 	function searchPages() { var s = opts().searchPages; return (Array.isArray(s) && s.length) ? s : ['template', '[[template]]']; }
-	function jsTrustOn() { return opts().jsTrustPrompt !== false; }
 
 	// ============================================================ JS capability classifier (pure, fail-loud)
 	// Detect js()/jsvar()/javascript()/```javascript anywhere in a template body, and classify its
@@ -129,10 +134,29 @@ window.ViktorColonmenu = (function () {
 		if (df && df.dateformat && (typeof df.isStarted !== 'function' || df.isStarted())) return df.dateformat;
 		return '[[Month Dth, YYYY]]';
 	}
+	// offset operators (board Q2, simplified per owner): a base date phrase + trailing " ±N[dwmy]"
+	// applied left-to-right. NO separator char (`;`/comma dropped — clunky): `fullmoon +7m -1d`.
+	// Whitespace before each operator is required, so it never collides with hyphenated names.
+	var OFFSET_RE = /\s+([+-])(\d+)([dwmy])\b/gi;
+	var OFFSET_TAIL_RE = /(?:\s+[+-]\d+[dwmy]\b)+\s*$/i;
+	function applyOffsets(date, offStr) {
+		var d = new Date(date.getTime()), m; OFFSET_RE.lastIndex = 0;
+		while ((m = OFFSET_RE.exec(offStr)) !== null) {
+			var n = (m[1] === '-' ? -1 : 1) * parseInt(m[2], 10), u = m[3].toLowerCase();
+			if (u === 'd') d.setDate(d.getDate() + n);
+			else if (u === 'w') d.setDate(d.getDate() + 7 * n);
+			else if (u === 'm') d.setMonth(d.getMonth() + n);
+			else if (u === 'y') d.setFullYear(d.getFullYear() + n);
+		}
+		return d;
+	}
 	function resolveChain(L, partial) {
-		var parts = partial.split(';'), got = false;
-		var d = parts.reduce(function (ref, s) { var r; try { r = L.parse(s, ref); } catch (e) { r = false; } if (r) got = true; return r || ref; }, undefined);
-		return got && d && !isNaN(d.valueOf()) ? d : null;
+		var off = '';
+		var base = ('' + partial).replace(OFFSET_TAIL_RE, function (m) { off = m; return ''; }).trim();
+		var d; try { d = base ? L.parse(base, undefined) : null; } catch (e) { d = null; }
+		if (!d) return null;
+		if (off) d = applyOffsets(d, off);
+		return (d && !isNaN(d.valueOf())) ? d : null;
 	}
 
 	// ============================================================ trigger detection
@@ -177,13 +201,26 @@ window.ViktorColonmenu = (function () {
 			if (r === 99) return;
 			items.push({ kind: 'template', name: t.name, uid: t.uid, cls: t.cls, args: args, label: t.name, detail: capLabel(t.cls) || 'template', score: r });
 		});
-		// DATE (honest, whole partial w/ ;-chaining) -> <=1 row, score 1.5 (under exact/prefix templates)
+		// DATE (honest, whole partial incl. " ±N[dwmy]" offsets) -> <=1 row, score 1.5 (under exact/prefix templates)
 		var L = lib();
 		if (L && namePart) {
 			var d = resolveChain(L, partial);
 			if (d) {
 				var out = ''; try { out = ('' + L.dateFormat(d, fmt())).replace(/^\[\[|\]\]$/g, ''); } catch (e) { out = ''; }
 				if (out) items.push({ kind: 'date', query: partial, label: out, detail: 'date', score: 1.5 });
+			}
+			// KEYWORD SUGGESTIONS (board Q3): named phrases (fullmoon, eom, q1…) are invisible until fully
+			// typed because the engine only resolves complete phrases — surface them on prefix. Single
+			// bare word only (no spaces/offsets); exact match is already covered by the resolved date row.
+			if (/^[a-z0-9]+$/i.test(namePart)) {
+				var pn = namePart.toLowerCase();
+				DATE_KEYWORDS.forEach(function (kw) {
+					if (kw === pn || kw.indexOf(pn) !== 0) return;
+					var dk; try { dk = resolveChain(L, kw); } catch (e) { dk = null; }
+					if (!dk) return;
+					var pv = ''; try { pv = ('' + L.dateFormat(dk, fmt())).replace(/^\[\[|\]\]$/g, ''); } catch (e) {}
+					items.push({ kind: 'date-kw', query: kw, name: kw, label: kw, detail: pv || 'date', score: 2.6 });
+				});
 			}
 		}
 		// COMMANDS
@@ -199,7 +236,7 @@ window.ViktorColonmenu = (function () {
 			items.push({ kind: c.kind, name: c.name, args: args, label: ':' + c.name + ':', detail: c.detail, score: 4 + r });
 		});
 		// sort: score asc, then kind (template<date<cmd), then label length, then alpha
-		var KIND = { template: 0, date: 1, 'cmd-help': 2, 'cmd-rand': 2 };
+		var KIND = { template: 0, date: 1, 'date-kw': 1, 'cmd-help': 2, 'cmd-rand': 2 };
 		items.sort(function (a, b) {
 			return a.score - b.score || (KIND[a.kind] - KIND[b.kind]) || (a.label.length - b.label.length) || (a.label < b.label ? -1 : 1);
 		});
@@ -241,12 +278,20 @@ window.ViktorColonmenu = (function () {
 		d.appendChild(left); d.appendChild(right);
 		d.addEventListener('mouseenter', function () { setActive(i); });
 		d.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); pick(i); });
+		// mobile: the menu's touchstart is preventDefault'd (keeps the textarea focused, kills scroll) which
+		// ALSO suppresses the synthetic click — so tap-to-pick must ride touchend directly.
+		d.addEventListener('touchend', function (e) { e.preventDefault(); e.stopPropagation(); pick(i); });
 		return d;
 	}
+	// FULL rebuild — only when the item SET changes (showMenu / re-rank). Never on mere hover/arrow:
+	// rebuilding the rows under the pointer cancels the press→release click (bug A) and churns the DOM.
 	function render() {
 		ensureMenu();
 		rowsEl.textContent = '';
 		cur.items.forEach(function (it, i) { rowsEl.appendChild(rowHTML(it, i, i === cur.active)); });
+		paintFooter();
+	}
+	function paintFooter() {
 		var a = cur.items[cur.active];
 		var hint = a && a.cls && (a.cls.runsJS || a.cls.unknown) ? ('runs JS — ' + (a.cls.unknown ? 'unknown capabilities' : a.cls.caps.join(', '))) : '↑↓ move · ⏎ insert · esc';
 		footEl.innerHTML = '';
@@ -254,10 +299,21 @@ window.ViktorColonmenu = (function () {
 		var r = document.createElement('span'); r.textContent = cur.items.length + (cur.items.length === 1 ? ' result' : ' results');
 		footEl.appendChild(l); footEl.appendChild(r);
 	}
+	// repaint active state on the EXISTING row nodes (no rebuild) so a hover/arrow never disturbs a click.
+	function paintActive() {
+		var kids = rowsEl.children;
+		for (var i = 0; i < kids.length; i++) {
+			var on = i === cur.active;
+			kids[i].classList.toggle('vt-active', on);
+			kids[i].style.background = on ? 'rgba(127,150,255,.22)' : '';
+		}
+		paintFooter();
+	}
 	function setActive(i) {
 		if (!cur || !cur.items.length) return;
 		cur.active = (i + cur.items.length) % cur.items.length;
-		render(); position();
+		cur.activeKey = keyOf(cur.items[cur.active]);
+		paintActive();
 	}
 	function position() {
 		if (!cur || !cur.el) return;
@@ -284,13 +340,19 @@ window.ViktorColonmenu = (function () {
 		if (committing || !enabled()) return;
 		var el = activeTextarea(); if (!el) return hide();
 		var seg = openSegment(el.value, el.selectionEnd); if (!seg) return hide();
+		// Unchanged partial (arrow keyup, selectionchange, scroll re-fire): keep the current selection,
+		// just reposition. Re-ranking here is what made arrow-nav snap back to row 0 (bug B).
+		if (cur && cur.el === el && cur.partial === seg.partial && cur.start === seg.start) {
+			if (isOpen()) position();
+			return;
+		}
 		var items = candidates(seg.partial, Date.now());
 		if (!items.length) return hide();
 		var prevActive = cur && cur.activeKey;
 		cur = { el: el, start: seg.start, end: seg.end, partial: seg.partial, items: items, active: 0 };
 		// keep the highlighted item stable across keystrokes if it still exists
-		if (prevActive) { var k = items.findIndex(function (it) { return (it.kind + ':' + (it.name || it.label)) === prevActive; }); if (k >= 0) cur.active = k; }
-		cur.activeKey = (items[cur.active].kind + ':' + (items[cur.active].name || items[cur.active].label));
+		if (prevActive) { var k = items.findIndex(function (it) { return keyOf(it) === prevActive; }); if (k >= 0) cur.active = k; }
+		cur.activeKey = keyOf(items[cur.active]);
 		showMenu();
 	}
 	function schedule() { if (!raf) raf = requestAnimationFrame(update); }
@@ -304,8 +366,27 @@ window.ViktorColonmenu = (function () {
 		if (k === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); setActive(cur.active - 1); return; }
 		if (k === 'Escape') { e.preventDefault(); e.stopPropagation(); hide(); return; }
 		if (k === 'Enter' || k === 'Tab') { e.preventDefault(); e.stopPropagation(); pick(cur.active); return; }
-		if (k === ':') { e.preventDefault(); e.stopPropagation(); pick(cur.active); return; }  // menu-authoritative on closing colon
+		// Closing ":" behavior is a SETTING (ViktorRoamOpts.colonCommitOnClose):
+		//   'partial' (DEFAULT) — commit the top/selected row even on a weak prefix (":s:" -> "src"). One
+		//                         ":" to take the top match is less work than arrow/tap.
+		//   'exact'             — commit ONLY when the typed partial is a full/exact match (or a date that
+		//                         resolved the whole partial); otherwise ":" types literally (":s:" stays).
+		// Enter/Tab/click always commit the highlighted row regardless of this setting.
+		if (k === ':') {
+			var a = cur.items[cur.active];
+			var exactOnly = (opts().colonCommitOnClose === 'exact');
+			if (a && (!exactOnly || isExactCommit(a, cur.partial))) { e.preventDefault(); e.stopPropagation(); pick(cur.active); }
+			else hide();   // exact-mode weak match: do NOT preventDefault -> ":" types literally + menu closes
+			return;
+		}
 		// any other key: let it type; the input event re-ranks
+	}
+	// in 'exact' mode: did the typed partial fully/exactly resolve to this row?
+	function isExactCommit(it, partial) {
+		if (it.kind === 'date') return true;        // resolved-date row = the WHOLE partial parsed
+		if (it.kind === 'date-kw') return false;    // a mere prefix keyword suggestion
+		var name = partial.split(';')[0].trim().toLowerCase();
+		return ('' + (it.name || '')).toLowerCase() === name;
 	}
 
 	// ============================================================ commit (PATH A / PATH B), eval-safe
@@ -352,9 +433,12 @@ window.ViktorColonmenu = (function () {
 		hide();
 		try { snap.el.focus(); } catch (e) {}
 		try {
-			if (it.kind === 'date') {
+			if (it.kind === 'date' || it.kind === 'date-kw') {
 				var seg = revalidate(snap); if (!seg) return;
-				var out = window.ViktorFuzzyDate.parseFormatDate(it.query);
+				// resolve through the SAME engine as the preview (offset-aware) so commit == preview;
+				// insert the Roam date-page link format regardless of the display format shown in the row.
+				var L = lib(), dd = L ? resolveChain(L, it.query) : null;
+				var out = (L && dd) ? L.dateFormat(dd, '[[Month Dth, YYYY]]') : null;
 				if (out) insertOneLine(seg.el, seg.start, seg.end, out + (opts().onelinerExtraSpace !== false ? ' ' : ''));
 				return;
 			}
@@ -378,16 +462,42 @@ window.ViktorColonmenu = (function () {
 		}
 	}
 
-	async function commitTemplate(it, snap) {
-		// TRUST GATE: first commit of this js-template VERSION (uid+body-hash) requires consent.
-		if (it.cls && (it.cls.runsJS || it.cls.unknown) && jsTrustOn()) {
-			var h = hashBody(it);
-			if (trusted[it.uid] !== h) {
-				var caps = it.cls.unknown ? 'unknown capabilities' : (it.cls.caps.join(', ') || 'JavaScript');
-				var ok = window.confirm('Template ":' + it.name + ':" runs JavaScript (' + caps + ').\n\nRun it now? (remembered for this version)');
-				if (!ok) return;                            // abort: leave the :partial as-is
-				trusted[it.uid] = h; saveTrust();
+	// PURE-PASTE template (body is exactly "$clipboard", e.g. :p:): paste the REAL system clipboard
+	// natively — content-agnostic (text, images, rich text) via Roam's own paste handler, which uploads
+	// images itself (verified: synthetic ClipboardEvent w/ DataTransfer.files -> firebase upload). We don't
+	// inspect or branch on content type; Roam does. Falls back to text-only readText if read() is blocked.
+	async function pasteRealClipboard(el) {
+		var dt = new DataTransfer(), text = '';
+		try {
+			var items = await navigator.clipboard.read();
+			for (var i = 0; i < items.length; i++) {
+				var types = items[i].types || [];
+				for (var j = 0; j < types.length; j++) {
+					var ty = types[j], blob = await items[i].getType(ty);
+					if (/^image\//i.test(ty)) { try { dt.items.add(new File([blob], 'paste.' + ((ty.split('/')[1] || 'png').replace('jpeg', 'jpg')), { type: ty })); } catch (e) {} }
+					else if (ty === 'text/plain') text = await blob.text();
+					else if (ty === 'text/html') { try { dt.setData('text/html', await blob.text()); } catch (e) {} }
+				}
 			}
+		} catch (e) { try { text = await navigator.clipboard.readText(); } catch (e2) {} }
+		if (text) try { dt.setData('text/plain', text); } catch (e) {}
+		var ev; try { ev = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }); }
+		catch (e) { ev = new CustomEvent('paste', { bubbles: true, cancelable: true }); try { Object.defineProperty(ev, 'clipboardData', { value: dt }); } catch (e2) { ev.clipboardData = dt; } }
+		el.dispatchEvent(ev);
+	}
+
+	async function commitTemplate(it, snap) {
+		// NO trust-confirm (owner decision 2026-06-14): the user authors their own js templates and the row
+		// already shows the JS capability badge (⚡ network/clipboard/…), so a modal is pure friction.
+		var entry = (idxCache || []).find(function (t) { return t.uid === it.uid; }) || {};
+		if (/^\$clipboard$/i.test(('' + (entry.body || '')).trim())) {
+			// pure-paste template: blank the :partial, then native-paste the real clipboard (see above)
+			var segp = revalidate(snap); if (!segp) return;
+			var elp = segp.el, vp = elp.value;
+			setter().call(elp, vp.slice(0, segp.start) + vp.slice(segp.end));
+			elp.selectionStart = elp.selectionEnd = segp.start; fireInput(elp);
+			await pasteRealClipboard(elp);
+			return;
 		}
 		var id = window.ViktorRoamLib.findPageId(it.name, searchPages());
 		if (!id) return;
@@ -427,15 +537,6 @@ window.ViktorColonmenu = (function () {
 		}
 	}
 
-	// ============================================================ trust persistence
-	function hashBody(it) {
-		var s = it.uid + '|' + (it.cls ? it.cls.caps.join(',') : '') + '|' + (idxCache ? (idxCache.find(function (t) { return t.uid === it.uid; }) || {}).body || '' : '');
-		var h = 5381; for (var i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
-		return '' + h;
-	}
-	function loadTrust() { try { return JSON.parse(localStorage.getItem('Viktor_tplTrust') || '{}'); } catch (e) { return {}; } }
-	function saveTrust() { try { localStorage.setItem('Viktor_tplTrust', JSON.stringify(trusted)); } catch (e) {} }
-
 	// ============================================================ lifecycle
 	function start() {
 		if (started) return window.ViktorColonmenu;
@@ -468,5 +569,6 @@ window.ViktorColonmenu = (function () {
 		// exposed for tests
 		_classifyBody: classifyBody, _capLabel: capLabel, _matchRank: matchRank, _buildIndex: buildIndex,
 		_candidates: candidates, _openSegment: openSegment, _oneLinerText: oneLinerText, _getIndex: getIndex,
+		_resolveChain: resolveChain, _isExactCommit: isExactCommit, _lib: lib,
 	};
 })();
