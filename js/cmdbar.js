@@ -95,6 +95,8 @@ window.ViktorCmdbar = (function () {
 	var lastEdge = 'bottom';          // which end of the selection the user is working (knob side)
 	var healing = false;              // re-entrancy guard for heal/ladder
 	var seedUid = null, seedWin = null; // the promoted anchor (invariant: stays in the selection)
+	var focusUid = null;              // the MOVING edge (anchor=seedUid is fixed); extend ↑/↓ steps it
+	var extShrink = false;            // an extend step is shrinking the selection to the single anchor
 	var contract = { ok: true, missing: [] };
 	var logRing = [];
 	var lastSelN = 0;
@@ -200,6 +202,24 @@ window.ViktorCmdbar = (function () {
 		});
 		return true;
 	}
+	// plain (no-shift) click on a block's content ⇒ exits multiselect + focuses that block.
+	function focusBlock(uid) {
+		var cont = uidNode(uid); if (!cont) return false;
+		var el = contentEl(cont), r = el.getBoundingClientRect();
+		if (!r.width && !r.height) return false;
+		tagged(el, ['mousedown', 'mouseup', 'click'], {
+			bubbles: true, cancelable: true, view: window, button: 0,
+			clientX: r.left + Math.min(20, Math.max(2, r.width / 2)),
+			clientY: r.top + Math.min(10, Math.max(2, r.height / 2))
+		});
+		return true;
+	}
+	// set the multiselect to EXACTLY {uid}. assertRange can't do this — a shift-click on the anchor
+	// itself no-ops — so focus the block then promote it back to a one-block selection.
+	function selectSingle(uid, cb) {
+		if (!focusBlock(uid)) { cb && cb(false); return; }
+		setTimeout(function () { promoteRaw(function (ok) { cb && cb(ok); }); }, 60);
+	}
 
 	// DOM-order extent of the current selection + gaps not explained by subtree containment
 	function selExtent() {
@@ -257,18 +277,18 @@ window.ViktorCmdbar = (function () {
 		if (!uid) { cb(false); return; }
 		promoteRaw(function (ok) {
 			if (!ok) { cb(false); return; }
-			if (subtreeOk(uid)) { seedUid = uid; seedWin = win; cb(true); return; }
+			if (subtreeOk(uid)) { seedUid = uid; seedWin = win; focusUid = uid; cb(true); return; }
 			log('promote union ' + getSel().length + ' — heal: assertRange(seed)');
 			assertRange(uid);
 			setTimeout(function () {
-				if (subtreeOk(uid)) { seedUid = uid; seedWin = win; cb(true); return; }
+				if (subtreeOk(uid)) { seedUid = uid; seedWin = win; focusUid = uid; cb(true); return; }
 				log('heal 1 failed — clear+refocus+re-promote');
 				fire(window, K.esc);
 				setTimeout(function () {
 					try { api().ui.setBlockFocusAndSelection({ location: { 'block-uid': uid, 'window-id': win || 'log-outline' } }); } catch (e) { }
 					setTimeout(function () {
 						promoteRaw(function (ok2) {
-							if (ok2 && subtreeOk(uid)) { seedUid = uid; seedWin = win; cb(true); return; }
+							if (ok2 && subtreeOk(uid)) { seedUid = uid; seedWin = win; focusUid = uid; cb(true); return; }
 							log('promote heal failed — honest exit');
 							if (getSel().length) fire(window, K.esc);   // never leave a foreign selection armed
 							cb(false);
@@ -293,6 +313,7 @@ window.ViktorCmdbar = (function () {
 						shake(btns.select);
 					}
 					healing = false;
+					focusUid = seedUid;
 					lastSelN = getSel().length;
 					applyCtx(true);
 				});
@@ -409,16 +430,36 @@ window.ViktorCmdbar = (function () {
 
 	// ---------- actions ----------
 	// show: which forms display the button (E/S/I); rep: auto-repeat on hold
+	// Shift+Arrow semantics: the anchor (seedUid) is FIXED, the focus edge MOVES one block per press.
+	// Down steps focus down, Up steps focus up — so a press in the opposite direction SHRINKS the
+	// selection rather than growing the other end. (v0.4.3 grew whichever extent edge faced the press,
+	// which could never shrink back toward the anchor.)
 	function extendAbs(dirDown) {
 		var gi = selExtent();
 		if (!gi) { fire(window, dirDown ? K.extendDown : K.extendUp); return; }
-		var idx = dirDown ? gi.max + 1 : gi.min - 1;
-		var target = (idx >= 0 && idx < gi.list.length) ? gi.list[idx] : null;
-		if (!target) { nudge(btns[dirDown ? 'extendDown' : 'extendUp']); return; }
+		var anchorNode = seedUid ? uidNode(seedUid) : null;
+		var anchorIdx = anchorNode ? gi.list.indexOf(anchorNode) : -1;
+		var focusNode = focusUid ? uidNode(focusUid) : null;
+		var fidx = focusNode ? gi.list.indexOf(focusNode) : -1;
+		if (fidx < 0) fidx = (lastEdge === 'top') ? gi.min : gi.max;   // fallback: work the known edge
+		var nidx = dirDown ? fidx + 1 : fidx - 1;
+		if (nidx < 0 || nidx >= gi.list.length) { nudge(btns[dirDown ? 'extendDown' : 'extendUp']); return; }
+		// focus returning exactly onto the anchor ⇒ collapse to the single anchor block
+		if (anchorIdx >= 0 && nidx === anchorIdx) {
+			extShrink = true;
+			lastEdge = 'bottom';
+			selectSingle(seedUid, function () {
+				extShrink = false; focusUid = seedUid; lastSelN = getSel().length; updateHandles();
+			});
+			return;
+		}
+		var target = gi.list[nidx];
+		var side = (anchorIdx >= 0 && nidx < anchorIdx) ? 'min' : 'max';   // which extent edge the focus lands on
 		var pre = gi.min + ':' + gi.max + ':' + getSel().length;
 		assertRange(target);
 		setTimeout(function () {
 			var g2 = selExtent();
+			if (g2) focusUid = side === 'min' ? g2.minUid : g2.maxUid;
 			var post = g2 ? g2.min + ':' + g2.max + ':' + getSel().length : '';
 			if (post === pre) fire(window, dirDown ? K.extendDown : K.extendUp);   // one-shot legacy fallback
 		}, 150);
@@ -476,6 +517,7 @@ window.ViktorCmdbar = (function () {
 		if (c === 'SELECTING' && id !== 'done') {
 			setTimeout(updateHandles, 35);   // optimistic: knob/chip track the highlight, not the verify
 			setTimeout(function () {
+				if (extShrink) return;   // shrink-to-single owns its own state via selectSingle's callback
 				var n = getSel().length;
 				if (!n) {
 					if (id === 'indent' || id === 'outdent') { promote(function () { applyCtx(true); }); return; }
@@ -957,6 +999,8 @@ window.ViktorCmdbar = (function () {
 		}
 		log('drag end sel=' + getSel().length);
 		setTimeout(function () {
+			var ge = selExtent();
+			if (ge) focusUid = (lastEdge === 'top') ? ge.minUid : ge.maxUid;   // working edge = drag's focus
 			updateHandles();
 			healGaps('drag');
 			seedCheck('drag-end');

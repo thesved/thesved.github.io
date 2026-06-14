@@ -248,13 +248,15 @@ window.ViktorColonmenu = (function () {
 		if (menu) return menu;
 		menu = document.createElement('div');
 		menu.className = 'vt-colonmenu rm-autocomplete__results';
-		menu.style.cssText = 'position:fixed;z-index:2147483600;display:none;min-width:220px;max-width:60vw;'
+		menu.style.cssText = 'position:fixed;z-index:2147483600;display:none;flex-direction:column;min-width:220px;max-width:60vw;'
 			+ 'background:var(--page-color,rgba(28,30,36,.97));color:var(--text-color,#eee);border-radius:8px;'
 			+ 'box-shadow:0 6px 26px rgba(0,0,0,.34),inset 0 0 0 .5px rgba(255,255,255,.10);overflow:hidden;'
 			+ 'font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:4px;';
 		rowsEl = document.createElement('div'); rowsEl.className = 'vt-colonmenu-rows';
+		// rows scroll when the menu is height-capped to fit the band above the block / above the command bar
+		rowsEl.style.cssText = 'flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;';
 		footEl = document.createElement('div'); footEl.className = 'rm-autocomplete-footer';
-		footEl.style.cssText = 'padding:4px 8px 2px;margin-top:3px;border-top:1px solid rgba(127,127,127,.22);'
+		footEl.style.cssText = 'flex:0 0 auto;padding:4px 8px 2px;margin-top:3px;border-top:1px solid rgba(127,127,127,.22);'
 			+ 'font-size:11px;opacity:.72;display:flex;justify-content:space-between;gap:8px;white-space:nowrap;';
 		menu.appendChild(rowsEl); menu.appendChild(footEl);
 		// keep textarea focused on press; pick on click (mousedown so it beats blur)
@@ -306,6 +308,7 @@ window.ViktorColonmenu = (function () {
 			var on = i === cur.active;
 			kids[i].classList.toggle('vt-active', on);
 			kids[i].style.background = on ? 'rgba(127,150,255,.22)' : '';
+			if (on) { try { kids[i].scrollIntoView({ block: 'nearest' }); } catch (e) { } }
 		}
 		paintFooter();
 	}
@@ -315,19 +318,44 @@ window.ViktorColonmenu = (function () {
 		cur.activeKey = keyOf(cur.items[cur.active]);
 		paintActive();
 	}
+	// top of the highest bottom command bar on screen (our cmdbar EDITING row, else Roam's native
+	// mobile bar) — the menu must never overlap it. null when none is shown.
+	function commandBarTop() {
+		var tops = [];
+		var vt = document.getElementById('vt-cmd-root');           // cmdbar's [Select]…[/] editing row
+		if (vt) { var b = vt.querySelector('#vt-bar'); if (b) { var br = b.getBoundingClientRect(); if (br.height && br.top > 0) tops.push(br.top); } }
+		var nb = document.getElementById('rm-mobile-bar');         // Roam native bar (when cmdbar is off)
+		if (nb && nb.offsetParent !== null) { var nr = nb.getBoundingClientRect(); if (nr.height && nr.top > 0) tops.push(nr.top); }
+		return tops.length ? Math.min.apply(null, tops) : null;
+	}
 	function position() {
 		if (!cur || !cur.el) return;
+		menu.style.maxHeight = '';                                  // measure natural height first
 		var r = cur.el.getBoundingClientRect(), mw = menu.offsetWidth, mh = menu.offsetHeight;
-		var top = r.bottom + 4, left = r.left;
-		if (top + mh > window.innerHeight - 4) top = Math.max(4, r.top - mh - 4);   // flip above
-		if (left + mw > window.innerWidth - 4) left = window.innerWidth - mw - 4;
-		// mobile: keep above the soft keyboard if visualViewport reports a smaller area
+		var GAP = 4, M = 6;
+		// safe TOP edge: below the topbar so the menu never covers its icons
+		var safeTop = M, tb = document.querySelector('.rm-topbar');
+		if (tb) { var tr = tb.getBoundingClientRect(); if (tr.height) safeTop = Math.max(safeTop, tr.bottom + 2); }
+		// safe BOTTOM edge: above the soft keyboard (visualViewport) AND above any command bar
 		var vv = window.visualViewport;
-		if (vv && (top + mh) > (vv.offsetTop + vv.height - 4)) top = Math.max(4, r.top - mh - 4);
+		var safeBot = (vv ? vv.offsetTop + vv.height : window.innerHeight) - M;
+		var barTop = commandBarTop();
+		if (barTop != null && barTop - 2 < safeBot) safeBot = barTop - 2;
+		// pick the side with room; cap the height to the band so it never overlaps the block or the bar
+		var roomBelow = safeBot - (r.bottom + GAP);
+		var roomAbove = (r.top - GAP) - safeTop;
+		var below = (mh <= roomBelow) || (mh > roomAbove && roomBelow >= roomAbove);
+		var maxH = Math.max(80, below ? roomBelow : roomAbove);
+		if (mh > maxH) menu.style.maxHeight = maxH + 'px';
+		var used = Math.min(mh, maxH);
+		var top = below ? (r.bottom + GAP) : ((r.top - GAP) - used);
+		top = Math.max(safeTop, Math.min(top, safeBot - used));
+		var left = r.left;
+		if (left + mw > window.innerWidth - M) left = window.innerWidth - mw - M;
 		menu.style.top = top + 'px';
-		menu.style.left = Math.max(4, left) + 'px';
+		menu.style.left = Math.max(M, left) + 'px';
 	}
-	function showMenu() { ensureMenu(); menu.style.display = 'block'; render(); position(); }
+	function showMenu() { ensureMenu(); menu.style.display = 'flex'; render(); position(); }
 	function hide() {
 		cur = null;
 		if (menu) menu.style.display = 'none';
