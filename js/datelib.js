@@ -106,12 +106,16 @@
 			return addWeek(week - 1, week1);
 		}
 		function getMaxWeekOfYear(date) { date = getNewDate(date); return getWeekOfYear(new Date(date.getFullYear() + 1, 0, 0)); }
-		function nextFullMoon(date) {
+		// moon phase: jd becomes the fraction into the synodic cycle. +0.5 = full moon (half cycle from new),
+		// no offset = new moon. (1-jd)*cycle = days until that phase.
+		function moonDate(date, fullPhase) {
 			date = getNewDate(date); let year = date.getFullYear(), month = date.getMonth() + 1; const day = date.getDate();
 			let c, e, jd; if (month < 3) { year--; month += 12; } ++month;
-			c = 365.25 * year; e = 30.6 * month; jd = c + e + day - 694039.09; jd /= 29.5305882; jd += 0.5; jd %= 1; jd = (1 - jd) * 29.5305882 + 1;
+			c = 365.25 * year; e = 30.6 * month; jd = c + e + day - 694039.09; jd /= 29.5305882; if (fullPhase) jd += 0.5; jd %= 1; jd = (1 - jd) * 29.5305882 + 1;
 			return new Date(date.getTime() + jd * 24 * 60 * 60 * 1000);
 		}
+		function nextFullMoon(date) { return moonDate(date, true); }
+		function nextNewMoon(date) { return moonDate(date, false); }
 		function compareDates(d1, d2) { d1 = getNewDate(d1).toISOString().substr(0, 10); d2 = getNewDate(d2).toISOString().substr(0, 10); return d1 < d2 ? -1 : d1 > d2 ? 1 : 0; }
 
 		// ===================================================================== formatter (NEW: single
@@ -177,6 +181,7 @@
 		const regexUnitClean = /\b(of|now|the)\b/i;
 		const regexUnit = { regex: [/([-\+]?\s*\d+)\s*(st|nd|rd|th)?\s*d(ays*)?\b/i, /(?:^|[\b\d\s])d(ays*)?\b/i, /([-\+]?\s*\d+)\s*(st|nd|rd|th)?\s*w([ea]+ks*)?\b/i, /(?:^|[\b\d\s])w([ea]+ks*)?\b/i, /([-\+]?\s*\d+)\s*(st|nd|rd|th)?\s*m(o*n[th]+s*)?\b/i, /(?:^|[\b\d\s])m(o*n[th]+s*)?\b/i, /([-\+]?\s*\d+)\s*(st|nd|rd|th)?\s*y([ae]+rs*)?\b/i, /(?:^|[\b\d\s])y([ae]+rs*)?\b/i], value: ['Day','Day','Week','Week','Month','Month','Year','Year'] };
 		const regexFullMoon = /\bful*\s*mo*n\b/i;
+		const regexNewMoon = /\bnew\s*mo*n\b/i;
 		const regexStatic = { regex: [/\byesterday\b/i, /\btoday\b/i, /\btomorrow\b/i], value: [-1, 0, 1] };
 		const regexDirection = { regex: [/\b(prev[iou]*s*|ago|past)\b/i, /\b(this|cur+ent)\b/i, /\b(next|f[ro]+m|after)\b/i], value: [-1, 0, 1] };
 		const regexFirstLast = { regex: [/\bfirst\w*/i, /\blast\w*/i], value: ['first', 'last'] };
@@ -267,7 +272,7 @@
 
 		// slot extraction: text -> {slots, ref} (ref is mutated by year + recursive subdate resolution)
 		function collect(rawText, ref) {
-			const ret = { static: '', fullmoon: '', direction: '', unit: '', shadowUnit: '', number: '', day: '', month: '', year: '', firstlast: '', period: null, inner: '', outer: '', bias: dirDefault };
+			const ret = { static: '', fullmoon: '', newmoon: '', direction: '', unit: '', shadowUnit: '', number: '', day: '', month: '', year: '', firstlast: '', period: null, inner: '', outer: '', bias: dirDefault };
 			let text = ('' + rawText).toLowerCase();
 			ref = getNewDate(ref);
 
@@ -352,7 +357,8 @@
 
 			// number
 			if (regexNumber.exec(text)) { ret.number = parseInt(regexNumber.exec(text)[1].replace(/\s+/g, '')); text = text.replace(new RegExp(regexNumber, 'gi'), ''); }
-			// fullmoon
+			// fullmoon / newmoon (newmoon first: "new moon" must not be mistaken for a "new" direction word)
+			if (regexNewMoon.exec(text)) { ret.newmoon = 'yes'; text = text.replace(new RegExp(regexNewMoon, 'gi'), ''); }
 			if (regexFullMoon.exec(text)) { ret.fullmoon = 'yes'; text = text.replace(new RegExp(regexFullMoon, 'gi'), ''); }
 			// month / day (localized)
 			regexMonth.forEach((r, i) => { if (r.exec(text)) { ret.month = i; text = text.replace(reGlobal(r), ''); } });
@@ -499,7 +505,8 @@
 				if (s.direction !== '' && s.unit === 'Week') date = addDay(-weekOffset(date), date);
 				return date;
 			} },
-			// next full moon
+			// next full moon / new moon
+			{ id: 'newmoon', when: s => s.newmoon !== '', build: (s, ref) => nextNewMoon(ref) },
 			{ id: 'fullmoon', when: s => s.fullmoon !== '', build: (s, ref) => nextFullMoon(ref) },
 		];
 
@@ -584,7 +591,7 @@
 			// helpers exposed for tests/integration
 			addDay, addWeek, addMonth, addYear, getDayOfWeek, weekOffset, startOfWeek,
 			getWeekOfYear, getWeekOfMonth, getDateForWeekOfYear, getDateForWeekOfMonth,
-			getMaxWeekOfYear, getMaxWeekOfMonth, nextFullMoon, compareDates, getNewDate,
+			getMaxWeekOfYear, getMaxWeekOfMonth, nextFullMoon, nextNewMoon, compareDates, getNewDate,
 			getWeekStart: () => weekStartIdx, getDateDirection: () => dirDefault, aliasConflicts: conflicts, _regexMonth: regexMonth, _regexDay: regexDay,
 		};
 	}

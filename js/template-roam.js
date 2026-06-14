@@ -1293,6 +1293,38 @@ window.ViktorRoamLib = /*window.ViktorRoamLib ||*/ (function(){
 		return ret;
 	}
 
+	// Read the clipboard for $clipboard substitution. Prefers an IMAGE (paste screenshots/photos, not just
+	// text): if the clipboard holds an image, upload it to Roam's file store and return the `![](url)`
+	// markdown; otherwise fall back to plain text. Used by the $clipboard resolver below (e.g. the :p: template).
+	async function readClipboardSmart() {
+		try {
+			if (navigator.clipboard && navigator.clipboard.read) {
+				var items = await navigator.clipboard.read();
+				for (var ci = 0; ci < items.length; ci++) {
+					var itype = (items[ci].types || []).find(function (t) { return /^image\//i.test(t); });
+					if (!itype) continue;
+					var blob = await items[ci].getType(itype);
+					var md = await uploadImageToRoam(blob, itype);
+					if (md) return md;
+				}
+			}
+		} catch (e) { /* no read perm / no image -> fall through to text */ }
+		try { return await navigator.clipboard.readText(); } catch (e) { return ''; }
+	}
+	async function uploadImageToRoam(blob, itype) {
+		try {
+			var ext = ((itype || 'image/png').split('/')[1] || 'png').replace('jpeg', 'jpg').replace(/\+.*/, '');
+			var file = new File([blob], 'pasted-' + Date.now() + '.' + ext, { type: itype || 'image/png' });
+			if (window.roamAlphaAPI && roamAlphaAPI.file && roamAlphaAPI.file.upload) {
+				var res = await roamAlphaAPI.file.upload(file, { toast: { hide: true } });
+				var s = '' + res;
+				if (/!\[/.test(s)) return s;                 // already ![](url) markdown
+				if (/^https?:\/\//i.test(s)) return '![](' + s + ')';
+			}
+		} catch (e) { console.warn('template-roam: clipboard image upload failed', e); }
+		return '';
+	}
+
 	async function getClipboardFormat(id, args) {
 		clipboard = null; // nullify clipboard
 		var node = await exportNode(id, args);
@@ -1458,14 +1490,10 @@ window.ViktorRoamLib = /*window.ViktorRoamLib ||*/ (function(){
 			// remove unspecified parameters, eg. $43
 			data[':block/string'] = data[':block/string'].replace(/\$\d+/g, '');
 
-			// replace $clipboard with clipboard content
+			// replace $clipboard with clipboard content (image-aware: pastes images, not just text)
 			if (/\$clipboard/i.test(data[':block/string'])) {
 				if (typeof clipboard !== 'string') {
-					try {
-						clipboard = await navigator.clipboard.readText();
-					} catch (e) {
-						clipboard = '';
-					}
+					clipboard = await readClipboardSmart();
 				}
 				var clipboardUrl = /^http/i.test(clipboard) && clipboard || '';
 				var clipboardUrlDomain = (/^https?:\/\/([^\/]+)/i.exec(clipboardUrl)||['',''])[1].replace(/^www\./i,'');
