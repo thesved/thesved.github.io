@@ -345,7 +345,9 @@ window.ViktorColonmenu = (function () {
 		var roomBelow = safeBot - (r.bottom + GAP);
 		var roomAbove = (r.top - GAP) - safeTop;
 		var below = (mh <= roomBelow) || (mh > roomAbove && roomBelow >= roomAbove);
-		var maxH = Math.max(80, below ? roomBelow : roomAbove);
+		// cap to the chosen side's room, never exceeding the whole safe band — so used <= band and the
+		// final clamp below can't push the menu back over the block or the bar (the rows scroll instead).
+		var maxH = Math.max(0, Math.min(below ? roomBelow : roomAbove, safeBot - safeTop));
 		if (mh > maxH) menu.style.maxHeight = maxH + 'px';
 		var used = Math.min(mh, maxH);
 		var top = below ? (r.bottom + GAP) : ((r.top - GAP) - used);

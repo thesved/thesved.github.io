@@ -95,8 +95,7 @@ window.ViktorCmdbar = (function () {
 	var lastEdge = 'bottom';          // which end of the selection the user is working (knob side)
 	var healing = false;              // re-entrancy guard for heal/ladder
 	var seedUid = null, seedWin = null; // the promoted anchor (invariant: stays in the selection)
-	var focusUid = null;              // the MOVING edge (anchor=seedUid is fixed); extend ↑/↓ steps it
-	var extShrink = false;            // an extend step is shrinking the selection to the single anchor
+	var extShrink = false;            // collapse-to-single in flight: owns its async window (re-entrancy + ctx guard)
 	var contract = { ok: true, missing: [] };
 	var logRing = [];
 	var lastSelN = 0;
@@ -277,18 +276,18 @@ window.ViktorCmdbar = (function () {
 		if (!uid) { cb(false); return; }
 		promoteRaw(function (ok) {
 			if (!ok) { cb(false); return; }
-			if (subtreeOk(uid)) { seedUid = uid; seedWin = win; focusUid = uid; cb(true); return; }
+			if (subtreeOk(uid)) { seedUid = uid; seedWin = win; cb(true); return; }
 			log('promote union ' + getSel().length + ' — heal: assertRange(seed)');
 			assertRange(uid);
 			setTimeout(function () {
-				if (subtreeOk(uid)) { seedUid = uid; seedWin = win; focusUid = uid; cb(true); return; }
+				if (subtreeOk(uid)) { seedUid = uid; seedWin = win; cb(true); return; }
 				log('heal 1 failed — clear+refocus+re-promote');
 				fire(window, K.esc);
 				setTimeout(function () {
 					try { api().ui.setBlockFocusAndSelection({ location: { 'block-uid': uid, 'window-id': win || 'log-outline' } }); } catch (e) { }
 					setTimeout(function () {
 						promoteRaw(function (ok2) {
-							if (ok2 && subtreeOk(uid)) { seedUid = uid; seedWin = win; focusUid = uid; cb(true); return; }
+							if (ok2 && subtreeOk(uid)) { seedUid = uid; seedWin = win; cb(true); return; }
 							log('promote heal failed — honest exit');
 							if (getSel().length) fire(window, K.esc);   // never leave a foreign selection armed
 							cb(false);
@@ -313,7 +312,6 @@ window.ViktorCmdbar = (function () {
 						shake(btns.select);
 					}
 					healing = false;
-					focusUid = seedUid;
 					lastSelN = getSel().length;
 					applyCtx(true);
 				});
@@ -430,38 +428,56 @@ window.ViktorCmdbar = (function () {
 
 	// ---------- actions ----------
 	// show: which forms display the button (E/S/I); rep: auto-repeat on hold
-	// Shift+Arrow semantics: the anchor (seedUid) is FIXED, the focus edge MOVES one block per press.
-	// Down steps focus down, Up steps focus up — so a press in the opposite direction SHRINKS the
-	// selection rather than growing the other end. (v0.4.3 grew whichever extent edge faced the press,
-	// which could never shrink back toward the anchor.)
+	// collapse the multiselect back to the single anchor block. assertRange can't (a shift-click on
+	// the anchor itself no-ops), so re-focus+promote — guarding seedUid + ctx across the async window.
+	function collapseToAnchor() {
+		extShrink = true;
+		lastEdge = 'bottom';
+		var sd = seedUid, sw = seedWin;
+		selectSingle(sd, function () {
+			seedUid = sd; seedWin = sw;            // restore (belt; applyCtx's extShrink guard prevents the wipe)
+			lastSelN = getSel().length;
+			applyCtx(true);                        // re-assert the SELECTING form on the single block
+			setTimeout(function () { extShrink = false; }, 40);   // clear AFTER act()'s 220ms follow-up (no spurious nudge)
+		});
+	}
+	// Shift+Arrow semantics: the anchor (seedUid) is FIXED; the MOVING edge is the extent side away
+	// from the anchor — DERIVED LIVE each press (never stored), so it can't go stale on autorepeat,
+	// after a drag, or when Roam's subtree closure re-expands the range. A press toward the anchor
+	// SHRINKS; landing on/across the anchor (or a shrink that makes no progress because a subtree
+	// re-closed) collapses to the single anchor block.
 	function extendAbs(dirDown) {
+		if (extShrink) return;                                  // collapse owns its window — ignore re-entrant repeats
 		var gi = selExtent();
 		if (!gi) { fire(window, dirDown ? K.extendDown : K.extendUp); return; }
 		var anchorNode = seedUid ? uidNode(seedUid) : null;
 		var anchorIdx = anchorNode ? gi.list.indexOf(anchorNode) : -1;
-		var focusNode = focusUid ? uidNode(focusUid) : null;
-		var fidx = focusNode ? gi.list.indexOf(focusNode) : -1;
-		if (fidx < 0) fidx = (lastEdge === 'top') ? gi.min : gi.max;   // fallback: work the known edge
-		var nidx = dirDown ? fidx + 1 : fidx - 1;
-		if (nidx < 0 || nidx >= gi.list.length) { nudge(btns[dirDown ? 'extendDown' : 'extendUp']); return; }
-		// focus returning exactly onto the anchor ⇒ collapse to the single anchor block
-		if (anchorIdx >= 0 && nidx === anchorIdx) {
-			extShrink = true;
-			lastEdge = 'bottom';
-			selectSingle(seedUid, function () {
-				extShrink = false; focusUid = seedUid; lastSelN = getSel().length; updateHandles();
-			});
-			return;
+		var focusSide;                                          // which extent edge is the moving focus
+		if (anchorIdx < 0) focusSide = (lastEdge === 'top') ? 'min' : 'max';   // anchor unrendered: trust knob side
+		else if (gi.min === gi.max) focusSide = dirDown ? 'max' : 'min';        // single block: the press picks a side
+		else if (anchorIdx <= gi.min) focusSide = 'max';                        // anchor at top → focus is bottom edge
+		else if (anchorIdx >= gi.max) focusSide = 'min';                        // anchor at bottom → focus is top edge
+		else focusSide = (lastEdge === 'top') ? 'min' : 'max';                  // anchor interior (rare): trust knob side
+		var growing = dirDown ? (focusSide === 'max') : (focusSide === 'min');
+		var nidx = growing
+			? (focusSide === 'max' ? gi.max + 1 : gi.min - 1)   // grow outward, past any subtree at the edge
+			: (focusSide === 'max' ? gi.max - 1 : gi.min + 1);  // shrink inward toward the anchor
+		// shrinking onto / across the anchor ⇒ collapse to the single anchor block
+		if (!growing && anchorIdx >= 0 && (focusSide === 'max' ? nidx <= anchorIdx : nidx >= anchorIdx)) {
+			collapseToAnchor(); return;
 		}
+		if (nidx < 0 || nidx >= gi.list.length) { nudge(btns[dirDown ? 'extendDown' : 'extendUp']); return; }
+		lastEdge = focusSide === 'max' ? 'bottom' : 'top';
 		var target = gi.list[nidx];
-		var side = (anchorIdx >= 0 && nidx < anchorIdx) ? 'min' : 'max';   // which extent edge the focus lands on
 		var pre = gi.min + ':' + gi.max + ':' + getSel().length;
 		assertRange(target);
 		setTimeout(function () {
 			var g2 = selExtent();
-			if (g2) focusUid = side === 'min' ? g2.minUid : g2.maxUid;
 			var post = g2 ? g2.min + ':' + g2.max + ':' + getSel().length : '';
-			if (post === pre) fire(window, dirDown ? K.extendDown : K.extendUp);   // one-shot legacy fallback
+			if (post === pre) {                                  // no progress
+				if (!growing) collapseToAnchor();                // a subtree re-closed → don't get stuck, collapse
+				else fire(window, dirDown ? K.extendDown : K.extendUp);   // grow boundary → one-shot legacy fallback
+			}
 		}, 150);
 	}
 	var ACTIONS = {
@@ -510,9 +526,7 @@ window.ViktorCmdbar = (function () {
 		var c = ctx;
 		log('act ' + id + (viaRepeat ? ' (rep)' : '') + ' ctx=' + c);
 		if (id !== 'undo' && id !== 'redo') { if (id !== 'select' && id !== 'close') redoAvail = false, paintRedo(); }
-		if (id === 'extendUp') lastEdge = 'top';
-		if (id === 'extendDown') lastEdge = 'bottom';
-		a.run(c);
+		a.run(c);   // extendAbs sets lastEdge itself from the live focus side (grow vs shrink)
 		// closed loop for selection ops
 		if (c === 'SELECTING' && id !== 'done') {
 			setTimeout(updateHandles, 35);   // optimistic: knob/chip track the highlight, not the verify
@@ -999,8 +1013,6 @@ window.ViktorCmdbar = (function () {
 		}
 		log('drag end sel=' + getSel().length);
 		setTimeout(function () {
-			var ge = selExtent();
-			if (ge) focusUid = (lastEdge === 'top') ? ge.minUid : ge.maxUid;   // working edge = drag's focus
 			updateHandles();
 			healGaps('drag');
 			seedCheck('drag-end');
@@ -1016,6 +1028,9 @@ window.ViktorCmdbar = (function () {
 	function applyCtx(force) {
 		if (!added) return;
 		var c = ctxNow();
+		// collapse-to-single momentarily focuses the anchor textarea with an empty selection; ignore that
+		// transient EDITING/IDLE flicker (it would otherwise wipe seedUid and flash the bar form).
+		if (extShrink && c !== 'SELECTING') return;
 		if (!force && c === ctx) {
 			if (c === 'SELECTING' && !drag) updateHandles();
 			return;
