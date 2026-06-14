@@ -1003,6 +1003,26 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
   }
 }
 
+/* --- iOS PWA status-bar color-bleed guard ---
+   In a standalone (home-screen) PWA with viewport-fit=cover the webview paints under the status bar,
+   so the env(safe-area-inset-top) strip shows whatever element sits at top:0. When a full-screen
+   overlay opens — the image-upload modal (white) or a consent/warning callout (yellow/orange) — its
+   background bleeds up into the status-bar strip (visible behind the clock/battery). A single fixed
+   guard at the very top, painted in the theme bg ABOVE every Roam portal/modal, keeps that strip the
+   theme colour at all times. env() is 0 off-device, so this is a no-op on desktop / non-notch PWAs.
+   pointer-events:none so it never eats taps; z just under the colonmenu paste-toast (2147483646). */
+body::before {
+  content: "";
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: env(safe-area-inset-top, 0px);
+  background: var(--bg-color, #000);
+  z-index: 2147483645;
+  pointer-events: none;
+}
+
 /* --- mobile bullet long-press hit area ---
    Roam opens the block context menu only when the (long-press →) contextmenu target is the
    ~13px `.rm-bullet` (it delegates contextmenu at #app and matches target.closest('.rm-bullet')).

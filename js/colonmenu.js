@@ -1,5 +1,10 @@
 /*
- * ViktorColonmenu (v0.1) — unified colon-autosuggest dropdown for Roam.
+ * ViktorColonmenu (v0.2) — unified colon-autosuggest dropdown for Roam.
+ *
+ * v0.2 — :p: pure-paste rewrite for cross-platform image paste: prefer the real image bitmap (drop the
+ *   companion text/html <img> so Roam always uploads), detect Safari/iOS WebKit's null-clipboardData
+ *   ClipboardEvent and force-attach the DataTransfer, "Pasting image…" progress toast, and a
+ *   clipboard-blocked hint instead of silent no-op. (Live-verified on desktop CDP.)
  *
  * Type `:` in a block and get a live menu (like Roam's native `[[` / `((`) of:
  *   • TEMPLATES   — every page under searchPages folders (template/…, [[template]]/…)
@@ -37,7 +42,7 @@ if (window.ViktorColonmenu && typeof window.ViktorColonmenu.stop === 'function')
 window.ViktorColonmenu = (function () {
 	'use strict';
 
-	var menu = null, rowsEl = null, footEl = null, raf = 0, started = false, ac = null;
+	var menu = null, rowsEl = null, footEl = null, raf = 0, started = false, ac = null, pasteWatch = null;
 	var libCache = null, libKey = '';
 	var idxCache = null, idxAt = 0, idxKey = '';           // template index cache
 	var IDX_TTL = 4000;                                    // ms; re-query templates at most this often
@@ -497,27 +502,85 @@ window.ViktorColonmenu = (function () {
 		}
 	}
 
+	// transient pill (paste feedback / clipboard-blocked hint). Returns the element so a caller can
+	// remove it early. z = 2147483646, one above the roamCSS body::before status-bar guard (2147483645);
+	// they never overlap (toast is bottom-anchored, the guard covers the TOP safe-area), so order is moot.
+	function toast(msg, ms) {
+		try {
+			var t = document.createElement('div'); t.className = 'vt-cm-toast'; t.textContent = msg;
+			t.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:calc(26px + env(safe-area-inset-bottom,0px));z-index:2147483646;'
+				+ 'background:var(--bg-color,#202b33);color:var(--text-color,#e8e8e8);border:0.5px solid color-mix(in srgb,var(--icon-color,#5c7080) 40%,transparent);'
+				+ 'padding:8px 14px;border-radius:11px;font:600 13px/1.2 -apple-system,BlinkMacSystemFont,sans-serif;box-shadow:0 4px 18px rgba(0,0,0,.42);pointer-events:none;max-width:84vw;text-align:center;opacity:0;transition:opacity .12s ease;';
+			document.body.appendChild(t); requestAnimationFrame(function () { t.style.opacity = '1'; });
+			var killed = false, kill = function () { if (killed) return; killed = true; t.style.opacity = '0'; setTimeout(function () { try { t.remove(); } catch (e) {} }, 160); };
+			if (ms) setTimeout(kill, ms);
+			return { el: t, kill: kill };
+		} catch (e) { return { el: null, kill: function () {} }; }
+	}
+
 	// PURE-PASTE template (body is exactly "$clipboard", e.g. :p:): paste the REAL system clipboard
 	// natively — content-agnostic (text, images, rich text) via Roam's own paste handler, which uploads
-	// images itself (verified: synthetic ClipboardEvent w/ DataTransfer.files -> firebase upload). We don't
-	// inspect or branch on content type; Roam does. Falls back to text-only readText if read() is blocked.
+	// images itself. CROSS-PLATFORM CORRECTNESS (verified live, desktop CDP):
+	//   - When the clipboard holds a real image bitmap we paste ONLY the image. A right-click "copy image"
+	//     puts image/png AND a text/html <img> tag; some Roam paste paths (iOS WebKit especially) pick the
+	//     html and drop the bitmap, so isolating the image guarantees the firebase upload.
+	//   - Safari/iOS WebKit IGNORES the ClipboardEvent constructor's `clipboardData` init member, leaving it
+	//     null — the old `try new ClipboardEvent` SUCCEEDED (with null data) so Roam received nothing and the
+	//     CustomEvent fallback never ran. We now DETECT a non-carrying event and force-attach the DataTransfer
+	//     on a plain Event (Roam reads .files/.getData off it on both desktop and iOS).
+	//   - read() throwing = clipboard permission blocked (native Ctrl/Cmd+V still works as it's a trusted
+	//     event); surface a hint instead of silently doing nothing.
 	async function pasteRealClipboard(el) {
-		var dt = new DataTransfer(), text = '';
+		var dt = new DataTransfer(), text = '', html = '', haveImg = false, blocked = false;
 		try {
 			var items = await navigator.clipboard.read();
-			for (var i = 0; i < items.length; i++) {
+			for (var i = 0; i < items.length; i++) {                         // pass 1: prefer a real image
 				var types = items[i].types || [];
 				for (var j = 0; j < types.length; j++) {
-					var ty = types[j], blob = await items[i].getType(ty);
-					if (/^image\//i.test(ty)) { try { dt.items.add(new File([blob], 'paste.' + ((ty.split('/')[1] || 'png').replace('jpeg', 'jpg')), { type: ty })); } catch (e) {} }
-					else if (ty === 'text/plain') text = await blob.text();
-					else if (ty === 'text/html') { try { dt.setData('text/html', await blob.text()); } catch (e) {} }
+					var ty = types[j];
+					if (/^image\//i.test(ty)) {
+						try { dt.items.add(new File([await items[i].getType(ty)], 'paste.' + ((ty.split('/')[1] || 'png').replace('jpeg', 'jpg').replace(/\+.*/, '')), { type: ty })); haveImg = true; } catch (e) {}
+					}
 				}
 			}
-		} catch (e) { try { text = await navigator.clipboard.readText(); } catch (e2) {} }
-		if (text) try { dt.setData('text/plain', text); } catch (e) {}
-		var ev; try { ev = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }); }
-		catch (e) { ev = new CustomEvent('paste', { bubbles: true, cancelable: true }); try { Object.defineProperty(ev, 'clipboardData', { value: dt }); } catch (e2) { ev.clipboardData = dt; } }
+			if (!haveImg) {                                                  // pass 2: text / rich text
+				for (var i2 = 0; i2 < items.length; i2++) {
+					var t2 = items[i2].types || [];
+					for (var j2 = 0; j2 < t2.length; j2++) {
+						var ty2 = t2[j2];
+						if (ty2 === 'text/plain') text = await (await items[i2].getType(ty2)).text();
+						else if (ty2 === 'text/html') { try { html = await (await items[i2].getType(ty2)).text(); } catch (e) {} }
+					}
+				}
+			}
+		} catch (e) { blocked = true; try { text = await navigator.clipboard.readText(); blocked = false; } catch (e2) {} }
+		if (blocked) { toast('Clipboard blocked — allow paste access for roamresearch.com', 4200); return; }
+		if (!haveImg) {
+			if (html) try { dt.setData('text/html', html); } catch (e) {}
+			if (text) try { dt.setData('text/plain', text); } catch (e) {}
+		}
+		if (!haveImg && !text && !html) { toast('Clipboard is empty', 2200); return; }
+		// build a paste event that ACTUALLY carries the data (see WebKit note above)
+		var ev = null;
+		try { ev = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }); } catch (e) {}
+		if (!ev || ev.clipboardData !== dt) {
+			ev = new Event('paste', { bubbles: true, cancelable: true });
+			try { Object.defineProperty(ev, 'clipboardData', { value: dt, configurable: true }); } catch (e2) { try { ev.clipboardData = dt; } catch (e3) {} }
+		}
+		if (haveImg) {                                                       // uploads take seconds; show progress
+			// only ONE active paste toast/poller — repeated :p: image pastes must not stack toasts or pollers
+			if (pasteWatch) { try { clearInterval(pasteWatch.poll); clearTimeout(pasteWatch.to); pasteWatch.tt.kill(); } catch (e) {} pasteWatch = null; }
+			var tt = toast('Pasting image…', 0), before = el.value, done = false;
+			var poll = setInterval(function () {
+				// poll the CAPTURED textarea (the paste target), not activeElement — focus can move to another
+				// block during the multi-second upload, which would poll the wrong field (false success/failure).
+				// Fall back to activeElement only if Roam replaced el's node on re-render (el detached).
+				var v = (el.isConnected ? el.value : (document.activeElement && document.activeElement.value)) || '';
+				if (v !== before && /(firebasestorage|!\[\]\()/.test(v)) { done = true; clearInterval(poll); clearTimeout(to); tt.kill(); pasteWatch = null; }
+			}, 350);
+			var to = setTimeout(function () { clearInterval(poll); if (!done && tt.el) tt.el.textContent = 'Paste may have failed — retry, or check clipboard access'; setTimeout(tt.kill, 2600); pasteWatch = null; }, 14000);
+			pasteWatch = { poll: poll, to: to, tt: tt };
+		}
 		el.dispatchEvent(ev);
 	}
 
@@ -593,6 +656,7 @@ window.ViktorColonmenu = (function () {
 		started = false;
 		if (ac) { ac.abort(); ac = null; }
 		if (raf) { cancelAnimationFrame(raf); raf = 0; }
+		if (pasteWatch) { try { clearInterval(pasteWatch.poll); clearTimeout(pasteWatch.to); pasteWatch.tt.kill(); } catch (e) {} pasteWatch = null; }
 		if (menu) { menu.remove(); menu = null; rowsEl = null; footEl = null; }
 		cur = null; libCache = null; libKey = ''; idxCache = null; committing = false;
 	}

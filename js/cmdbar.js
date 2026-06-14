@@ -1,6 +1,8 @@
 /*
  * Viktor's Roam Mobile Command Bar — THE mobile toolbar (replaces Roam's native gray bar).
- * version: 0.5.0  (2026-06-14)  — extend ↑/↓ = native iOS Shift+Arrow (anchor fixed, focus edge derived
+ * version: 0.5.1  (2026-06-14)  — desktop/wide viewport: bar is a CENTERED COMPACT PILL (was a
+ *   full-page-width strip); mobile (<=600) stays edge-to-edge.
+ * v0.5.0  — extend ↑/↓ = native iOS Shift+Arrow (anchor fixed, focus edge derived
  *   LIVE each press from selExtent vs anchor — no stored focus); collapse-to-single is KEYBOARD-FREE via
  *   native Shift+Arrow toward the anchor (plain-click focus flashed the iOS keyboard). extShrink guards the
  *   async collapse window. See learnings/2026-06-14-cmdbar-selection-colonmenu-nativescroll.md.
@@ -697,7 +699,16 @@ window.ViktorCmdbar = (function () {
 
 			/* page accommodation + overlay suppression */
 			'body.vt-bar-open .roam-body-main{padding-bottom:64px;}',
-			'body.bp3-overlay-open #vt-dock,body.bp3-overlay-open #vt-handles{display:none!important;}'
+			'body.bp3-overlay-open #vt-dock,body.bp3-overlay-open #vt-handles{display:none!important;}',
+
+			/* DESKTOP / wide viewport: the bar is a CENTERED COMPACT PILL, not a full-page-width strip.
+			   On mobile (<=600) it stays edge-to-edge (the iOS toolbar idiom). The dock is full-width
+			   fixed; width:max-content + margin auto shrinks the bar to its buttons and centers it. */
+			'@media (min-width:601px){',
+			'  #vt-bar{width:max-content;max-width:min(620px,92vw);margin:0 auto 10px;border-radius:14px;',
+			'    border:0.5px solid color-mix(in srgb, var(--icon-color,#5c7080) 30%, transparent);',
+			'    box-shadow:0 6px 20px rgba(0,0,0,.30);}',   /* floating pill: balanced drop shadow (mobile keeps the edge-to-edge upward shadow) */
+			'}'
 		].join('\n');
 		document.head.appendChild(css);
 	}
