@@ -38,7 +38,6 @@ window.ViktorColonmenu = (function () {
 	'use strict';
 
 	var menu = null, rowsEl = null, footEl = null, raf = 0, started = false, ac = null;
-	var touchStartY = 0, touchLastY = 0, touchLastT = 0, touchVel = 0, touchMoved = false, inertiaRaf = 0, activeTouchId = null;  // kinetic scroll of the (height-capped) row list
 	var libCache = null, libKey = '';
 	var idxCache = null, idxAt = 0, idxKey = '';           // template index cache
 	var IDX_TTL = 4000;                                    // ms; re-query templates at most this often
@@ -245,29 +244,6 @@ window.ViktorColonmenu = (function () {
 	}
 
 	// ============================================================ DOM
-	// kinetic momentum: after a swipe, glide scrollTop toward target with exp decay (Apple's model:
-	// amplitude ∝ release velocity, time-constant 325ms). scrollTop self-clamps at the list bounds.
-	function pnow() { return (window.performance && performance.now) ? performance.now() : Date.now(); }
-	function touchById(list, id) { for (var i = 0; i < list.length; i++) { if (list[i].identifier === id) return list[i]; } return null; }
-	function cancelInertia() { if (inertiaRaf) { cancelAnimationFrame(inertiaRaf); inertiaRaf = 0; } }
-	function startInertia() {
-		cancelInertia();
-		if (!rowsEl || rowsEl.scrollHeight <= rowsEl.clientHeight) return;   // nothing to scroll → no churn
-		if (pnow() - touchLastT > 80) touchVel = 0;            // finger paused before lifting → don't fling stale velocity
-		if (Math.abs(touchVel) < 50) return;                  // too slow → no fling
-		var amplitude = 0.8 * touchVel, target = rowsEl.scrollTop + amplitude, start = pnow();
-		(function frame() {
-			if (!rowsEl) { inertiaRaf = 0; return; }
-			var delta = amplitude * Math.exp(-(pnow() - start) / 325);
-			if (Math.abs(delta) > 0.5) {
-				rowsEl.scrollTop = target - delta;
-				inertiaRaf = requestAnimationFrame(frame);
-			} else {
-				rowsEl.scrollTop = target;
-				inertiaRaf = 0;
-			}
-		})();
-	}
 	function ensureMenu() {
 		if (menu) return menu;
 		menu = document.createElement('div');
@@ -277,48 +253,18 @@ window.ViktorColonmenu = (function () {
 			+ 'box-shadow:0 6px 26px rgba(0,0,0,.34),inset 0 0 0 .5px rgba(255,255,255,.10);overflow:hidden;'
 			+ 'font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:4px;';
 		rowsEl = document.createElement('div'); rowsEl.className = 'vt-colonmenu-rows';
-		// rows scroll when the menu is height-capped to fit the band above the block / above the command bar
-		rowsEl.style.cssText = 'flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;';
+		// NATIVE scroll (mirrors Roam's own .rm-autocomplete__results-scroll = flex:1 1 auto;overflow:auto) — this
+		// is what gives smooth iOS inertial momentum for free. Do NOT preventDefault touch on the menu (that kills
+		// native scroll); the textarea stays focused anyway (verified: Roam's own [[ ]] popover keeps focus while open).
+		rowsEl.style.cssText = 'flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;';
 		footEl = document.createElement('div'); footEl.className = 'rm-autocomplete-footer';
 		footEl.style.cssText = 'flex:0 0 auto;padding:4px 8px 2px;margin-top:3px;border-top:1px solid rgba(127,127,127,.22);'
 			+ 'font-size:11px;opacity:.72;display:flex;justify-content:space-between;gap:8px;white-space:nowrap;';
 		menu.appendChild(rowsEl); menu.appendChild(footEl);
-		// keep textarea focused on press; pick on click (mousedown so it beats blur)
+		// keep the textarea focused on desktop press (mousedown preventDefault beats blur; on iOS it also
+		// preventDefaults the synthetic mousedown so a tap doesn't dismiss the keyboard). NO touch handlers —
+		// a real TAP fires a synthetic click → pick(); a SWIPE scrolls the list natively and fires no click.
 		menu.addEventListener('mousedown', function (e) { e.preventDefault(); });
-		// touchstart preventDefault keeps the textarea focused (no blur, no iOS callout) but ALSO kills
-		// native scroll — so when the list is height-capped we drive the scroll (and its momentum) ourselves,
-		// and only let a row pick on a real TAP (touchMoved stays false). A swipe scrolls/flings, not inserts.
-		// track ONE finger by identifier (shared scalars would corrupt under multi-touch / finger-lift)
-		menu.addEventListener('touchstart', function (e) {
-			e.preventDefault();
-			cancelInertia();
-			if (activeTouchId !== null) return;                 // already tracking a finger — ignore extra touches
-			var t = e.changedTouches[0]; if (!t) return;
-			activeTouchId = t.identifier;
-			touchStartY = touchLastY = t.clientY;
-			touchLastT = pnow(); touchVel = 0; touchMoved = false;
-		}, { passive: false });
-		menu.addEventListener('touchmove', function (e) {
-			e.preventDefault();
-			if (activeTouchId === null) return;
-			var t = touchById(e.touches, activeTouchId); if (!t) return;
-			var nowT = pnow();
-			var dy = t.clientY - touchLastY; touchLastY = t.clientY;
-			var dt = nowT - touchLastT; touchLastT = nowT;
-			if (Math.abs(t.clientY - touchStartY) > 6) touchMoved = true;
-			if (touchMoved) {
-				rowsEl.scrollTop -= dy;                                  // content follows the finger
-				if (dt > 0) touchVel = 0.8 * (-dy / dt * 1000) + 0.2 * touchVel;   // smoothed velocity, px/s
-			}
-		}, { passive: false });
-		// on release of a SWIPE, fling with iOS-like exponential decay (a tap stops propagation in rowHTML,
-		// so this never runs for taps → no inertia after a pick).
-		menu.addEventListener('touchend', function (e) {
-			if (activeTouchId === null || !touchById(e.changedTouches, activeTouchId)) return;
-			activeTouchId = null;
-			if (touchMoved) startInertia();
-		}, { passive: true });
-		menu.addEventListener('touchcancel', function () { activeTouchId = null; }, { passive: true });
 		document.body.appendChild(menu);
 		return menu;
 	}
@@ -336,16 +282,9 @@ window.ViktorColonmenu = (function () {
 		right.style.cssText = 'opacity:.66;font-size:11px;flex:0 0 auto;' + (danger ? 'color:#ffb454;opacity:.95;' : '');
 		d.appendChild(left); d.appendChild(right);
 		d.addEventListener('mouseenter', function () { setActive(i); });
+		// click handles BOTH desktop and a mobile TAP (iOS fires a synthetic click after touchend on a tap, but
+		// NOT after a scroll) — so a swipe scrolls the list natively and never picks. No touch handler needed.
 		d.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); pick(i); });
-		// mobile: the menu's touchstart is preventDefault'd (keeps the textarea focused, kills the synthetic
-		// click) — so tap-to-pick rides touchend directly. A SCROLL swipe (touchMoved) must NOT pick and must
-		// be left to bubble to the menu's touchend so the fling starts; only a real tap stops propagation.
-		d.addEventListener('touchend', function (e) {
-			if (touchMoved) return;            // swipe — bubbles to menu touchend (fling + clears activeTouchId)
-			e.preventDefault(); e.stopPropagation();
-			activeTouchId = null;              // tap consumed here; stopPropagation stops menu touchend from clearing it
-			pick(i);
-		});
 		return d;
 	}
 	// FULL rebuild — only when the item SET changes (showMenu / re-rank). Never on mere hover/arrow:
@@ -423,7 +362,6 @@ window.ViktorColonmenu = (function () {
 	function showMenu() { ensureMenu(); menu.style.display = 'flex'; render(); position(); }
 	function hide() {
 		cur = null;
-		cancelInertia();
 		if (menu) menu.style.display = 'none';
 	}
 	function isOpen() { return !!(cur && menu && menu.style.display !== 'none'); }
@@ -451,7 +389,7 @@ window.ViktorColonmenu = (function () {
 	}
 	function schedule() { if (!raf) raf = requestAnimationFrame(update); }
 	function onScrollResize(e) {
-		if (e && e.target === rowsEl) return;   // our own manual inner-list scroll — don't re-measure each frame
+		if (e && e.target === rowsEl) return;   // native inner-list scroll — don't re-measure the menu each frame
 		if (isOpen()) { position(); }
 	}
 
@@ -655,7 +593,6 @@ window.ViktorColonmenu = (function () {
 		started = false;
 		if (ac) { ac.abort(); ac = null; }
 		if (raf) { cancelAnimationFrame(raf); raf = 0; }
-		cancelInertia(); activeTouchId = null;             // a fling rAF would throw on the nulled rowsEl
 		if (menu) { menu.remove(); menu = null; rowsEl = null; footEl = null; }
 		cur = null; libCache = null; libKey = ''; idxCache = null; committing = false;
 	}
