@@ -1,5 +1,12 @@
 /*
  * Viktor's Roam Mobile Command Bar — THE mobile toolbar (replaces Roam's native gray bar).
+ * version: 0.5.6  (2026-06-15)  — CODE-BLOCK ops are now INSTANT + cursor-preserving via DIRECT
+ *   graph mutation (roamAlphaAPI.moveBlock), replacing v0.5.5's slow (~1.2s) CM6→textarea exit dance
+ *   that also dropped the in-code cursor. Same-parent move keeps the CM6 instance (focus+caret survive);
+ *   reparent (indent/outdent) remounts CM6 → refocus + restore caret offset. SELECT still exits CM6
+ *   (no selection-setter API). Also: ride the keyboard on CM6 focus too (bar sat below the kb in code
+ *   blocks). Caret/selection visibility on iOS = roamCSS.css (caret-color was transparent). See
+ *   learnings/2026-06-15-cmdbar-codeblock-ops.md.
  * version: 0.5.5  (2026-06-15)  — CODE-BLOCK ops now work. CM6 doesn't plug into Roam's block
  *   keyboard/focus/selection layer (getFocusedBlock()===null; synthetic Esc/Tab/Cmd+Shift+Arrow never
  *   reach Roam; no selection API) → select/indent/outdent/move all no-op'd in a code block. Fix: on
@@ -593,15 +600,79 @@ window.ViktorCmdbar = (function () {
 			})();
 		}, 60);
 	}
-	// ops that need a real block (vs CM6): convert first, then run via the normal paths
-	var CODE_CONVERT = { select: 1, indent: 1, outdent: 1, moveUp: 1, moveDown: 1 };
+	// ops that still need the CM6→textarea exit: only SELECT (no selection-setter API). move/indent/
+	// outdent now mutate the graph DIRECTLY (directCodeOp) — instant, no exit, in-code cursor preserved.
+	var CODE_CONVERT = { select: 1 };
 
-	// EDITING block op (indent/outdent/move). Proxy to Roam's native bar = move the WHOLE block. Normal block:
-	// fall back to a keystroke on the textarea. CODE block: proxy ONLY — NEVER fire keys into CM6, that would
-	// indent the code LINES, not move the block. SELECTING/other: fire on window (Roam moves the selected block).
-	function editOp(c, proxy, key) {
+	// ---------- DIRECT graph ops for code blocks (replaces the slow CM6→textarea exit) ----------
+	// The old code path EXITED CM6 to the raw block-input textarea (2 Escapes + poll + ~120ms settle ≈
+	// 1.2s on device — user-confirmed via Gemini video) then proxied Roam's native bar. That was slow
+	// AND it dropped the user's in-code cursor (the block left edit mode). roamAlphaAPI.moveBlock mutates
+	// the tree with NO focus change. CDP-verified 2026-06-15 (dark, real graph): a SAME-PARENT move keeps
+	// the SAME CM6 EditorView instance → focus + caret offset survive untouched; a REPARENT (indent/
+	// outdent) REMOUNTS CM6 (focus→<body>, caret→0) → we refocus the new view + restore the offset.
+	// moveBlock order quirk (CDP-verified): same-parent move-DOWN target = order cur+2 (cur+1 NO-OPS —
+	// Roam counts the block's own slot); move-UP = cur-1; indent = under prev sibling at its child count
+	// (append); outdent = under grandparent at parent-order+1. Top-level blocks: parent is the PAGE
+	// entity (no :block/order, no :block/_children) → outdent guarded off, the rest still resolve.
+	function blockInfo(uid) {
+		try {
+			var r = api().pull('[:block/order {:block/_children [:block/uid :block/order {:block/children [:block/uid :block/order]} {:block/_children [:block/uid]}]}]', [':block/uid', uid]);
+			var par = r && r[':block/_children'] && r[':block/_children'][0];
+			if (!par) return null;
+			var O = r[':block/order'], sibs = par[':block/children'] || [];
+			var gp = par[':block/_children'] && par[':block/_children'][0], prev = null;
+			for (var i = 0; i < sibs.length; i++) if (sibs[i][':block/order'] === O - 1) prev = sibs[i][':block/uid'];
+			return { O: O, P: par[':block/uid'], PO: par[':block/order'], GP: gp ? gp[':block/uid'] : null, prev: prev, sibCount: sibs.length };
+		} catch (e) { return null; }
+	}
+	function childCount(uid) {
+		try { var r = api().pull('[{:block/children [:block/uid]}]', [':block/uid', uid]); return (r && r[':block/children'] || []).length; } catch (e) { return 0; }
+	}
+	var codeBusy = false;   // serialize moves so press-and-hold auto-repeat can't out-run the datascript commit (race-free)
+	function directCodeOp(op) {
+		if (codeBusy) return true;                              // prior move still committing — swallow this repeat
+		var elc = document.activeElement;
+		var cc = elc && elc.closest && elc.closest('.roam-block-container');
+		var uid = cc && cc.dataset ? cc.dataset.blockUid : null;
+		if (!uid) return false;
+		var info = blockInfo(uid); if (!info) return false;
+		var view = codeView(elc), head = view ? view.state.selection.main.head : null;
+		var loc = null, reparent = false;
+		if (op === 'moveDown') { if (info.O >= info.sibCount - 1) return true; loc = { 'parent-uid': info.P, order: info.O + 2 }; }
+		else if (op === 'moveUp') { if (info.O <= 0) return true; loc = { 'parent-uid': info.P, order: info.O - 1 }; }
+		else if (op === 'indent') { if (!info.prev) return true; loc = { 'parent-uid': info.prev, order: childCount(info.prev) }; reparent = true; }
+		else if (op === 'outdent') { if (!info.GP) return true; loc = { 'parent-uid': info.GP, order: info.PO + 1 }; reparent = true; }
+		else return false;
+		codeBusy = true;
+		try {
+			api().moveBlock({ location: loc, block: { uid: uid } }).then(function () {
+				codeBusy = false;
+				if (reparent && head != null) restoreCodeFocus(uid, head, view);
+			}).catch(function () { codeBusy = false; });
+		} catch (e) { codeBusy = false; return false; }
+		return true;
+	}
+	// reparent remounts CM6 → wait for the FRESH EditorView (a DIFFERENT instance than the pre-move one;
+	// the old .cm-content lingers a frame, so grabbing the first hit refocuses a dead view), refocus it,
+	// restore the caret offset. NOTE: on iOS, programmatic focus may not re-summon the soft keyboard
+	// (gesture-gated) — the caret + selection are restored regardless; iPhone keyboard behaviour TBD.
+	function restoreCodeFocus(uid, head, oldView) {
+		var tries = 0;
+		(function wait() {
+			var c = uidNode(uid), cm = c && c.querySelector('.cm-content'), v = cm && cm.cmView && cm.cmView.view;
+			if (v && v !== oldView) { try { v.focus(); var h = Math.min(head, v.state.doc.length); v.dispatch({ selection: { anchor: h, head: h } }); } catch (e) { } return; }
+			if (++tries > 30) { if (v) try { v.focus(); v.dispatch({ selection: { anchor: Math.min(head, v.state.doc.length) } }); } catch (e) { } return; }
+			requestAnimationFrame(wait);
+		})();
+	}
+
+	// EDITING block op (indent/outdent/move). NORMAL block: proxy Roam's native bar (keystroke fallback).
+	// CODE block: mutate the graph directly (directCodeOp) — instant, cursor preserved. SELECTING/other:
+	// fire on window so Roam moves the whole selection.
+	function editOp(c, op, proxy, key) {
 		if (c === 'EDITING') {
-			if (inCodeBlock(document.activeElement)) { proxyClick(proxy); return; }
+			if (inCodeBlock(document.activeElement)) { if (!directCodeOp(op)) shake(btns[op]); return; }
 			proxyClick(proxy) || fire(document.activeElement, key);
 		} else { fire(window, key); }
 	}
@@ -609,10 +680,10 @@ window.ViktorCmdbar = (function () {
 		select: { show: 'E', run: function () { doSelect(); } },
 		extendUp: { show: 'S', rep: true, run: function () { extendAbs(false); } },
 		extendDown: { show: 'S', rep: true, run: function () { extendAbs(true); } },
-		outdent: { show: 'ES', run: function (c) { editOp(c, PROXY.outdent, K.outdent); } },
-		indent: { show: 'ES', run: function (c) { editOp(c, PROXY.indent, K.indent); } },
-		moveUp: { show: 'ES', rep: true, run: function (c) { editOp(c, PROXY.moveUp, K.moveUp); } },
-		moveDown: { show: 'ES', rep: true, run: function (c) { editOp(c, PROXY.moveDown, K.moveDown); } },
+		outdent: { show: 'ES', run: function (c) { editOp(c, 'outdent', PROXY.outdent, K.outdent); } },
+		indent: { show: 'ES', run: function (c) { editOp(c, 'indent', PROXY.indent, K.indent); } },
+		moveUp: { show: 'ES', rep: true, run: function (c) { editOp(c, 'moveUp', PROXY.moveUp, K.moveUp); } },
+		moveDown: { show: 'ES', rep: true, run: function (c) { editOp(c, 'moveDown', PROXY.moveDown, K.moveDown); } },
 		undo: { show: 'ESI', run: function (c) { (c === 'EDITING' && proxyClick(PROXY.undo)) || fire(window, K.undo); redoAvail = true; paintRedo(); } },
 		redo: { show: 'EI', redoGated: true, run: function (c) { (c === 'EDITING' && proxyClick(PROXY.redo)) || fire(window, K.redo); } },
 		wikilink: { show: 'E', run: function () { proxyClick(PROXY.wikilink) || insertText('[['); } },
@@ -909,8 +980,9 @@ window.ViktorCmdbar = (function () {
 	function place() {
 		if (!dock) return;
 		var o = overlap();
+		var GAP = 8;   // small safety lift so the iOS keyboard accessory/predictive pill never clips the bar
 		dock.classList.toggle('vt-anim', now() < kbAnimUntil);
-		dock.style.transform = o ? 'translateY(' + (-o) + 'px)' : '';
+		dock.style.transform = o ? 'translateY(' + (-(o + GAP)) + 'px)' : '';
 		dock.dataset.kb = o ? 'up' : 'down';
 		if (o > 60) lsSet('VBS_kb_' + orientKey(), String(o));
 		if (ctx === 'SELECTING') updateHandles();
@@ -1236,7 +1308,9 @@ window.ViktorCmdbar = (function () {
 	// ---------- HUD ----------
 	function hudPaint() {
 		if (!hud || !debugOn()) return;
-		hud.textContent = 'ctx=' + ctx + ' sel=' + getSel().length + ' kb=' + overlap() +
+		var vv = window.visualViewport;
+		var vvl = vv ? ' ih' + window.innerHeight + ' vvh' + Math.round(vv.height) + ' vvtop' + Math.round(vv.offsetTop) : '';
+		hud.textContent = 'ctx=' + ctx + ' sel=' + getSel().length + ' kb=' + overlap() + ' code=' + (inCodeBlock(document.activeElement) ? 1 : 0) + vvl +
 			' redo=' + (redoAvail ? 1 : 0) + ' contract=' + (contract.ok ? 'ok' : 'DRIFT:' + contract.missing.join(',')) +
 			'\n' + logRing.slice(-8).join('\n');
 	}
@@ -1255,7 +1329,9 @@ window.ViktorCmdbar = (function () {
 			window.addEventListener(t, shield, { capture: true, passive: false, signal: sig });
 		});
 		document.addEventListener('focusin', function (e) {
-			if (isBlockTextarea(e.target)) preRide();
+			// CM6 code blocks are editing too (focus = .cm-content, not a textarea) → ride the keyboard
+			// for them as well, or the bar sat below the keyboard when tapping into a code block.
+			if (isBlockTextarea(e.target) || inCodeBlock(e.target)) preRide();
 			scheduleSync();
 		}, { capture: true, signal: sig });
 		document.addEventListener('focusout', function () {

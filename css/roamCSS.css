@@ -2430,22 +2430,36 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
   min-height: 0 !important;
 }
 
+/* --- code-block CARET (CodeMirror 6) — visible cursor on iOS ---
+   CM6 sets the native caret-color to TRANSPARENT (it draws its own .cm-cursor div via
+   drawSelection). On desktop that drawn cursor is light → fine. But iOS WebKit renders the
+   code block with the NATIVE caret, so caret-color:transparent leaves an INVISIBLE (apparent
+   black) cursor on the dark card (CDP-verified: .cm-content computed caret-color = rgba(0,0,0,0);
+   normal block textareas are unaffected — they show a light-blue caret). Force a bright on-brand
+   caret in BOTH modes (visible on the light and the dark code surface), and tint CM6's own drawn
+   cursor to match so desktop and iOS look identical. */
+#app .rm-code-block .cm-content { caret-color: rgb(47, 155, 249) !important; }
+#app .rm-code-block .cm-cursor { border-left-color: rgb(47, 155, 249) !important; }
+
 /* --- code-block text selection in dark mode (CodeMirror 6) ---
    Roam migrated to CodeMirror 6 (.cm-editor / .cm-selectionBackground); the theme's
    dark code styling in roamCSS-auto.css only covers CodeMirror 5 (.CodeMirror-selected).
    CM6's default selection is light lavender (rgb 215,212,240) — washed out on dark — and
    its drawSelection layer can leave the last partial line unhighlighted. Recolor the
    selection layer AND re-enable native ::selection so every selected line, last included,
-   is highlighted. (Light mode keeps CM6's default, which is fine on a light background.) */
+   is highlighted. The old #2f4a86 navy read as near-black on the dark card (user + Gemini
+   video: "selection looks black, hard to see") → use the on-brand bright blue at 0.42 alpha,
+   which reads as a clear blue like Chrome's while keeping the code text legible on top.
+   (Light mode keeps CM6's default, which is fine on a light background.) */
 @media (prefers-color-scheme: dark) {
   .cm-editor .cm-selectionLayer .cm-selectionBackground {
-    background-color: #2f4a86 !important;
+    background-color: rgba(47, 155, 249, 0.42) !important;
   }
   .cm-editor .cm-line::selection,
   .cm-editor .cm-line ::selection,
   .cm-editor .cm-content::selection,
   .cm-editor .cm-content ::selection {
-    background-color: #2f4a86 !important;
+    background-color: rgba(47, 155, 249, 0.42) !important;
     color: inherit !important;
   }
 }
