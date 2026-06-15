@@ -1,5 +1,13 @@
 /*
  * Viktor's Roam Mobile Command Bar — THE mobile toolbar (replaces Roam's native gray bar).
+ * version: 0.5.8  (2026-06-15)  — KEYBOARD-RIDE fix: the bar sank BEHIND the keyboard when tapping
+ *   into a CM6 code block (correct for normal blocks). Root cause (board Opus/Gemini/Codex unanimous +
+ *   Gemini video): a CM6 tap focuses the contentEditable NATIVELY → WebKit reveal-scrolls the visual
+ *   viewport (offsetTop>0); the old bottom:0 base + translateY(−overlap) anchors to the LAYOUT viewport
+ *   (which doesn't shift) → subtracting offsetTop under-lifted the bar. Fix: anchor the dock from
+ *   top:0 and translateY to the VISUAL-viewport bottom (vv.offsetTop+vv.height−dockH−GAP) — offsetTop
+ *   additive, immune to reveal-scroll. Plus settlePlace() re-samples across the keyboard/scroll settle
+ *   window (no 'resize' fires on a block→code switch) and the heal interval re-places continuously.
  * version: 0.5.7  (2026-06-15)  — CODE-BLOCK move/select FIDELITY (3 bugs, all CDP-ground-truthed):
  *   (1) move now replicates Roam's NATIVE visible-outline traversal — a code block CROSSES into the
  *   parent's adjacent sibling at a boundary (last child + parent has next sibling → that sibling's first
@@ -129,6 +137,7 @@ window.ViktorCmdbar = (function () {
 	var mo = null, healTimer = null, ac = null, rafPos = 0, rafSync = 0;
 	var open = false, ctx = 'OFF', redoAvail = false, editingCode = false;
 	var kbAnimUntil = 0;              // while now()<this, dock transitions (focus/blur moments only)
+	var dockH = 48;                  // measured bar height (0 when bar hidden = FAB-only); top-anchor offset
 	var gesture = null, drag = null;  // shield gesture state
 	var dragGuardUntil = 0;           // eat the ghost mouseup/click that trails a knob release
 	var prevFocusBottom = null, crossT = null; // knob crossing detector
@@ -843,8 +852,13 @@ window.ViktorCmdbar = (function () {
 			'@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){',
 			'  .vt-frost{background:color-mix(in srgb, var(--bg-color,#182026) 97%, #000);}}',
 
-			/* dock = the only transformed element (rides the keyboard) */
-			'#vt-dock{position:fixed;left:0;right:0;bottom:0;z-index:9990;pointer-events:none;will-change:transform;}',
+			/* dock = the only transformed element (rides the keyboard). Anchored from TOP:0 (NOT
+			   bottom:0) and translated to the VISUAL-viewport bottom: iOS anchors position:fixed to
+			   the LAYOUT viewport, which does NOT shift during a keyboard reveal-scroll — so a
+			   bottom:0 base + translateY(-overlap) under-lifts whenever visualViewport.offsetTop>0
+			   (the CM6 code-block bug). top:0 + translateY(vv.offsetTop+vv.height−dockH−GAP) tracks
+			   the visual viewport directly (offsetTop ADDITIVE) → immune to that mismatch. */
+			'#vt-dock{position:fixed;left:0;right:0;top:0;bottom:auto;z-index:9990;pointer-events:none;will-change:transform;}',
 			'#vt-dock.vt-anim{transition:transform .25s ' + KB_CURVE + ';}',
 
 			/* BAR */
@@ -997,6 +1011,9 @@ window.ViktorCmdbar = (function () {
 		// (ensureHandles), so it scrolls natively with the blocks. dock/hud stay body-fixed.
 		document.body.appendChild(root);
 		root.dataset.debug = debugOn() ? '1' : '0';
+		// set the top-anchor transform before first paint (bar/FAB are display:none until applyCtx,
+		// so this only parks the empty dock at the viewport bottom — no flash at top:0).
+		measureDock(); place();
 	}
 
 	// which buttons show in which form
@@ -1033,24 +1050,45 @@ window.ViktorCmdbar = (function () {
 		return o <= 30 ? 0 : o;   // ≤30 ⇒ closed (also absorbs the iOS 26 residue bug)
 	}
 	function orientKey() { return window.innerHeight >= window.innerWidth ? 'p' : 'l'; }
+	var GAP = 8;   // small safety lift so the iOS keyboard accessory/predictive pill never clips the bar
+	// the bar is at the dock's bottom; FAB-only mode wants dockH=0 (FAB anchors via its own bottom).
+	function measureDock() { dockH = bar ? bar.offsetHeight : 0; }
+	// place the dock so its BOTTOM edge sits at the visual-viewport bottom (− GAP when the kb is up).
+	// visualBottom = vv.offsetTop + vv.height is the TRUE on-screen bottom regardless of any
+	// reveal-scroll that shifted the visual viewport (the CM6 code-block case) — so the bar can
+	// never sink behind the keyboard the way the old bottom:0 + translateY(−overlap) base did.
 	function place() {
 		if (!dock) return;
+		var vv = window.visualViewport;
 		var o = overlap();
-		var GAP = 8;   // small safety lift so the iOS keyboard accessory/predictive pill never clips the bar
+		var up = o > 0;
+		var visualBottom = vv ? (vv.offsetTop + vv.height) : window.innerHeight;
+		var y = Math.round(visualBottom - dockH - (up ? GAP : 0));
 		dock.classList.toggle('vt-anim', now() < kbAnimUntil);
-		dock.style.transform = o ? 'translateY(' + (-(o + GAP)) + 'px)' : '';
-		dock.dataset.kb = o ? 'up' : 'down';
+		setS(dock, 'transform', 'translateY(' + y + 'px)');
+		dock.dataset.kb = up ? 'up' : 'down';
 		if (o > 60) lsSet('VBS_kb_' + orientKey(), String(o));
 		if (ctx === 'SELECTING') updateHandles();
 	}
 	function schedulePos() { if (rafPos) return; rafPos = requestAnimationFrame(function () { rafPos = 0; place(); }); }
+	// re-place across the keyboard/reveal-scroll settle window: a focusin can fire BEFORE the kb
+	// animates (no resize yet) and a CM6 tap reveal-scrolls the visual viewport over several frames
+	// with NO 'resize' event when the kb was already open (block→code switch). Sample the settled
+	// geometry at a few points so the bar lands correctly no matter when iOS finishes moving.
+	function settlePlace() {
+		measureDock(); schedulePos();
+		[150, 350, 600].forEach(function (t) { setTimeout(function () { measureDock(); place(); }, t); });
+	}
 	function preRide() {
 		// keyboard is coming (focusin) — ride with it using the cached height; settle on real resize
 		var cached = parseInt(lsGet('VBS_kb_' + orientKey()) || '0', 10);
 		kbAnimUntil = now() + 450;
+		measureDock();
 		if (cached > 60 && overlap() <= 30) {
 			dock.classList.add('vt-anim');
-			dock.style.transform = 'translateY(' + (-cached) + 'px)';
+			// predicted visual bottom once the kb opens (offsetTop≈0 pre-open): innerHeight − cached
+			var y = Math.round((window.innerHeight - cached) - dockH - GAP);
+			setS(dock, 'transform', 'translateY(' + y + 'px)');
 			dock.dataset.kb = 'up';
 		}
 	}
@@ -1355,7 +1393,7 @@ window.ViktorCmdbar = (function () {
 		}
 		if (c === 'EDITING' && prev !== 'EDITING') checkContract();
 		document.body.classList.toggle('vt-bar-open', root.dataset.bar === '1');
-		place();
+		measureDock(); place();
 		log('ctx ' + prev + '→' + c + ' sel=' + lastSelN);
 		hudPaint();
 	}
@@ -1386,8 +1424,10 @@ window.ViktorCmdbar = (function () {
 		});
 		document.addEventListener('focusin', function (e) {
 			// CM6 code blocks are editing too (focus = .cm-content, not a textarea) → ride the keyboard
-			// for them as well, or the bar sat below the keyboard when tapping into a code block.
-			if (isBlockTextarea(e.target) || inCodeBlock(e.target)) preRide();
+			// for them as well. A CM6 tap reveal-scrolls the visual viewport over several frames with
+			// NO 'resize' (kb already open on a block→code switch) → preRide alone left the bar behind
+			// the keyboard. settlePlace re-samples the geometry across the settle window so it lands.
+			if (isBlockTextarea(e.target) || inCodeBlock(e.target)) { preRide(); settlePlace(); }
 			scheduleSync();
 		}, { capture: true, signal: sig });
 		document.addEventListener('focusout', function () {
@@ -1397,10 +1437,10 @@ window.ViktorCmdbar = (function () {
 		}, { capture: true, signal: sig });
 		document.addEventListener('input', function (e) { if (isBlockTextarea(e.target)) { redoAvail = false; paintRedo(); } }, { capture: true, signal: sig });
 		if (window.visualViewport) {
-			window.visualViewport.addEventListener('resize', function () { schedulePos(); scheduleSync(); }, { signal: sig });
+			window.visualViewport.addEventListener('resize', function () { measureDock(); schedulePos(); scheduleSync(); }, { signal: sig });
 			window.visualViewport.addEventListener('scroll', schedulePos, { signal: sig });
 		}
-		window.addEventListener('orientationchange', function () { setTimeout(function () { schedulePos(); scheduleSync(); }, 120); }, { signal: sig });
+		window.addEventListener('orientationchange', function () { setTimeout(function () { measureDock(); schedulePos(); scheduleSync(); }, 120); }, { signal: sig });
 		// NO scroll listener: the handles are abspos children of the scroller now, so the compositor
 		// scrolls them in lockstep with the blocks — repositioning them in JS on scroll was exactly
 		// what made them shake (a frame behind iOS momentum scroll). Gone.
@@ -1409,11 +1449,15 @@ window.ViktorCmdbar = (function () {
 		healTimer = setInterval(function () {
 			if (!document.getElementById(STYLE_ID)) injectStyle();
 			applyCtx(false);
+			// continuously re-anchor to the visual-viewport bottom — self-heals if a settle/resize
+			// event was missed (the CM6 reveal-scroll that left the bar behind the kb). setS dedups
+			// so a steady keyboard writes nothing; gated off mid-drag so it can't fight the knob.
+			if (!drag) schedulePos();
 			if (ctx === 'SELECTING' && !drag) updateHandles();
 			if (debugOn()) hudPaint();
 		}, 280);
 		applyCtx(true);
-		log('cmdbar v0.5.5 up');
+		log('cmdbar v0.5.8 up');
 	}
 	function stop() {
 		if (!added) return; added = false;
