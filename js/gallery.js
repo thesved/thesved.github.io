@@ -217,6 +217,15 @@ window.ViktorGallery = (function(){
 	}
 
 	function openGallery(target) {
+		// Dismiss the iOS keyboard BEFORE opening so PhotoSwipe zooms into the FULL screen, not the
+		// half-height area above the keyboard. Blur the focused block textarea, then wait for the keyboard
+		// to animate away before the zoom-in starts. Desktop has no keyboard → open immediately (0ms).
+		var ae = document.activeElement;
+		var hadKb = !!(ae && ae.tagName === 'TEXTAREA' && /^block-input-/.test(ae.id || ''));
+		if (hadKb) ae.blur();
+		setTimeout(function () { runGallery(target); }, hadKb ? 300 : 0);
+	}
+	function runGallery(target) {
 		loadPswp().then(function(PhotoSwipe){
 			var items = collectItems();
 			var index = Math.max(0, items.findIndex(function(i){ return i._dom == target; }));

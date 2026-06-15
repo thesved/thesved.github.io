@@ -93,7 +93,7 @@ window.ViktorCmdbar = (function () {
 	var root = null, dock = null, bar = null, fab = null, hLayer = null, knob = null, tick = null, chip = null, hud = null;
 	var btns = {};                    // id -> button element
 	var mo = null, healTimer = null, ac = null, rafPos = 0, rafSync = 0;
-	var open = false, ctx = 'OFF', redoAvail = false;
+	var open = false, ctx = 'OFF', redoAvail = false, editingCode = false;
 	var kbAnimUntil = 0;              // while now()<this, dock transitions (focus/blur moments only)
 	var gesture = null, drag = null;  // shield gesture state
 	var dragGuardUntil = 0;           // eat the ghost mouseup/click that trails a knob release
@@ -178,7 +178,9 @@ window.ViktorCmdbar = (function () {
 	function promoteRaw(cb) {
 		var tries = 0;
 		(function attempt() {
-			fire(document.activeElement || window, K.esc);
+			// code blocks: Esc fired AT the CM6 editor is swallowed; fire at window so Roam's global handler
+			// exits edit + selects the WHOLE block (verified — CM6 doesn't get the synthetic Esc otherwise).
+			fire(inCodeBlock(document.activeElement) ? window : (document.activeElement || window), K.esc);
 			setTimeout(function () {
 				if (getSel().length) { cb(true); return; }
 				if (++tries < 4) attempt(); else cb(false);
@@ -287,6 +289,12 @@ window.ViktorCmdbar = (function () {
 		var fb = null;
 		try { fb = api().ui.getFocusedBlock(); } catch (e) { }
 		var uid = fb && fb['block-uid'], win = fb && fb['window-id'];
+		// code blocks: getFocusedBlock() is often stale (focus is CM6, not a block textarea) → trust the DOM uid
+		if (inCodeBlock(document.activeElement)) {
+			var cc = document.activeElement.closest('.roam-block-container');
+			var du = cc && cc.dataset ? cc.dataset.blockUid : null;
+			if (du) uid = du;
+		}
 		if (!uid) { cb(false); return; }
 		promoteRaw(function (ok) {
 			if (!ok) { cb(false); return; }
@@ -520,14 +528,23 @@ window.ViktorCmdbar = (function () {
 			}
 		}, 150);
 	}
+	// EDITING block op (indent/outdent/move). Proxy to Roam's native bar = move the WHOLE block. Normal block:
+	// fall back to a keystroke on the textarea. CODE block: proxy ONLY — NEVER fire keys into CM6, that would
+	// indent the code LINES, not move the block. SELECTING/other: fire on window (Roam moves the selected block).
+	function editOp(c, proxy, key) {
+		if (c === 'EDITING') {
+			if (inCodeBlock(document.activeElement)) { proxyClick(proxy); return; }
+			proxyClick(proxy) || fire(document.activeElement, key);
+		} else { fire(window, key); }
+	}
 	var ACTIONS = {
 		select: { show: 'E', run: function () { doSelect(); } },
 		extendUp: { show: 'S', rep: true, run: function () { extendAbs(false); } },
 		extendDown: { show: 'S', rep: true, run: function () { extendAbs(true); } },
-		outdent: { show: 'ES', run: function (c) { if (c === 'EDITING') { proxyClick(PROXY.outdent) || fire(document.activeElement, K.outdent); } else fire(window, K.outdent); } },
-		indent: { show: 'ES', run: function (c) { if (c === 'EDITING') { proxyClick(PROXY.indent) || fire(document.activeElement, K.indent); } else fire(window, K.indent); } },
-		moveUp: { show: 'ES', rep: true, run: function (c) { if (c === 'EDITING') { proxyClick(PROXY.moveUp) || fire(document.activeElement, K.moveUp); } else fire(window, K.moveUp); } },
-		moveDown: { show: 'ES', rep: true, run: function (c) { if (c === 'EDITING') { proxyClick(PROXY.moveDown) || fire(document.activeElement, K.moveDown); } else fire(window, K.moveDown); } },
+		outdent: { show: 'ES', run: function (c) { editOp(c, PROXY.outdent, K.outdent); } },
+		indent: { show: 'ES', run: function (c) { editOp(c, PROXY.indent, K.indent); } },
+		moveUp: { show: 'ES', rep: true, run: function (c) { editOp(c, PROXY.moveUp, K.moveUp); } },
+		moveDown: { show: 'ES', rep: true, run: function (c) { editOp(c, PROXY.moveDown, K.moveDown); } },
 		undo: { show: 'ESI', run: function (c) { (c === 'EDITING' && proxyClick(PROXY.undo)) || fire(window, K.undo); redoAvail = true; paintRedo(); } },
 		redo: { show: 'EI', redoGated: true, run: function (c) { (c === 'EDITING' && proxyClick(PROXY.redo)) || fire(window, K.redo); } },
 		wikilink: { show: 'E', run: function () { proxyClick(PROXY.wikilink) || insertText('[['); } },
@@ -540,7 +557,7 @@ window.ViktorCmdbar = (function () {
 	};
 	function doSelect() {
 		var ta = document.activeElement;
-		if (!isBlockTextarea(ta)) { shake(btns.select); return; }
+		if (!isBlockTextarea(ta) && !inCodeBlock(ta)) { shake(btns.select); return; }
 		checkContract();
 		promote(function (ok) {
 			if (ok) { lastEdge = 'bottom'; applyCtx(true); } else { shake(btns.select); applyCtx(true); }
@@ -775,10 +792,13 @@ window.ViktorCmdbar = (function () {
 	var FORM = {
 		IDLE: ['undo', 'redo*', 'close'],
 		EDITING: ['select', 'd1', 'outdent', 'indent', 'moveUp', 'moveDown', 'undo', 'redo*', 'd2', 'wikilink', 'todo', 'media', 'slash'],
+		// code blocks: [[ / todo / media / slash all insert Roam markup, which is nonsense inside code →
+		// show block ops only (select + indent/outdent/move + undo/redo).
+		CODE: ['select', 'd1', 'outdent', 'indent', 'moveUp', 'moveDown', 'undo', 'redo*'],
 		SELECTING: ['extendUp', 'extendDown', 'd1', 'outdent', 'indent', 'moveUp', 'moveDown', 'undo', 'd2', 'del', 'd3', 'done']
 	};
 	function paintForm() {
-		var list = FORM[ctx] || [];
+		var list = (ctx === 'EDITING' && inCodeBlock(document.activeElement)) ? FORM.CODE : (FORM[ctx] || []);
 		var on = {};
 		list.forEach(function (id) {
 			if (id === 'redo*') { if (redoAvail) on.redo = 1; }
@@ -1077,13 +1097,16 @@ window.ViktorCmdbar = (function () {
 	function applyCtx(force) {
 		if (!added) return;
 		var c = ctxNow();
+		var codeNow = (c === 'EDITING') && inCodeBlock(document.activeElement);
 		// collapse-to-single momentarily focuses the anchor textarea with an empty selection; ignore that
 		// transient EDITING/IDLE flicker (it would otherwise wipe seedUid and flash the bar form).
 		if (extShrink && c !== 'SELECTING') return;
-		if (!force && c === ctx) {
+		// EDITING↔EDITING but code↔normal flips the button form (FORM.CODE vs FORM.EDITING) → must repaint
+		if (!force && c === ctx && codeNow === editingCode) {
 			if (c === 'SELECTING' && !drag) updateHandles();
 			return;
 		}
+		editingCode = codeNow;
 		var prev = ctx; ctx = c;
 		lastSelN = getSel().length;
 		if (c !== 'SELECTING') { seedUid = null; seedWin = null; }
@@ -1161,7 +1184,7 @@ window.ViktorCmdbar = (function () {
 		if (root && root.parentNode) root.parentNode.removeChild(root);
 		var st = document.getElementById(STYLE_ID); if (st) st.remove();   // un-hides the native bar
 		root = dock = bar = fab = hLayer = knob = tick = chip = hud = null;
-		btns = {}; ctx = 'OFF';
+		btns = {}; ctx = 'OFF'; editingCode = false;
 	}
 
 	start();

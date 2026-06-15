@@ -2020,6 +2020,8 @@ strong {
    .roam-main itself would be asymmetric around the sidebars). Symmetric body-main padding + a
    centered topbar keep the bar and the article on the same vertical axis; no h-overflow. */
 #app .rm-topbar {
+  position: relative !important;   /* + z-index below: keep the topbar above the cmdbar's selection knobs */
+  z-index: 9995 !important;        /* cmdbar #vt-handles (the drag knobs/line) is z 9991 — topbar must win */
   max-width: var(--page-width) !important;   /* 800 → centered, readable topbar on the same axis */
   margin-left: auto !important;
   margin-right: auto !important;
