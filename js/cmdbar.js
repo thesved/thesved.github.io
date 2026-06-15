@@ -1,6 +1,12 @@
 /*
  * Viktor's Roam Mobile Command Bar — THE mobile toolbar (replaces Roam's native gray bar).
- * version: 0.5.4  (2026-06-15)  — selection WORKSPACE scoping: `uidNode` resolves a uid to its
+ * version: 0.5.5  (2026-06-15)  — CODE-BLOCK ops now work. CM6 doesn't plug into Roam's block
+ *   keyboard/focus/selection layer (getFocusedBlock()===null; synthetic Esc/Tab/Cmd+Shift+Arrow never
+ *   reach Roam; no selection API) → select/indent/outdent/move all no-op'd in a code block. Fix: on
+ *   such an op, exit CM6 to the raw block-input TEXTAREA via the CM6 EditorView (.cm-content.cmView.view
+ *   → focus → Escape at contentDOM = Roam's own behavior), then run the op through the unchanged
+ *   normal-block paths. See learnings/2026-06-15-cmdbar-codeblock-ops.md.
+ * v0.5.4  (2026-06-15)  — selection WORKSPACE scoping: `uidNode` resolves a uid to its
  *   CANONICAL outline render (NOT a linked-reference/embed render — querySelector returned the ref
  *   render that sits above the source page on a DNP → knob landed on another page's references);
  *   `blocksIn` + `dragTarget` exclude `.rm-reference-main`/`.rm-reference-container` so extend/drag
@@ -557,6 +563,39 @@ window.ViktorCmdbar = (function () {
 			}
 		}, 150);
 	}
+	// ---------- code-block (CodeMirror 6) bridge ----------
+	// CM6 does NOT plug into Roam's block keyboard/focus/selection layer: getFocusedBlock() returns
+	// null, synthetic Esc/Tab/Cmd+Shift+Arrow never reach Roam's handlers, and there is no selection
+	// API — so select/indent/outdent/move ALL no-op inside a code block (the old proxy-to-native-bar
+	// path is absent on desktop and dead on mobile). Roam's OWN answer (what a real Escape does) is to
+	// exit CM6 to the block's raw block-input TEXTAREA. We drive exactly that via the CM6 EditorView
+	// (reachable at .cm-content.cmView.view): focus it, then dispatch Escape at its contentDOM. Once
+	// it is a normal textarea, EVERY normal-block path (select/indent/outdent/move) works unchanged.
+	function codeView(el) {
+		var cb = el && el.closest && el.closest('.rm-code-block');
+		var cm = cb && cb.querySelector('.cm-content');
+		return (cm && cm.cmView && cm.cmView.view) || null;
+	}
+	function exitCodeBlock(done) {
+		var v = codeView(document.activeElement);
+		if (!v) { done(); return; }                 // not a CM6 block (already a textarea / normal)
+		var d = v.contentDOM;
+		// TWO Escapes: with CM6 focused (the real case) the 1st Esc is consumed by CM6 internally;
+		// the 2nd triggers Roam's exit-to-raw-textarea (verified — a single Esc is focus-state-flaky).
+		fire(d, K.esc);
+		setTimeout(function () {
+			fire(d, K.esc);
+			var tries = 0;                          // wait for the textarea to mount + focus, THEN let
+			(function wait() {                      // Roam's edit state settle before the op fires
+				if (isBlockTextarea(document.activeElement)) { setTimeout(done, 120); return; }
+				if (++tries > 16) { done(); return; }
+				setTimeout(wait, 25);
+			})();
+		}, 60);
+	}
+	// ops that need a real block (vs CM6): convert first, then run via the normal paths
+	var CODE_CONVERT = { select: 1, indent: 1, outdent: 1, moveUp: 1, moveDown: 1 };
+
 	// EDITING block op (indent/outdent/move). Proxy to Roam's native bar = move the WHOLE block. Normal block:
 	// fall back to a keystroke on the textarea. CODE block: proxy ONLY — NEVER fire keys into CM6, that would
 	// indent the code LINES, not move the block. SELECTING/other: fire on window (Roam moves the selected block).
@@ -607,8 +646,14 @@ window.ViktorCmdbar = (function () {
 			applyCtx(true);
 		}, clicked ? 160 : 0);
 	}
-	function act(id, viaRepeat) {
+	function act(id, viaRepeat, converted) {
 		var a = ACTIONS[id]; if (!a) return;
+		// CM6 code block: exit to the raw block-input textarea FIRST, then re-run the action via the
+		// normal block paths. `converted` guards against re-entry (if the exit fails, run once anyway).
+		if (!converted && CODE_CONVERT[id] && codeView(document.activeElement)) {
+			exitCodeBlock(function () { act(id, viaRepeat, true); });
+			return;
+		}
 		var c = ctx;
 		log('act ' + id + (viaRepeat ? ' (rep)' : '') + ' ctx=' + c);
 		if (id !== 'undo' && id !== 'redo') { if (id !== 'select' && id !== 'close') redoAvail = false, paintRedo(); }
@@ -1236,7 +1281,7 @@ window.ViktorCmdbar = (function () {
 			if (debugOn()) hudPaint();
 		}, 280);
 		applyCtx(true);
-		log('cmdbar v0.5.4 up');
+		log('cmdbar v0.5.5 up');
 	}
 	function stop() {
 		if (!added) return; added = false;
