@@ -2535,11 +2535,11 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
    (DNP's .roam-log-container is flattened above with higher specificity, so DNP is unaffected.) */
 #app .roam-article > div {
   border-radius: 14px !important;
-  border: none !important;
+  border: 1px solid rgba(var(--bullet-color), 0.16) !important;   /* same faint sheet border as the DNP day cards */
   box-shadow: 0 1px 2px rgba(var(--box-shadow-color), 0.06), 0 8px 24px rgba(var(--box-shadow-color), 0.10) !important;
 }
 @media (prefers-color-scheme: dark) {
-  #app .roam-article > div { box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04), 0 10px 30px rgba(0, 0, 0, 0.55) !important; }
+  #app .roam-article > div { border-color: rgba(255, 255, 255, 0.07) !important; box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04), 0 10px 30px rgba(0, 0, 0, 0.55) !important; }
 }
 
 /* in-block horizontal rule (---) — thin, centered, faded, matches the sheet aesthetic */
