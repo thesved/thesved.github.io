@@ -223,7 +223,7 @@ window.ViktorGallery = (function(){
 		var ae = document.activeElement;
 		var hadKb = !!(ae && ae.tagName === 'TEXTAREA' && /^block-input-/.test(ae.id || ''));
 		if (hadKb) ae.blur();
-		setTimeout(function () { runGallery(target); }, hadKb ? 0 : 0);
+		runGallery(target);
 	}
 	function runGallery(target) {
 		loadPswp().then(function(PhotoSwipe){
