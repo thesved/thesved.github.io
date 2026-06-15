@@ -2508,7 +2508,7 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
    quiet header rule under the date — so days read as distinct pages. Flatten the outer container
    first (else card-in-card). Works light + dark (page-color/bullet-color adapt; dark gets a deeper
    shadow + lighter hairline). */
-#app .roam-article > .roam-log-container { background: transparent !important; box-shadow: none !important; border-radius: 0 !important; padding: 0 !important; }
+#app .roam-article > .roam-log-container { background: transparent !important; box-shadow: none !important; border: 0 !important; border-radius: 0 !important; padding: 0 !important; }
 #app .roam-log-container > .roam-log-page {
   background: var(--page-color);
   border: 1px solid rgba(var(--bullet-color), 0.16);

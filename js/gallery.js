@@ -236,6 +236,7 @@ window.ViktorGallery = (function(){
 				// leaves the block on open either, so closing restores nothing → cursor + keyboard stay put.
 				returnFocus: false,
 				trapFocus: false,
+			});
 			// zoom animation needs the thumbnail element; our items aren't in a pswp-markup
 			// gallery, so hand it the in-page img/svg directly
 			pswp.addFilter('thumbEl', function(thumbEl, data){ return data._dom || thumbEl; });
