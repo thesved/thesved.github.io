@@ -1,5 +1,13 @@
 /*
  * Viktor's Roam Mobile Command Bar — THE mobile toolbar (replaces Roam's native gray bar).
+ * version: 0.5.9  (2026-06-15)  — KEYBOARD-RIDE follow-up: v0.5.8 left a CONSTANT gap (= safe-area
+ *   inset) between the bar and the keyboard when a field was focused (both normal + code; iPhone-only,
+ *   invisible on desktop where safe-area=0). Board (Opus/Gemini/Codex unanimous): `measureDock()` read
+ *   `bar.offsetHeight` while `data-kb="down"` → 48 + safe-area (the bar carries the home-indicator
+ *   padding ONLY when down); `place()` then flipped to "up" (bar→48) but reused the cached padded
+ *   height → bar floated safe-area+GAP above the kb. Fix: place() flips `data-kb` FIRST, then re-measures
+ *   ON THE FLIP (not per frame) so dockH always matches the current rendered height. CDP-verified with a
+ *   simulated 34px safe-area: down→up gap collapses 42px→8px; down stays flush at the screen bottom.
  * version: 0.5.8  (2026-06-15)  — KEYBOARD-RIDE fix: the bar sank BEHIND the keyboard when tapping
  *   into a CM6 code block (correct for normal blocks). Root cause (board Opus/Gemini/Codex unanimous +
  *   Gemini video): a CM6 tap focuses the contentEditable NATIVELY → WebKit reveal-scrolls the visual
@@ -1062,11 +1070,18 @@ window.ViktorCmdbar = (function () {
 		var vv = window.visualViewport;
 		var o = overlap();
 		var up = o > 0;
+		var kb = up ? 'up' : 'down';
+		// Flip data-kb FIRST, THEN (re-)measure — the bar carries `env(safe-area-inset-bottom)`
+		// padding ONLY when data-kb="down" (to clear the home indicator), so it is 48+safe tall down
+		// vs 48 up. measureDock() runs from other paths (resize/applyCtx) in the OLD state, baking the
+		// down-state safe-area into dockH; reused in the up state it floats the bar safe-area+GAP ABOVE
+		// the keyboard = the constant gap (invisible on desktop where safe-area=0). Re-measuring on the
+		// flip keeps dockH matched to the CURRENT rendered height. Only on flip → no per-frame reflow.
+		if (dock.dataset.kb !== kb) { dock.dataset.kb = kb; measureDock(); }
 		var visualBottom = vv ? (vv.offsetTop + vv.height) : window.innerHeight;
 		var y = Math.round(visualBottom - dockH - (up ? GAP : 0));
 		dock.classList.toggle('vt-anim', now() < kbAnimUntil);
 		setS(dock, 'transform', 'translateY(' + y + 'px)');
-		dock.dataset.kb = up ? 'up' : 'down';
 		if (o > 60) lsSet('VBS_kb_' + orientKey(), String(o));
 		if (ctx === 'SELECTING') updateHandles();
 	}
@@ -1457,7 +1472,7 @@ window.ViktorCmdbar = (function () {
 			if (debugOn()) hudPaint();
 		}, 280);
 		applyCtx(true);
-		log('cmdbar v0.5.8 up');
+		log('cmdbar v0.5.9 up');
 	}
 	function stop() {
 		if (!added) return; added = false;
