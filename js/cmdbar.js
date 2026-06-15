@@ -1,5 +1,10 @@
 /*
  * Viktor's Roam Mobile Command Bar — THE mobile toolbar (replaces Roam's native gray bar).
+ * version: 0.6.2  (2026-06-15)  — DIAGNOSTIC BUILD: reverted v0.6.1's offsetTop-subtraction (it made
+ *   code blocks go BEHIND the keyboard — on-device offsetTop is large + inconsistent, model was wrong)
+ *   back to v0.6.0's lift (innerHeight − vv.height = "almost good"). HUD FORCED ON with a fixed bottom:0
+ *   sentinel + dock rect to MEASURE the real on-device coordinate system before the final fix. No more
+ *   geometry guessing. Revert HUD (debugOn) once measured.
  * version: 0.6.1  (2026-06-15)  — KEYBOARD-RIDE, final piece (board Opus/Gemini/Codex + web research,
  *   UNANIMOUS): v0.6.0 was scroll/overscroll-immune (good) but left a CONSTANT gap under the bar when an
  *   input was focused (content showing through) — on iOS, focusing OFFSETS the layout viewport up by
@@ -188,7 +193,7 @@ window.ViktorCmdbar = (function () {
 	// window.ViktorOpts.cmdbarDesktop = true (legacy localStorage VBS_force === '1' still honored).
 	function desktopOptIn() { return opts().cmdbarDesktop === true || lsGet('VBS_force') === '1'; }
 	function enabled() { return (isTouch() && !isFlutter()) || desktopOptIn(); }
-	function debugOn() { return lsGet('VBS_debug') === '1'; }
+	function debugOn() { return true; }   // DIAGNOSTIC BUILD v0.6.2 — HUD forced on to capture device geometry; revert to: lsGet('VBS_debug') === '1'
 	function log(m) {
 		logRing.push(now() % 100000 + ' ' + m);
 		if (logRing.length > 60) logRing.shift();
@@ -969,7 +974,7 @@ window.ViktorCmdbar = (function () {
 
 			/* HUD */
 			'#vt-hud{position:fixed;left:8px;top:8px;z-index:9999;pointer-events:none;display:none;max-width:70vw;',
-			'  background:rgba(0,0,0,.72);color:#9fe3a1;font:10px/1.45 ui-monospace,Menlo,monospace;padding:6px 8px;border-radius:8px;white-space:pre-wrap;}',
+			'  background:rgba(0,0,0,.85);color:#9fe3a1;font:12px/1.5 ui-monospace,Menlo,monospace;padding:7px 9px;border-radius:8px;white-space:pre-wrap;}',
 			'#' + ROOT_ID + '[data-debug="1"] #vt-hud{display:block;}',
 
 			/* page accommodation + overlay suppression */
@@ -1069,24 +1074,17 @@ window.ViktorCmdbar = (function () {
 
 	// ---------- positioning (visualViewport keyboard oracle) ----------
 	// ---- keyboard occlusion (the value we lift the bar by) ----
-	// On iOS, focusing an input does NOT shrink the layout viewport — it OFFSETS it (slides it up by
-	// `vv.offsetTop`) to keep the caret above the keyboard; only the VISUAL viewport shrinks. So the
-	// keyboard's true on-screen height is `innerHeight − vv.height − vv.offsetTop`. Dropping offsetTop
-	// (v0.6.0) over-lifted by exactly offsetTop → a constant GAP under the bar with content showing
-	// through (Safari, where offsetTop is large; PWA offsetTop≈0 so it was hidden there).
-	// BUT offsetTop must NOT be read live in place(): it spikes during rubber-band overscroll, and the
-	// 280ms heal would then jump the bar. So we LATCH it (frozenTop) only on a SETTLED resize/focus and
-	// reuse the constant everywhere else. offsetTop is stable during Roam's inner `.rm-article-wrapper`
-	// scroll (WebKit changes it only on layout-viewport pan), so a frozen value + NO scroll listener =
-	// correct static position AND scroll/overscroll immunity. (Board Opus/Gemini/Codex + web research
-	// unanimous; WebKit #237851 = offsetTop reads 0 if sampled too soon → latch in a double-rAF.)
-	var frozenTop = 0;   // latched visualViewport.offsetTop; NEVER read live in place()/heal
-	function latchTop() { var vv = window.visualViewport; frozenTop = vv ? Math.max(0, Math.round(vv.offsetTop)) : 0; }
+	// DIAGNOSTIC BUILD (v0.6.2): reverted to the v0.6.0 lift (`innerHeight − vv.height`, the "almost
+	// good" state) AFTER v0.6.1's offsetTop-subtraction made it worse (code-block bar went BEHIND the
+	// keyboard; offsetTop on-device is large + inconsistent, so the model was wrong). The HUD is FORCED
+	// ON below to capture the real on-device coordinate system (ih/vvh/vvtop + a fixed bottom:0 sentinel's
+	// rendered rect) so the final lift is MEASURED, not guessed. latchTop kept as a no-op stub.
+	function latchTop() {}
 	function overlap() {
 		var vv = window.visualViewport;
 		if (!vv) return 0;
-		var o = Math.round(window.innerHeight - vv.height - frozenTop);
-		return o <= 30 ? 0 : o;   // ≤30→0 absorbs the iOS 26 #297779 dismiss residue (vv.height short)
+		var o = Math.round(window.innerHeight - vv.height);
+		return o <= 30 ? 0 : o;
 	}
 	function orientKey() { return window.innerHeight >= window.innerWidth ? 'p' : 'l'; }
 	var GAP = 8;   // small safety lift so the iOS keyboard accessory/predictive pill never clips the bar
@@ -1434,10 +1432,18 @@ window.ViktorCmdbar = (function () {
 	function hudPaint() {
 		if (!hud || !debugOn()) return;
 		var vv = window.visualViewport;
-		var vvl = vv ? ' ih' + window.innerHeight + ' vvh' + Math.round(vv.height) + ' vvtop' + Math.round(vv.offsetTop) : '';
-		hud.textContent = 'ctx=' + ctx + ' sel=' + getSel().length + ' kb=' + overlap() + ' code=' + (inCodeBlock(document.activeElement) ? 1 : 0) + vvl +
-			' redo=' + (redoAvail ? 1 : 0) + ' contract=' + (contract.ok ? 'ok' : 'DRIFT:' + contract.missing.join(',')) +
-			'\n' + logRing.slice(-8).join('\n');
+		// sentinel: where a plain `position:fixed; bottom:0` element actually renders in client coords
+		// → reveals iOS's fixed-anchor coordinate system (layout vs visual viewport) on THIS device.
+		var floor = document.getElementById('vt-floor');
+		if (!floor) { floor = document.createElement('div'); floor.id = 'vt-floor'; floor.style.cssText = 'position:fixed;left:0;bottom:0;width:1px;height:1px;pointer-events:none;opacity:0;'; document.body.appendChild(floor); }
+		var fb = Math.round(floor.getBoundingClientRect().bottom);
+		var dr = dock ? dock.getBoundingClientRect() : null;
+		var ih = window.innerHeight, vvh = vv ? Math.round(vv.height) : ih, vvtop = vv ? Math.round(vv.offsetTop) : 0;
+		var diag = 'DIAG ih' + ih + ' vvh' + vvh + ' vvtop' + vvtop + ' kb' + overlap() +
+			' floorBot' + fb + ' dockBot' + (dr ? Math.round(dr.bottom) : '?') + ' dockTop' + (dr ? Math.round(dr.top) : '?') +
+			' code' + (inCodeBlock(document.activeElement) ? 1 : 0) + ' scrY' + Math.round(window.scrollY);
+		hud.textContent = diag + '\nctx=' + ctx + ' sel=' + getSel().length +
+			'\n' + logRing.slice(-5).join('\n');
 	}
 
 	// ---------- wiring ----------
@@ -1495,7 +1501,7 @@ window.ViktorCmdbar = (function () {
 			if (debugOn()) hudPaint();
 		}, 280);
 		applyCtx(true);
-		log('cmdbar v0.6.1 up');
+		log('cmdbar v0.6.2-diag up');
 	}
 	function stop() {
 		if (!added) return; added = false;
