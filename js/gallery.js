@@ -230,7 +230,12 @@ window.ViktorGallery = (function(){
 				bgOpacity: 0,                   // tint lives on the .vg-glass layer (Tier 2 masked)
 				zoom: false, // no zoom button (pinch/double-tap still work)
 				wheelToZoom: true,
-			});
+				// On close PhotoSwipe defaults returnFocus:true → it re-focus()es the block textarea you
+				// were in, and iOS scroll-caret-into-view jumps the page down ~½ screen (the "screen moves
+				// after closing" bug — only happens WITH a focused input). trapFocus:false means focus never
+				// leaves the block on open either, so closing restores nothing → cursor + keyboard stay put.
+				returnFocus: false,
+				trapFocus: false,
 			// zoom animation needs the thumbnail element; our items aren't in a pswp-markup
 			// gallery, so hand it the in-page img/svg directly
 			pswp.addFilter('thumbEl', function(thumbEl, data){ return data._dom || thumbEl; });

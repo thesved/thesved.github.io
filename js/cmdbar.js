@@ -1,7 +1,7 @@
 /*
  * Viktor's Roam Mobile Command Bar — THE mobile toolbar (replaces Roam's native gray bar).
- * version: 0.5.1  (2026-06-14)  — desktop/wide viewport: bar is a CENTERED COMPACT PILL (was a
- *   full-page-width strip); mobile (<=600) stays edge-to-edge.
+ * version: 0.5.2  (2026-06-15)  — desktop is now a SETTING (window.ViktorOpts.cmdbarDesktop=true;
+ *   VBS_force kept as legacy override). 0.5.1: desktop/wide bar = CENTERED COMPACT PILL; mobile (<=600) edge-to-edge.
  * v0.5.0  — extend ↑/↓ = native iOS Shift+Arrow (anchor fixed, focus edge derived
  *   LIVE each press from selExtent vs anchor — no stored focus); collapse-to-single is KEYBOARD-FREE via
  *   native Shift+Arrow toward the anchor (plain-click focus flashed the iOS keyboard). extShrink guards the
@@ -112,7 +112,11 @@ window.ViktorCmdbar = (function () {
 	function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { } }
 	function isFlutter() { return typeof window.FlutterCurrentGraphChannel !== 'undefined'; }
 	function isTouch() { return !!(navigator.maxTouchPoints > 0 || ('ontouchstart' in window)); }
-	function enabled() { return (isTouch() && !isFlutter()) || lsGet('VBS_force') === '1'; }
+	function opts() { return window.ViktorOpts || {}; }
+	// Touch (non-Flutter) always gets the bar. On DESKTOP it's opt-in via the loader-block setting
+	// window.ViktorOpts.cmdbarDesktop = true (legacy localStorage VBS_force === '1' still honored).
+	function desktopOptIn() { return opts().cmdbarDesktop === true || lsGet('VBS_force') === '1'; }
+	function enabled() { return (isTouch() && !isFlutter()) || desktopOptIn(); }
 	function debugOn() { return lsGet('VBS_debug') === '1'; }
 	function log(m) {
 		logRing.push(now() % 100000 + ' ' + m);
@@ -628,7 +632,7 @@ window.ViktorCmdbar = (function () {
 			'  box-shadow:0 -1px 14px rgba(0,0,0,.30);color:var(--icon-color,#8a9ba8);}',
 			'#' + ROOT_ID + '[data-bar="1"] #vt-bar{display:flex;}',
 			'#vt-dock[data-kb="down"] #vt-bar{padding-bottom:env(safe-area-inset-bottom,0px);height:calc(48px + env(safe-area-inset-bottom,0px));}',
-			'#vt-bar[data-drift]::after{content:"";position:absolute;top:6px;right:6px;width:6px;height:6px;border-radius:3px;background:#f5a623;}',
+			'#' + ROOT_ID + '[data-debug="1"] #vt-bar[data-drift]::after{content:"";position:absolute;top:6px;right:6px;width:6px;height:6px;border-radius:3px;background:#f5a623;}',  /* drift warning = DEBUG-only diagnostic (was always-on orange dot) */
 
 			/* buttons: built once, morphed via max-width/opacity per form (no rebuilds) */
 			'.vt-b{flex:0 0 auto;height:44px;margin:0;display:flex;align-items:center;justify-content:center;',
@@ -1140,7 +1144,7 @@ window.ViktorCmdbar = (function () {
 			if (debugOn()) hudPaint();
 		}, 280);
 		applyCtx(true);
-		log('cmdbar v0.4.3 up');
+		log('cmdbar v0.5.2 up');
 	}
 	function stop() {
 		if (!added) return; added = false;
@@ -1161,6 +1165,7 @@ window.ViktorCmdbar = (function () {
 		isAdded: function () { return added; }, start: start, stop: stop,
 		_state: function () { return { ctx: ctx, sel: selUids(), seed: seedUid, open: open, redoAvail: redoAvail, kb: overlap(), contract: contract }; },
 		_log: function () { return logRing.slice(); },
-		_force: function (v) { lsSet('VBS_force', v ? '1' : '0'); }
+		_force: function (v) { lsSet('VBS_force', v ? '1' : '0'); },  // legacy localStorage override
+		_desktop: function () { return desktopOptIn(); }             // is the desktop bar currently enabled?
 	};
 })();

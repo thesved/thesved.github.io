@@ -2471,6 +2471,28 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
   }
 }
 
+/* --- code-block language selector — match the Copy-button pill (2026-06-15) ---
+   Roam's native lang chooser (.rm-code-block__settings-bar .bp3-button) is a blue 28px-radius pill
+   with blue text + grey caret. Restyle to the same neutral frosted pill as the Copy button
+   (ViktorCodecopy): 7px radius, faint border, --bullet-color fill, --text-color text — so the
+   code-block chrome (copy + lang) is one consistent family. Scoped to the settings bar so other
+   bp3-buttons aren't touched. */
+#app .rm-code-block__settings-bar .bp3-button {
+  border: 1px solid rgba(255, 255, 255, 0.10) !important;
+  border-radius: 7px !important;
+  background: rgba(var(--bullet-color), 0.16) !important;
+  color: var(--text-color) !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  min-height: 0 !important;
+  padding: 4px 10px !important;
+  transition: background .15s ease !important;
+}
+#app .rm-code-block__settings-bar .bp3-button:hover { background: rgba(var(--bullet-color), 0.30) !important; }
+#app .rm-code-block__settings-bar .bp3-button .bp3-button-text,
+#app .rm-code-block__settings-bar .bp3-button .bp3-icon { color: var(--text-color) !important; }
+#app .rm-code-block__settings-bar .bp3-button .bp3-icon svg { fill: currentColor !important; }
+
 /* --- tables (2026-06-15): Roam renders a bare <table> on a solid WHITE background with light
    grey-blue borders — a white box with invisible light text in dark mode. Make the table
    transparent (sits on the page card) with subtle theme-coloured borders. Works in both modes
@@ -2478,6 +2500,53 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
 .roam-article table { background: transparent !important; border-color: rgba(var(--bullet-color), 0.5) !important; }
 .roam-article th, .roam-article td { border-color: rgba(var(--bullet-color), 0.5) !important; }
 .roam-article th { background: rgba(var(--bullet-color), 0.08) !important; }
+
+/* === Daily Notes — each day = its own page (floating sheet card) (2026-06-15) ===
+   Roam stacks days in .roam-log-container separated only by a 1px border-top hairline, so the DNP
+   reads as one long scroll. Re-home the "card" onto each .roam-log-page: every day becomes an
+   elevated rounded sheet (page-color fill on the darker app bg, faint border, soft shadow) with a
+   quiet header rule under the date — so days read as distinct pages. Flatten the outer container
+   first (else card-in-card). Works light + dark (page-color/bullet-color adapt; dark gets a deeper
+   shadow + lighter hairline). */
+#app .roam-article > .roam-log-container { background: transparent !important; box-shadow: none !important; border-radius: 0 !important; padding: 0 !important; }
+#app .roam-log-container > .roam-log-page {
+  background: var(--page-color);
+  border: 1px solid rgba(var(--bullet-color), 0.16);
+  border-top: 1px solid rgba(var(--bullet-color), 0.16) !important;   /* override Roam's native day-separator border-top */
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(var(--box-shadow-color), 0.06), 0 8px 24px rgba(var(--box-shadow-color), 0.10);
+  padding: 26px 34px 30px 34px !important;
+  margin: 0 0 22px 0 !important;
+}
+@media (prefers-color-scheme: dark) {
+  #app .roam-log-container > .roam-log-page {
+    border-color: rgba(255, 255, 255, 0.07);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04), 0 10px 30px rgba(0, 0, 0, 0.55);
+  }
+}
+@media only screen and (max-width: 600px) {
+  #app .roam-log-container > .roam-log-page { padding: 20px 18px 22px 18px !important; border-radius: 12px; margin-bottom: 16px !important; }
+}
+
+/* Regular (non-DNP) pages + their reference sections = the SAME neat sheet cards as DNP days.
+   Base theme cards `.roam-article > div` (page-color, radius 10) with a WHITE-GLOW --page-shadow
+   (rgba(255,255,255,0.1)) that reads as a bright band in dark mode — the ugly edge between the page
+   and its Unlinked References. Re-skin to the DNP sheet: 14px radius, faint border, soft dark shadow.
+   (DNP's .roam-log-container is flattened above with higher specificity, so DNP is unaffected.) */
+#app .roam-article > div {
+  border-radius: 14px !important;
+  border: none !important;
+  box-shadow: 0 1px 2px rgba(var(--box-shadow-color), 0.06), 0 8px 24px rgba(var(--box-shadow-color), 0.10) !important;
+}
+@media (prefers-color-scheme: dark) {
+  #app .roam-article > div { box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04), 0 10px 30px rgba(0, 0, 0, 0.55) !important; }
+}
+
+/* in-block horizontal rule (---) — thin, centered, faded, matches the sheet aesthetic */
+#app .roam-article hr, #app .rm-block-text hr, #app #roam-right-sidebar-content hr {
+  border: none !important; height: 1px !important; background: rgba(var(--bullet-color), 0.45);
+  margin: 28px auto !important; width: 88%; max-width: 100%; opacity: 1;
+}
 
 /* --- topbar search icon: vertically center it + stop it overlapping the placeholder ---
    bp3's `.bp3-input-group > .bp3-icon { margin:7px }` centers a 16px icon in a 30px input,
