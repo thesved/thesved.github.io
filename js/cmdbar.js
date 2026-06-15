@@ -1,6 +1,12 @@
 /*
  * Viktor's Roam Mobile Command Bar — THE mobile toolbar (replaces Roam's native gray bar).
- * version: 0.5.3  (2026-06-15)  — selection handles (knob/tick/chip) RE-PARENTED into the scroll
+ * version: 0.5.4  (2026-06-15)  — selection WORKSPACE scoping: `uidNode` resolves a uid to its
+ *   CANONICAL outline render (NOT a linked-reference/embed render — querySelector returned the ref
+ *   render that sits above the source page on a DNP → knob landed on another page's references);
+ *   `blocksIn` + `dragTarget` exclude `.rm-reference-main`/`.rm-reference-container` so extend/drag
+ *   no longer jump the selection into the linked-references section. (CSS: `.bp3-text-small` opacity
+ *   no longer dims the bullet context menu.) See learnings/2026-06-15-cmdbar-workspace-scoping.md.
+ * v0.5.3  (2026-06-15)  — selection handles (knob/tick/chip) RE-PARENTED into the scroll
  *   container as position:absolute in CONTENT coords: the compositor scrolls them in lockstep with the
  *   blocks (zero JS on scroll → no jitter), they live inside #app below the topbar and are clipped by the
  *   scroller's overflow (z-index solved STRUCTURALLY, no clip-path), and per-call DOM writes are change-
@@ -137,9 +143,22 @@ window.ViktorCmdbar = (function () {
 	// focusing one isn't isBlockTextarea — but you ARE editing a block. Treat it as EDITING so the bar
 	// shows indent/outdent/move/etc. (the ops proxy to Roam's native bar, same as a normal block).
 	function inCodeBlock(el) { return !!(el && el.closest && el.closest('.rm-code-block')); }
+	// A uid can render in MANY DOM places — its canonical outline block AND, simultaneously, linked-
+	// reference renders, breadcrumbs, embeds (each a separate window-id, same `-<uid>` id suffix). The
+	// plain `querySelector` returned the FIRST match, which on a DNP is the linked-reference render
+	// (it sits ABOVE the source page in the log) → the knob landed on the wrong instance / another
+	// page's references. Resolve to the CANONICAL render: the one NOT inside a reference/embed section.
+	// Fall back to the first hit if the source page isn't in the DOM (only a reference is visible).
+	function isRefOrEmbed(c) { return !!(c.closest('.rm-reference-main') || c.closest('.rm-reference-container') || c.closest('.rm-embed-container')); }
 	function uidNode(uid) {
-		var el = document.querySelector('[id$="-' + uid + '"]');
-		return el ? el.closest('.roam-block-container') : null;
+		var nodes = document.querySelectorAll('[id$="-' + uid + '"]'), fallback = null;
+		for (var i = 0; i < nodes.length; i++) {
+			var c = nodes[i].closest('.roam-block-container');
+			if (!c) continue;
+			if (!fallback) fallback = c;
+			if (!isRefOrEmbed(c)) return c;
+		}
+		return fallback;
 	}
 	function scroller() { return document.querySelector('.rm-article-wrapper') || document.scrollingElement; }
 	// selection workspace scoping: the anchor's article (log/page or right-sidebar window);
@@ -149,8 +168,12 @@ window.ViktorCmdbar = (function () {
 			|| document.querySelector('.roam-article') || document.body;
 	}
 	function blocksIn(scope) {
+		// the workspace is the OUTLINE only — exclude embeds, our own UI, and (the bug) linked/unlinked
+		// REFERENCE sections. They are a different window: extending into them made Roam reset the
+		// multiselect to just the reference block ("selection jumps to the reference").
 		return Array.prototype.slice.call(scope.querySelectorAll('.roam-block-container')).filter(function (n) {
-			return !n.closest('.rm-embed-container') && !n.closest('#' + ROOT_ID);
+			return !n.closest('.rm-embed-container') && !n.closest('#' + ROOT_ID)
+				&& !n.closest('.rm-reference-main') && !n.closest('.rm-reference-container');
 		});
 	}
 
@@ -1028,7 +1051,8 @@ window.ViktorCmdbar = (function () {
 		if (!cont) return null;
 		var emb = cont.closest('.rm-embed-container');           // embeds are a foreign page —
 		if (emb) cont = emb.closest('.roam-block-container');    // address their HOST block instead
-		if (!cont || cont.closest('#' + ROOT_ID)) return null;
+		// reference sections are a different window — dragging the knob into them must NOT select them
+		if (!cont || cont.closest('#' + ROOT_ID) || cont.closest('.rm-reference-main') || cont.closest('.rm-reference-container')) return null;
 		return cont;
 	}
 	function dragStart(pid, p) {
@@ -1212,7 +1236,7 @@ window.ViktorCmdbar = (function () {
 			if (debugOn()) hudPaint();
 		}, 280);
 		applyCtx(true);
-		log('cmdbar v0.5.3 up');
+		log('cmdbar v0.5.4 up');
 	}
 	function stop() {
 		if (!added) return; added = false;

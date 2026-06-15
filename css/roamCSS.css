@@ -626,6 +626,11 @@ textarea, a {
 }
 .bp3-text-small {
     color: var(--text-color) !important;
+}
+/* opacity mutes genuine small/secondary text — but Roam tags the bullet CONTEXT MENU
+   `.bp3-menu.bp3-text-small`, so a blanket opacity dimmed the whole menu to ~invisible.
+   Exclude the menu container (its text is muted via color, not a washed-out panel). */
+.bp3-text-small:not(.bp3-menu) {
     opacity: 0.6;
 }
 
