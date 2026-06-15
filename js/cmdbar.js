@@ -1,5 +1,11 @@
 /*
  * Viktor's Roam Mobile Command Bar — THE mobile toolbar (replaces Roam's native gray bar).
+ * version: 0.6.4  (2026-06-16)  — CODE-BLOCK reveal-scroll fix: code blocks (CM6) reveal-scroll AFTER
+ *   focus (vvtop 0→306, fires visualViewport 'scroll' not 'resize'); without re-latching there the frozen
+ *   lift was stale → bar behind kb. Added a DEBOUNCED (120ms) vv 'scroll' re-latch: catches the settled
+ *   reveal-scroll vvtop, ignores rubber-band overscroll transients. Text blocks unaffected (scrolldamper
+ *   prevents their reveal-scroll). Numbers Gemini-read from device HUD; formula grounded in the working
+ *   text case (relatch@vvtop=306 → dockBot=742=flush). Still HUD-on (diag) pending device confirm.
  * version: 0.6.3  (2026-06-15)  — MEASUREMENT-BASED lift (board Opus/Gemini/Codex + web research): the
  *   5× failure was `innerHeight − vv.height`, which MIXES two coordinate systems. Fix: measure a fixed
  *   `bottom:0` sentinel's getBoundingClientRect().bottom (`floorBot`) and lift by `(vv.offsetTop +
@@ -178,6 +184,7 @@ window.ViktorCmdbar = (function () {
 	var mo = null, healTimer = null, ac = null, rafPos = 0, rafSync = 0;
 	var open = false, ctx = 'OFF', redoAvail = false, editingCode = false;
 	var kbAnimUntil = 0;              // while now()<this, dock transitions (focus/blur moments only)
+	var scrollSettleT = null;        // debounce timer for the visualViewport 'scroll' re-latch (reveal-scroll)
 	var gesture = null, drag = null;  // shield gesture state
 	var dragGuardUntil = 0;           // eat the ghost mouseup/click that trails a knob release
 	var prevFocusBottom = null, crossT = null; // knob crossing detector
@@ -1504,12 +1511,18 @@ window.ViktorCmdbar = (function () {
 		}, { capture: true, signal: sig });
 		document.addEventListener('input', function (e) { if (isBlockTextarea(e.target)) { redoAvail = false; paintRedo(); } }, { capture: true, signal: sig });
 		if (window.visualViewport) {
-			// resize = the keyboard opened/closed/changed height (the ONLY thing that should move the bar).
-			// Re-latch offsetTop HERE (the layout-viewport offset settled with the kb) and re-place.
-			// NO 'scroll' listener: offsetTop changes only on layout-viewport pan/overscroll (not on Roam's
-			// inner-container scroll), and we use the FROZEN latch — so the static-transform bar can never
-			// chase scroll/overscroll; the compositor pins it for free.
+			// resize = the keyboard opened/closed/changed height. Re-latch + re-place immediately.
 			window.visualViewport.addEventListener('resize', function () { relatch(); schedulePos(); scheduleSync(); }, { signal: sig });
+			// scroll = the visual viewport PANNED within the layout viewport. This fires for the CM6
+			// code-block REVEAL-SCROLL (vvtop 0→306 AFTER focus, no resize) — without re-latching there, the
+			// frozen lift is stale and the bar sits behind the keyboard. DEBOUNCED (120ms after the last
+			// scroll) so we re-latch the SETTLED vvtop but IGNORE rubber-band overscroll transients (which
+			// fire a burst then return) → the bar never chases the scroll. place() still uses the frozen
+			// value between latches, so the compositor pins it through the motion.
+			window.visualViewport.addEventListener('scroll', function () {
+				if (scrollSettleT) clearTimeout(scrollSettleT);
+				scrollSettleT = setTimeout(function () { scrollSettleT = null; relatch(); schedulePos(); }, 120);
+			}, { signal: sig });
 		}
 		window.addEventListener('orientationchange', function () { setTimeout(function () { relatch(); schedulePos(); scheduleSync(); }, 120); }, { signal: sig });
 		// NO scroll listener: the handles are abspos children of the scroller now, so the compositor
@@ -1528,7 +1541,7 @@ window.ViktorCmdbar = (function () {
 			if (debugOn()) hudPaint();
 		}, 280);
 		applyCtx(true);
-		log("cmdbar v0.6.3-diag up");
+		log("cmdbar v0.6.4-diag up");
 	}
 	function stop() {
 		if (!added) return; added = false;
