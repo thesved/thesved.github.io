@@ -1,5 +1,14 @@
 /*
  * Viktor's Roam Mobile Command Bar — THE mobile toolbar (replaces Roam's native gray bar).
+ * version: 0.5.7  (2026-06-15)  — CODE-BLOCK move/select FIDELITY (3 bugs, all CDP-ground-truthed):
+ *   (1) move now replicates Roam's NATIVE visible-outline traversal — a code block CROSSES into the
+ *   parent's adjacent sibling at a boundary (last child + parent has next sibling → that sibling's first
+ *   child; symmetric up), instead of being stuck within its parent. Roam never descends into an expanded
+ *   sibling nor pops to a grandparent — verified across every boundary. (2) the full selection RANGE
+ *   {anchor,head} is now saved + restored on EVERY move (was head-only + skipped on move-down) → ranges
+ *   survive move-down/indent/outdent (not just move-up). (3) SELECT is INSTANT — codeSelect fires Escapes
+ *   at the CM6 contentDOM and stops the moment it's selected, dropping v0.5.6's exit-poll + 120ms settle +
+ *   separate promote Esc. See learnings/2026-06-15-cmdbar-codeblock-ops.md.
  * version: 0.5.6  (2026-06-15)  — CODE-BLOCK ops are now INSTANT + cursor-preserving via DIRECT
  *   graph mutation (roamAlphaAPI.moveBlock), replacing v0.5.5's slow (~1.2s) CM6→textarea exit dance
  *   that also dropped the in-code cursor. Same-parent move keeps the CM6 instance (focus+caret survive);
@@ -583,26 +592,30 @@ window.ViktorCmdbar = (function () {
 		var cm = cb && cb.querySelector('.cm-content');
 		return (cm && cm.cmView && cm.cmView.view) || null;
 	}
-	function exitCodeBlock(done) {
-		var v = codeView(document.activeElement);
-		if (!v) { done(); return; }                 // not a CM6 block (already a textarea / normal)
-		var d = v.contentDOM;
-		// TWO Escapes: with CM6 focused (the real case) the 1st Esc is consumed by CM6 internally;
-		// the 2nd triggers Roam's exit-to-raw-textarea (verified — a single Esc is focus-state-flaky).
-		fire(d, K.esc);
-		setTimeout(function () {
-			fire(d, K.esc);
-			var tries = 0;                          // wait for the textarea to mount + focus, THEN let
-			(function wait() {                      // Roam's edit state settle before the op fires
-				if (isBlockTextarea(document.activeElement)) { setTimeout(done, 120); return; }
-				if (++tries > 16) { done(); return; }
-				setTimeout(wait, 25);
-			})();
-		}, 60);
+	// window-id from the DOM (getFocusedBlock is null for CM6) — parse `block-input-<win>-<uid>`.
+	function winOf(uid) {
+		var c = uidNode(uid); if (!c) return null;
+		var el = c.querySelector('[id^="block-input-"]'); if (!el) return null;
+		var pre = 'block-input-';
+		return el.id.slice(pre.length, el.id.length - uid.length - 1) || null;
 	}
-	// ops that still need the CM6→textarea exit: only SELECT (no selection-setter API). move/indent/
-	// outdent now mutate the graph DIRECTLY (directCodeOp) — instant, no exit, in-code cursor preserved.
-	var CODE_CONVERT = { select: 1 };
+	// FAST code-block → multiselect. Roam selects a code block ONLY via Escapes at the CM6 contentDOM —
+	// Esc-at-window is a no-op while CM6 holds focus (CDP-verified). Sequence (≈45ms apart): esc#1 CM6
+	// clears its own selection, esc#2 exit to the raw textarea, esc#3 select the block. We poll getSel and
+	// STOP the instant it's selected — no fixed exit poll + 120ms settle + separate promote Esc (the old
+	// path). Fire at the contentDOM while still in CM6, then at the (now) textarea/activeElement.
+	function codeSelect(cb) {
+		var v = codeView(document.activeElement);
+		if (!v) { cb && cb(getSel().length > 0); return; }
+		var d = v.contentDOM, tries = 0;
+		(function step() {
+			if (getSel().length) { cb && cb(true); return; }
+			var inCM = document.activeElement && document.activeElement.closest && document.activeElement.closest('.cm-content');
+			fire(inCM ? d : (document.activeElement || window), K.esc);
+			if (++tries >= 5) { setTimeout(function () { cb && cb(getSel().length > 0); }, 50); return; }
+			setTimeout(step, 45);
+		})();
+	}
 
 	// ---------- DIRECT graph ops for code blocks (replaces the slow CM6→textarea exit) ----------
 	// The old code path EXITED CM6 to the raw block-input textarea (2 Escapes + poll + ~120ms settle ≈
@@ -617,19 +630,34 @@ window.ViktorCmdbar = (function () {
 	// entity (no :block/order, no :block/_children) → outdent guarded off, the rest still resolve.
 	function blockInfo(uid) {
 		try {
-			var r = api().pull('[:block/order {:block/_children [:block/uid :block/order {:block/children [:block/uid :block/order]} {:block/_children [:block/uid]}]}]', [':block/uid', uid]);
+			// block → parent (siblings) → grandparent (uncles = parent's siblings, for cross-parent move)
+			var r = api().pull('[:block/order {:block/_children [:block/uid :block/order {:block/children [:block/uid :block/order]} {:block/_children [:block/uid {:block/children [:block/uid :block/order]}]}]}]', [':block/uid', uid]);
 			var par = r && r[':block/_children'] && r[':block/_children'][0];
 			if (!par) return null;
-			var O = r[':block/order'], sibs = par[':block/children'] || [];
-			var gp = par[':block/_children'] && par[':block/_children'][0], prev = null;
+			var O = r[':block/order'], sibs = par[':block/children'] || [], PO = par[':block/order'];
+			var gpEnt = par[':block/_children'] && par[':block/_children'][0];
+			var GP = gpEnt ? gpEnt[':block/uid'] : null, uncles = gpEnt ? (gpEnt[':block/children'] || []) : [];
+			var prev = null, NS = null, PS = null;
 			for (var i = 0; i < sibs.length; i++) if (sibs[i][':block/order'] === O - 1) prev = sibs[i][':block/uid'];
-			return { O: O, P: par[':block/uid'], PO: par[':block/order'], GP: gp ? gp[':block/uid'] : null, prev: prev, sibCount: sibs.length };
+			// parent's adjacent siblings (PO undefined ⇒ parent is the PAGE ⇒ no uncles ⇒ no cross-move)
+			if (PO != null) for (var j = 0; j < uncles.length; j++) {
+				if (uncles[j][':block/order'] === PO + 1) NS = uncles[j][':block/uid'];
+				else if (uncles[j][':block/order'] === PO - 1) PS = uncles[j][':block/uid'];
+			}
+			return { O: O, P: par[':block/uid'], PO: PO, GP: GP, prev: prev, sibCount: sibs.length, NS: NS, PS: PS };
 		} catch (e) { return null; }
 	}
 	function childCount(uid) {
 		try { var r = api().pull('[{:block/children [:block/uid]}]', [':block/uid', uid]); return (r && r[':block/children'] || []).length; } catch (e) { return 0; }
 	}
 	var codeBusy = false;   // serialize moves so press-and-hold auto-repeat can't out-run the datascript commit (race-free)
+	// Replicate Roam's NATIVE visible-outline move (CDP-derived 2026-06-15, verified across every boundary):
+	//   move-down: has next sibling → SWAP (moveBlock O+2; O+1 no-ops, Roam counts the block's own slot);
+	//              else parent has a next sibling NS → become NS's FIRST child (order 0); else no-op.
+	//   move-up:   has prev sibling → SWAP (moveBlock O-1);
+	//              else parent has a prev sibling PS → become PS's LAST child (childCount); else no-op.
+	// Roam does NOT descend into an expanded adjacent sibling and does NOT pop to a grandparent — at a
+	// boundary it crosses ONE level into the parent's adjacent sibling, or no-ops. indent/outdent unchanged.
 	function directCodeOp(op) {
 		if (codeBusy) return true;                              // prior move still committing — swallow this repeat
 		var elc = document.activeElement;
@@ -637,32 +665,52 @@ window.ViktorCmdbar = (function () {
 		var uid = cc && cc.dataset ? cc.dataset.blockUid : null;
 		if (!uid) return false;
 		var info = blockInfo(uid); if (!info) return false;
-		var view = codeView(elc), head = view ? view.state.selection.main.head : null;
+		var view = codeView(elc), sel = view ? view.state.selection.main : null;
+		var anchor = sel ? sel.anchor : null, head = sel ? sel.head : null;
 		var loc = null, reparent = false;
-		if (op === 'moveDown') { if (info.O >= info.sibCount - 1) return true; loc = { 'parent-uid': info.P, order: info.O + 2 }; }
-		else if (op === 'moveUp') { if (info.O <= 0) return true; loc = { 'parent-uid': info.P, order: info.O - 1 }; }
-		else if (op === 'indent') { if (!info.prev) return true; loc = { 'parent-uid': info.prev, order: childCount(info.prev) }; reparent = true; }
+		if (op === 'moveDown') {
+			if (info.O < info.sibCount - 1) loc = { 'parent-uid': info.P, order: info.O + 2 };          // swap with next sibling
+			else if (info.NS) { loc = { 'parent-uid': info.NS, order: 0 }; reparent = true; }             // → first child of parent's next sibling
+			else return true;                                                                             // bottom of outline
+		} else if (op === 'moveUp') {
+			if (info.O > 0) loc = { 'parent-uid': info.P, order: info.O - 1 };                             // swap with prev sibling
+			else if (info.PS) { loc = { 'parent-uid': info.PS, order: childCount(info.PS) }; reparent = true; }  // → last child of parent's prev sibling
+			else return true;                                                                             // top of outline
+		} else if (op === 'indent') { if (!info.prev) return true; loc = { 'parent-uid': info.prev, order: childCount(info.prev) }; reparent = true; }
 		else if (op === 'outdent') { if (!info.GP) return true; loc = { 'parent-uid': info.GP, order: info.PO + 1 }; reparent = true; }
 		else return false;
 		codeBusy = true;
 		try {
+			var rp = reparent;
 			api().moveBlock({ location: loc, block: { uid: uid } }).then(function () {
 				codeBusy = false;
-				if (reparent && head != null) restoreCodeFocus(uid, head, view);
+				if (anchor != null) restoreCodeSel(uid, anchor, head, view, rp);   // always restore the RANGE (heals same-parent collapse + remount)
 			}).catch(function () { codeBusy = false; });
 		} catch (e) { codeBusy = false; return false; }
 		return true;
 	}
-	// reparent remounts CM6 → wait for the FRESH EditorView (a DIFFERENT instance than the pre-move one;
-	// the old .cm-content lingers a frame, so grabbing the first hit refocuses a dead view), refocus it,
-	// restore the caret offset. NOTE: on iOS, programmatic focus may not re-summon the soft keyboard
-	// (gesture-gated) — the caret + selection are restored regardless; iPhone keyboard behaviour TBD.
-	function restoreCodeFocus(uid, head, oldView) {
-		var tries = 0;
+	// Restore the full SELECTION RANGE {anchor,head} after a move.
+	//  • same-parent reorder (reparent=false): the CM6 EditorView is KEPT (caret survives), but a range can
+	//    momentarily collapse (move-down) → re-dispatch on the live view heals it.
+	//  • REPARENT (reparent=true): CM6 REMOUNTS. The OLD .cm-content lingers a frame STILL IN the document,
+	//    so we must wait for a DIFFERENT view instance (v !== oldView) — restoring on the dying old view lets
+	//    the remount then reset the fresh view to {0,0} (the v0.5.7-rc bug). A final re-assert (next frame)
+	//    survives CM6's own post-mount selection init. NOTE: on iOS programmatic focus may not re-summon the
+	//    soft keyboard (gesture-gated); the range is restored regardless.
+	function restoreCodeSel(uid, anchor, head, oldView, reparent) {
+		var tries = 0, done = false;
+		function put(v) {
+			try { v.focus(); var len = v.state.doc.length, a = Math.min(anchor, len), h = Math.min(head, len); v.dispatch({ selection: { anchor: a, head: h } }); } catch (e) { }
+		}
 		(function wait() {
 			var c = uidNode(uid), cm = c && c.querySelector('.cm-content'), v = cm && cm.cmView && cm.cmView.view;
-			if (v && v !== oldView) { try { v.focus(); var h = Math.min(head, v.state.doc.length); v.dispatch({ selection: { anchor: h, head: h } }); } catch (e) { } return; }
-			if (++tries > 30) { if (v) try { v.focus(); v.dispatch({ selection: { anchor: Math.min(head, v.state.doc.length) } }); } catch (e) { } return; }
+			var ready = v && (reparent ? v !== oldView : true);
+			if (ready) {
+				put(v);
+				if (!done) { done = true; requestAnimationFrame(function () { var c2 = uidNode(uid), m2 = c2 && c2.querySelector('.cm-content'), v2 = m2 && m2.cmView && m2.cmView.view; if (v2) put(v2); }); }  // re-assert past CM6's mount-time reset
+				return;
+			}
+			if (++tries > 30) return;
 			requestAnimationFrame(wait);
 		})();
 	}
@@ -697,6 +745,18 @@ window.ViktorCmdbar = (function () {
 	function doSelect() {
 		var ta = document.activeElement;
 		if (!isBlockTextarea(ta) && !inCodeBlock(ta)) { shake(btns.select); return; }
+		// CODE block: select INSTANTLY via codeSelect (Esc-at-contentDOM), skipping the CM6→textarea exit
+		// dance + promote ladder. The block becomes a single-block multiselect; seed it as the anchor.
+		if (inCodeBlock(ta)) {
+			var cc = ta.closest('.roam-block-container');
+			var uid = cc && cc.dataset ? cc.dataset.blockUid : null;
+			if (!uid) { shake(btns.select); return; }
+			codeSelect(function (ok) {
+				if (ok) { seedUid = uid; seedWin = winOf(uid); lastEdge = 'bottom'; applyCtx(true); }
+				else { shake(btns.select); applyCtx(true); }
+			});
+			return;
+		}
 		checkContract();
 		promote(function (ok) {
 			if (ok) { lastEdge = 'bottom'; applyCtx(true); } else { shake(btns.select); applyCtx(true); }
@@ -719,12 +779,8 @@ window.ViktorCmdbar = (function () {
 	}
 	function act(id, viaRepeat, converted) {
 		var a = ACTIONS[id]; if (!a) return;
-		// CM6 code block: exit to the raw block-input textarea FIRST, then re-run the action via the
-		// normal block paths. `converted` guards against re-entry (if the exit fails, run once anyway).
-		if (!converted && CODE_CONVERT[id] && codeView(document.activeElement)) {
-			exitCodeBlock(function () { act(id, viaRepeat, true); });
-			return;
-		}
+		// CM6 code blocks no longer need a textarea-exit: move/indent/outdent mutate the graph directly
+		// (directCodeOp) and select converts in place (codeSelect). All code paths are handled in a.run.
 		var c = ctx;
 		log('act ' + id + (viaRepeat ? ' (rep)' : '') + ' ctx=' + c);
 		if (id !== 'undo' && id !== 'redo') { if (id !== 'select' && id !== 'close') redoAvail = false, paintRedo(); }
