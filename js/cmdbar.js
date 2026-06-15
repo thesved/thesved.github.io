@@ -1,5 +1,17 @@
 /*
  * Viktor's Roam Mobile Command Bar — THE mobile toolbar (replaces Roam's native gray bar).
+ * version: 0.6.0  (2026-06-15)  — KEYBOARD-RIDE, root cause found (board Opus/Gemini/Codex + wide web
+ *   research, UNANIMOUS): the `vv.offsetTop` term was the single root cause of EVERY keyboard-ride bug
+ *   (code-block sink in v0.5.7; AND the scroll-coupled gap users saw after v0.5.8/0.5.9 — Gemini video:
+ *   the bar rode the page scroll + climbed on rubber-band overscroll, gap depended on whether the focus
+ *   auto-scrolled the page). On iOS, `position:fixed` anchors to the LAYOUT viewport (the keyboard only
+ *   OVERLAYS it; innerHeight stays full); the keyboard's on-screen height is the SCROLL-INVARIANT
+ *   `innerHeight − vv.height`. `vv.offsetTop` is a PAN artifact (shifts on pan/overscroll/reveal-scroll)
+ *   — folding it into the lift made the bar chase scroll and a reveal-scroll spike sink it. FIX: revert
+ *   to `bottom:0` + a STATIC `translateY(−(kb+GAP))`, `kb = max(0, innerHeight − vv.height)`; DROP the
+ *   `vv 'scroll'` listener and the offsetTop term and the whole top:0/dockH machinery (v0.5.8/0.5.9).
+ *   The compositor now keeps the bar pinned through scroll/overscroll with zero JS lag. iOS 26 #297779
+ *   dismiss residue absorbed by the ≤30→0 clamp. Reverted v0.5.8/0.5.9 (superseded).
  * version: 0.5.9  (2026-06-15)  — KEYBOARD-RIDE follow-up: v0.5.8 left a CONSTANT gap (= safe-area
  *   inset) between the bar and the keyboard when a field was focused (both normal + code; iPhone-only,
  *   invisible on desktop where safe-area=0). Board (Opus/Gemini/Codex unanimous): `measureDock()` read
@@ -145,7 +157,6 @@ window.ViktorCmdbar = (function () {
 	var mo = null, healTimer = null, ac = null, rafPos = 0, rafSync = 0;
 	var open = false, ctx = 'OFF', redoAvail = false, editingCode = false;
 	var kbAnimUntil = 0;              // while now()<this, dock transitions (focus/blur moments only)
-	var dockH = 48;                  // measured bar height (0 when bar hidden = FAB-only); top-anchor offset
 	var gesture = null, drag = null;  // shield gesture state
 	var dragGuardUntil = 0;           // eat the ghost mouseup/click that trails a knob release
 	var prevFocusBottom = null, crossT = null; // knob crossing detector
@@ -860,13 +871,12 @@ window.ViktorCmdbar = (function () {
 			'@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){',
 			'  .vt-frost{background:color-mix(in srgb, var(--bg-color,#182026) 97%, #000);}}',
 
-			/* dock = the only transformed element (rides the keyboard). Anchored from TOP:0 (NOT
-			   bottom:0) and translated to the VISUAL-viewport bottom: iOS anchors position:fixed to
-			   the LAYOUT viewport, which does NOT shift during a keyboard reveal-scroll — so a
-			   bottom:0 base + translateY(-overlap) under-lifts whenever visualViewport.offsetTop>0
-			   (the CM6 code-block bug). top:0 + translateY(vv.offsetTop+vv.height−dockH−GAP) tracks
-			   the visual viewport directly (offsetTop ADDITIVE) → immune to that mismatch. */
-			'#vt-dock{position:fixed;left:0;right:0;top:0;bottom:auto;z-index:9990;pointer-events:none;will-change:transform;}',
+			/* dock = the only transformed element (rides the keyboard). `position:fixed; bottom:0`
+			   anchors to the LAYOUT-viewport bottom (= screen bottom; iOS keeps fixed elements on the
+			   layout viewport, which the keyboard only OVERLAYS). place() lifts it by the keyboard
+			   height (innerHeight − vv.height, scroll-invariant). A static transform → the compositor
+			   pins it through scroll/overscroll with no JS-follow lag. */
+			'#vt-dock{position:fixed;left:0;right:0;bottom:0;z-index:9990;pointer-events:none;will-change:transform;}',
 			'#vt-dock.vt-anim{transition:transform .25s ' + KB_CURVE + ';}',
 
 			/* BAR */
@@ -1019,9 +1029,7 @@ window.ViktorCmdbar = (function () {
 		// (ensureHandles), so it scrolls natively with the blocks. dock/hud stay body-fixed.
 		document.body.appendChild(root);
 		root.dataset.debug = debugOn() ? '1' : '0';
-		// set the top-anchor transform before first paint (bar/FAB are display:none until applyCtx,
-		// so this only parks the empty dock at the viewport bottom — no flash at top:0).
-		measureDock(); place();
+		place();   // park the dock (bottom:0, kb-down) before first paint
 	}
 
 	// which buttons show in which form
@@ -1051,59 +1059,52 @@ window.ViktorCmdbar = (function () {
 	function nudge(b) { if (!b) return; b.classList.remove('vt-nudge'); void b.offsetWidth; b.classList.add('vt-nudge'); }
 
 	// ---------- positioning (visualViewport keyboard oracle) ----------
+	// kb occlusion = `innerHeight − vv.height`. On iOS the keyboard OVERLAYS the layout viewport
+	// (innerHeight stays full) and shrinks ONLY the VISUAL viewport, so this difference IS the keyboard's
+	// on-screen height. We deliberately DO NOT subtract `vv.offsetTop`: offsetTop is a PAN/scroll artifact
+	// (it shifts on document-pan, rubber-band overscroll and caret reveal-scroll, but NOT on Roam's inner
+	// `.rm-article-wrapper` scroll), and feeding it into the lift made the fixed bar RIDE the scroll +
+	// made a reveal-scroll spike SINK the bar behind the keyboard (the code-block bug). `innerHeight −
+	// vv.height` is scroll-INVARIANT → one fix kills both symptoms. (Board Opus/Gemini/Codex + web
+	// research unanimous; see learnings.) ≤30→0 also absorbs the iOS 26 #297779 dismiss residue
+	// (vv.height fails to fully restore ~24px → would otherwise be a phantom lift with no keyboard).
 	function overlap() {
 		var vv = window.visualViewport;
 		if (!vv) return 0;
-		var o = Math.round(window.innerHeight - vv.height - vv.offsetTop);
-		return o <= 30 ? 0 : o;   // ≤30 ⇒ closed (also absorbs the iOS 26 residue bug)
+		var o = Math.round(window.innerHeight - vv.height);
+		return o <= 30 ? 0 : o;
 	}
 	function orientKey() { return window.innerHeight >= window.innerWidth ? 'p' : 'l'; }
 	var GAP = 8;   // small safety lift so the iOS keyboard accessory/predictive pill never clips the bar
-	// the bar is at the dock's bottom; FAB-only mode wants dockH=0 (FAB anchors via its own bottom).
-	function measureDock() { dockH = bar ? bar.offsetHeight : 0; }
-	// place the dock so its BOTTOM edge sits at the visual-viewport bottom (− GAP when the kb is up).
-	// visualBottom = vv.offsetTop + vv.height is the TRUE on-screen bottom regardless of any
-	// reveal-scroll that shifted the visual viewport (the CM6 code-block case) — so the bar can
-	// never sink behind the keyboard the way the old bottom:0 + translateY(−overlap) base did.
+	// place: the dock is `position:fixed; bottom:0` so its bottom edge sits at the LAYOUT-viewport bottom
+	// (= screen bottom; iOS anchors fixed to the layout viewport, NOT the visual one). Lift by the kb
+	// height to ride flush above the keyboard. The transform is STATIC while the kb is stable → WebKit's
+	// compositor keeps it pinned through scroll/overscroll with ZERO JS lag (no scroll repositioning).
 	function place() {
 		if (!dock) return;
-		var vv = window.visualViewport;
 		var o = overlap();
-		var up = o > 0;
-		var kb = up ? 'up' : 'down';
-		// Flip data-kb FIRST, THEN (re-)measure — the bar carries `env(safe-area-inset-bottom)`
-		// padding ONLY when data-kb="down" (to clear the home indicator), so it is 48+safe tall down
-		// vs 48 up. measureDock() runs from other paths (resize/applyCtx) in the OLD state, baking the
-		// down-state safe-area into dockH; reused in the up state it floats the bar safe-area+GAP ABOVE
-		// the keyboard = the constant gap (invisible on desktop where safe-area=0). Re-measuring on the
-		// flip keeps dockH matched to the CURRENT rendered height. Only on flip → no per-frame reflow.
-		if (dock.dataset.kb !== kb) { dock.dataset.kb = kb; measureDock(); }
-		var visualBottom = vv ? (vv.offsetTop + vv.height) : window.innerHeight;
-		var y = Math.round(visualBottom - dockH - (up ? GAP : 0));
 		dock.classList.toggle('vt-anim', now() < kbAnimUntil);
-		setS(dock, 'transform', 'translateY(' + y + 'px)');
+		setS(dock, 'transform', o ? 'translateY(' + (-(o + GAP)) + 'px)' : 'translateY(0px)');
+		dock.dataset.kb = o ? 'up' : 'down';   // CSS adds the bar's home-indicator safe-area padding when down
 		if (o > 60) lsSet('VBS_kb_' + orientKey(), String(o));
 		if (ctx === 'SELECTING') updateHandles();
 	}
 	function schedulePos() { if (rafPos) return; rafPos = requestAnimationFrame(function () { rafPos = 0; place(); }); }
-	// re-place across the keyboard/reveal-scroll settle window: a focusin can fire BEFORE the kb
-	// animates (no resize yet) and a CM6 tap reveal-scrolls the visual viewport over several frames
-	// with NO 'resize' event when the kb was already open (block→code switch). Sample the settled
-	// geometry at a few points so the bar lands correctly no matter when iOS finishes moving.
+	// re-place across the keyboard settle window: a focusin can fire BEFORE the kb animates (no resize
+	// yet), and a block→code switch keeps the kb open so NO 'resize' fires. Sample a few times so the bar
+	// lands once the kb settles. The kb height is scroll-invariant, so this never chases the scroll.
 	function settlePlace() {
-		measureDock(); schedulePos();
-		[150, 350, 600].forEach(function (t) { setTimeout(function () { measureDock(); place(); }, t); });
+		schedulePos();
+		[120, 300, 550].forEach(function (t) { setTimeout(place, t); });
 	}
 	function preRide() {
-		// keyboard is coming (focusin) — ride with it using the cached height; settle on real resize
+		// keyboard is coming (focusin) — pre-lift with the cached height so the bar rides up WITH the
+		// keyboard animation instead of lagging; the real resize then settles the exact value.
 		var cached = parseInt(lsGet('VBS_kb_' + orientKey()) || '0', 10);
 		kbAnimUntil = now() + 450;
-		measureDock();
 		if (cached > 60 && overlap() <= 30) {
 			dock.classList.add('vt-anim');
-			// predicted visual bottom once the kb opens (offsetTop≈0 pre-open): innerHeight − cached
-			var y = Math.round((window.innerHeight - cached) - dockH - GAP);
-			setS(dock, 'transform', 'translateY(' + y + 'px)');
+			setS(dock, 'transform', 'translateY(' + (-(cached + GAP)) + 'px)');
 			dock.dataset.kb = 'up';
 		}
 	}
@@ -1408,7 +1409,7 @@ window.ViktorCmdbar = (function () {
 		}
 		if (c === 'EDITING' && prev !== 'EDITING') checkContract();
 		document.body.classList.toggle('vt-bar-open', root.dataset.bar === '1');
-		measureDock(); place();
+		place();
 		log('ctx ' + prev + '→' + c + ' sel=' + lastSelN);
 		hudPaint();
 	}
@@ -1448,14 +1449,19 @@ window.ViktorCmdbar = (function () {
 		document.addEventListener('focusout', function () {
 			kbAnimUntil = now() + 450;
 			setTimeout(scheduleSync, 60);
-			schedulePos();
+			// settle ladder on close too: the kb-dismiss resize can land late, and on iOS 26 (#297779)
+			// vv.height restores ~24px short for a beat → the ≤30 clamp zeroes it once it settles.
+			settlePlace();
 		}, { capture: true, signal: sig });
 		document.addEventListener('input', function (e) { if (isBlockTextarea(e.target)) { redoAvail = false; paintRedo(); } }, { capture: true, signal: sig });
 		if (window.visualViewport) {
-			window.visualViewport.addEventListener('resize', function () { measureDock(); schedulePos(); scheduleSync(); }, { signal: sig });
-			window.visualViewport.addEventListener('scroll', schedulePos, { signal: sig });
+			// resize = the keyboard opened/closed/changed height (the ONLY thing that should move the bar).
+			// NO 'scroll' listener: vv.offsetTop changes on pan/overscroll but the kb height does not, so
+			// repositioning on scroll only made the fixed bar chase the scroll. The compositor keeps the
+			// static-transform bar pinned through scroll for free.
+			window.visualViewport.addEventListener('resize', function () { schedulePos(); scheduleSync(); }, { signal: sig });
 		}
-		window.addEventListener('orientationchange', function () { setTimeout(function () { measureDock(); schedulePos(); scheduleSync(); }, 120); }, { signal: sig });
+		window.addEventListener('orientationchange', function () { setTimeout(function () { schedulePos(); scheduleSync(); }, 120); }, { signal: sig });
 		// NO scroll listener: the handles are abspos children of the scroller now, so the compositor
 		// scrolls them in lockstep with the blocks — repositioning them in JS on scroll was exactly
 		// what made them shake (a frame behind iOS momentum scroll). Gone.
@@ -1472,7 +1478,7 @@ window.ViktorCmdbar = (function () {
 			if (debugOn()) hudPaint();
 		}, 280);
 		applyCtx(true);
-		log('cmdbar v0.5.9 up');
+		log('cmdbar v0.6.0 up');
 	}
 	function stop() {
 		if (!added) return; added = false;
