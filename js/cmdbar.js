@@ -1,6 +1,12 @@
 /*
  * Viktor's Roam Mobile Command Bar — THE mobile toolbar (replaces Roam's native gray bar).
- * version: 0.5.2  (2026-06-15)  — desktop is now a SETTING (window.ViktorOpts.cmdbarDesktop=true;
+ * version: 0.5.3  (2026-06-15)  — selection handles (knob/tick/chip) RE-PARENTED into the scroll
+ *   container as position:absolute in CONTENT coords: the compositor scrolls them in lockstep with the
+ *   blocks (zero JS on scroll → no jitter), they live inside #app below the topbar and are clipped by the
+ *   scroller's overflow (z-index solved STRUCTURALLY, no clip-path), and per-call DOM writes are change-
+ *   guarded (setS/setTxt). Dropped the window scroll listener (was the shake source). inRoot() now counts
+ *   #vt-handles so the knob drag still routes. See learnings/2026-06-15-cmdbar-handles-compositor-scroll.md.
+ * v0.5.2  (2026-06-15)  — desktop is now a SETTING (window.ViktorOpts.cmdbarDesktop=true;
  *   VBS_force kept as legacy override). 0.5.1: desktop/wide bar = CENTERED COMPACT PILL; mobile (<=600) edge-to-edge.
  * v0.5.0  — extend ↑/↓ = native iOS Shift+Arrow (anchor fixed, focus edge derived
  *   LIVE each press from selExtent vs anchor — no stored focus); collapse-to-single is KEYBOARD-FREE via
@@ -698,10 +704,18 @@ window.ViktorCmdbar = (function () {
 			'#' + ROOT_ID + '[data-fab="1"] #vt-fab{display:flex;}',
 			'#vt-fab.vt-pressed{transform:scale(.88);}',
 
-			/* HANDLES (separate fixed layer — never transformed; clipped so the 44pt knob hit-box
-			   can never poke past the right edge and make iOS pan the page) */
-			'#vt-handles{position:fixed;inset:0;z-index:9991;pointer-events:none;display:none;overflow:hidden;}',
-			'#' + ROOT_ID + '[data-handles="1"] #vt-handles{display:block;}',
+			/* HANDLES — a 0×0 absolute anchor that is RE-PARENTED into the scroll container
+			   (.rm-article-wrapper). Its abspos children (knob/tick/chip) are positioned in the
+			   scroller's CONTENT coordinates, so the COMPOSITOR scrolls them in lockstep with the
+			   blocks — zero JS on scroll, no jitter. Being inside the scroller also means:
+			   (a) z-index is solved structurally — the scroller clips us at its top edge (= topbar
+			   bottom) via overflow, so we can NEVER paint over the topbar (and within #app, the
+			   topbar's z9995 > our z100 anyway); (b) the knob hit-box can't poke past the scroller's
+			   right edge. NO overflow:hidden here (we're 0×0 — it would clip the children to nothing;
+			   the scroller does the clipping). */
+			'#app .rm-article-wrapper{position:relative;}',   /* make the scroller the containing block + enable overflow-clip of our abspos layer (layout-neutral: relative w/o z-index = no stacking context) */
+			'#vt-handles{position:absolute;top:0;left:0;width:0;height:0;z-index:100;pointer-events:none;display:none;}',
+			'#vt-handles.vt-show{display:block;}',
 			'.vt-knob{position:absolute;pointer-events:auto;touch-action:none;width:44px;height:44px;margin:-22px 0 0 -22px;}',
 			'.vt-knob::before{content:"";position:absolute;left:50%;top:50%;width:15px;height:15px;border-radius:50%;background:' + BLUE + ';',
 			'  transform:translate(-50%,-50%);box-shadow:0 1px 4px rgba(0,0,0,.45),0 0 0 1.5px var(--bg-color,#182026);transition:transform .12s ease;}',
@@ -783,7 +797,9 @@ window.ViktorCmdbar = (function () {
 
 		hud = el('div', 'vt-hud');
 
-		root.appendChild(dock); root.appendChild(hLayer); root.appendChild(hud);
+		root.appendChild(dock); root.appendChild(hud);
+		// hLayer is NOT a child of root — it is re-parented into the live scroll container on demand
+		// (ensureHandles), so it scrolls natively with the blocks. dock/hud stay body-fixed.
 		document.body.appendChild(root);
 		root.dataset.debug = debugOn() ? '1' : '0';
 	}
@@ -849,6 +865,17 @@ window.ViktorCmdbar = (function () {
 		var t = node.querySelector('.rm-block-text') || node;
 		return t.getBoundingClientRect();
 	}
+	// write an inline style/text only when it actually changed (kills the per-call DOM churn that
+	// fired on every scroll frame — chip.textContent in particular rebuilt a text node = reflow)
+	function setS(el, prop, val) { var c = el._vtc || (el._vtc = {}); if (c[prop] !== val) { el.style.setProperty(prop, val); c[prop] = val; } }
+	function setTxt(el, val) { if (el._vtt !== val) { el.textContent = val; el._vtt = val; } }
+	// re-parent the handles layer into the LIVE scroll container so it rides the compositor scroll.
+	// Self-heals if Roam swapped the container (returns the scroller, or null if none yet).
+	function ensureHandles() {
+		var sc = scroller(); if (!sc || !sc.appendChild) return null;
+		if (hLayer.parentNode !== sc) sc.appendChild(hLayer);
+		return sc;
+	}
 	function handlesSnap() {
 		// new selection session: paint in place, no transitions from the previous session's spot
 		if (!hLayer) return;
@@ -861,33 +888,43 @@ window.ViktorCmdbar = (function () {
 	}
 	function updateHandles() {
 		var sel = getSel();
-		if (!sel.length) { root.dataset.handles = '0'; prevFocusBottom = null; return; }
-		root.dataset.handles = '1';
+		if (!sel.length) { hLayer.classList.remove('vt-show'); prevFocusBottom = null; return; }
+		var sc = ensureHandles();
+		if (!sc) { hLayer.classList.remove('vt-show'); prevFocusBottom = null; return; }
 		var uids = sel.map(function (x) { return x['block-uid']; });
 		var rects = uids.map(function (u) { return { uid: u, r: rectOf(u) }; }).filter(function (x) { return x.r; });
-		if (!rects.length) { root.dataset.handles = '0'; prevFocusBottom = null; return; }
+		if (!rects.length) { hLayer.classList.remove('vt-show'); prevFocusBottom = null; return; }
+		hLayer.classList.add('vt-show');
 		rects.sort(function (a, b) { return a.r.top - b.r.top; });
 		var top = rects[0], bot = rects[rects.length - 1];
 		// getSelected() order is INSERTION order, not document order (proven) — never derive the
 		// anchor from uids[0]; the knob lives at the edge the user is working (lastEdge).
 		var focusIsBottom = lastEdge !== 'top';
 		prevFocusBottom = focusIsBottom;
-		var vw = window.innerWidth;
+		// block rects are VIEWPORT coords; the handles live in the scroller's CONTENT coords, so
+		// convert: contentX = viewportX - scR.left + scrollLeft, contentY = viewportY - scR.top +
+		// scrollTop. We clamp in VIEWPORT space (against the scroller's client box) then convert, so
+		// the knob/chip can never poke past the scroller edges (= the old vw clamp, now scroller-local).
+		var scR = sc.getBoundingClientRect();
+		var cw = sc.clientWidth, dx = sc.scrollLeft - scR.left, dy = sc.scrollTop - scR.top;
+		var loX = scR.left + 14, hiX = scR.left + cw - 14;
 		var kr = focusIsBottom ? bot.r : top.r;
-		knob.style.left = Math.max(14, Math.min(focusIsBottom ? kr.right + 6 : kr.left - 6, vw - 14)) + 'px';
-		knob.style.top = (focusIsBottom ? kr.bottom - 4 : kr.top + 4) + 'px';
+		var knobVX = Math.max(loX, Math.min(focusIsBottom ? kr.right + 6 : kr.left - 6, hiX));
+		setS(knob, 'left', (knobVX + dx) + 'px');
+		setS(knob, 'top', ((focusIsBottom ? kr.bottom - 4 : kr.top + 4) + dy) + 'px');
 		var ar = focusIsBottom ? top.r : bot.r;
-		tick.style.left = (focusIsBottom ? ar.left - 7 : Math.min(ar.right + 4, vw - 8)) + 'px';
-		tick.style.top = ar.top + 'px';
-		tick.style.height = ar.height + 'px';
-		chip.textContent = String(rects.length);
-		// chip hugs the KNOB on both edges (anchor to the knob's clamped position, not the block
+		var tickVX = Math.max(scR.left, Math.min(focusIsBottom ? ar.left - 7 : ar.right + 4, scR.left + cw - 8));
+		setS(tick, 'left', (tickVX + dx) + 'px');
+		setS(tick, 'top', (ar.top + dy) + 'px');
+		setS(tick, 'height', ar.height + 'px');
+		setTxt(chip, String(rects.length));
+		// chip hugs the KNOB on both edges (anchor to the knob's clamped VIEWPORT x, not the block
 		// rect): measure the chip and mirror the bottom case's ~8px dot-edge gap when extending
 		// upward — the old fixed kr.left-52 sat ~17px off the dot (user-reported, 2026-06-12).
-		var kx = parseFloat(knob.style.left) || 0;
-		var cw = chip.offsetWidth || 22;
-		chip.style.left = (focusIsBottom ? Math.min(kx + 16, vw - cw - 4) : Math.max(4, kx - 16 - cw)) + 'px';
-		chip.style.top = (focusIsBottom ? kr.bottom + 2 : kr.top - 26) + 'px';
+		var chw = chip.offsetWidth || 22;
+		var chipVX = focusIsBottom ? Math.min(knobVX + 16, scR.left + cw - chw - 4) : Math.max(scR.left + 4, knobVX - 16 - chw);
+		setS(chip, 'left', (chipVX + dx) + 'px');
+		setS(chip, 'top', ((focusIsBottom ? kr.bottom + 2 : kr.top - 26) + dy) + 'px');
 	}
 
 	// ---------- the EVENT SHIELD + gesture engine ----------
@@ -897,7 +934,9 @@ window.ViktorCmdbar = (function () {
 	var SHIELD_TYPES = ['pointerdown', 'pointermove', 'pointerup', 'pointercancel',
 		'mousedown', 'mousemove', 'mouseup', 'touchstart', 'touchmove', 'touchend', 'touchcancel',
 		'click', 'contextmenu', 'dblclick'];
-	function inRoot(t) { return !!(t && t.closest && t.closest('#' + ROOT_ID)); }
+	// #vt-handles now lives OUTSIDE the root (re-parented into the scroller), so the event shield
+	// must still treat its knob/tick as "ours" or the knob drag would be ignored (route() never runs).
+	function inRoot(t) { return !!(t && t.closest && (t.closest('#' + ROOT_ID) || t.closest('#vt-handles'))); }
 	function shield(e) {
 		if (e.__vt) return;                                   // our own synthetics — Roam must see them
 		var inside = inRoot(e.target);
@@ -1112,7 +1151,7 @@ window.ViktorCmdbar = (function () {
 		if (c !== 'SELECTING') { seedUid = null; seedWin = null; }
 		root.dataset.bar = (c === 'EDITING' || c === 'SELECTING' || (c === 'IDLE' && open)) ? '1' : '0';
 		root.dataset.fab = (c === 'IDLE' && !open) ? '1' : '0';
-		root.dataset.handles = (c === 'SELECTING') ? '1' : '0';
+		if (hLayer && c !== 'SELECTING') hLayer.classList.remove('vt-show');   // entering SELECTING, updateHandles adds it back
 		paintForm();
 		if (c === 'SELECTING') {
 			if (prev !== 'SELECTING') handlesSnap(); else updateHandles();
@@ -1161,7 +1200,9 @@ window.ViktorCmdbar = (function () {
 			window.visualViewport.addEventListener('scroll', schedulePos, { signal: sig });
 		}
 		window.addEventListener('orientationchange', function () { setTimeout(function () { schedulePos(); scheduleSync(); }, 120); }, { signal: sig });
-		window.addEventListener('scroll', function () { if (ctx === 'SELECTING') schedulePos(); }, { capture: true, passive: true, signal: sig });
+		// NO scroll listener: the handles are abspos children of the scroller now, so the compositor
+		// scrolls them in lockstep with the blocks — repositioning them in JS on scroll was exactly
+		// what made them shake (a frame behind iOS momentum scroll). Gone.
 		mo = new MutationObserver(scheduleSync);
 		mo.observe(document.body, { attributes: true, attributeFilter: ['class'] });
 		healTimer = setInterval(function () {
@@ -1171,7 +1212,7 @@ window.ViktorCmdbar = (function () {
 			if (debugOn()) hudPaint();
 		}, 280);
 		applyCtx(true);
-		log('cmdbar v0.5.2 up');
+		log('cmdbar v0.5.3 up');
 	}
 	function stop() {
 		if (!added) return; added = false;
@@ -1182,6 +1223,7 @@ window.ViktorCmdbar = (function () {
 		if (drag) dragEnd();
 		document.body.classList.remove('vt-bar-open');
 		if (root && root.parentNode) root.parentNode.removeChild(root);
+		if (hLayer && hLayer.parentNode) hLayer.parentNode.removeChild(hLayer);   // re-parented into the scroller, not root
 		var st = document.getElementById(STYLE_ID); if (st) st.remove();   // un-hides the native bar
 		root = dock = bar = fab = hLayer = knob = tick = chip = hud = null;
 		btns = {}; ctx = 'OFF'; editingCode = false;
