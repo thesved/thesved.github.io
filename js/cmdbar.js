@@ -127,6 +127,10 @@ window.ViktorCmdbar = (function () {
 	function getSel() { try { return api().ui.multiselect.getSelected() || []; } catch (e) { return []; } }
 	function selUids() { return getSel().map(function (x) { return x['block-uid']; }); }
 	function isBlockTextarea(el) { return !!(el && el.tagName === 'TEXTAREA' && /^block-input-/.test(el.id || '')); }
+	// Roam code blocks are CodeMirror 6 (a contenteditable .cm-content, NOT a block-input textarea), so
+	// focusing one isn't isBlockTextarea — but you ARE editing a block. Treat it as EDITING so the bar
+	// shows indent/outdent/move/etc. (the ops proxy to Roam's native bar, same as a normal block).
+	function inCodeBlock(el) { return !!(el && el.closest && el.closest('.rm-code-block')); }
 	function uidNode(uid) {
 		var el = document.querySelector('[id$="-' + uid + '"]');
 		return el ? el.closest('.roam-block-container') : null;
@@ -1067,7 +1071,7 @@ window.ViktorCmdbar = (function () {
 	// ---------- state machine ----------
 	function ctxNow() {
 		if (getSel().length) return 'SELECTING';
-		if (isBlockTextarea(document.activeElement)) return 'EDITING';
+		if (isBlockTextarea(document.activeElement) || inCodeBlock(document.activeElement)) return 'EDITING';
 		return 'IDLE';
 	}
 	function applyCtx(force) {
