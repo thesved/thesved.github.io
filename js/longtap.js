@@ -48,7 +48,7 @@ window.ViktorLongtap = (function () {
 		clickBlockTime = 800,     // ms after a page/ref long-tap during which the follow-up click is swallowed
 		LONG_PRESS_MS = 500,      // ms a bullet must be held to fire the context menu
 		MOVE_TOL = 10,            // px of finger movement that aborts a bullet long-press (= it's a scroll)
-		animTime = 400,
+		animTime = 150,
 		MOBILE_MAX = 600,
 		highlightColor = 'rgba(255, 165, 0, 0.18)',
 		menuGap = -22,            // px gap between the menu's right edge and the pushed block
@@ -84,7 +84,7 @@ window.ViktorLongtap = (function () {
 		.animate__pulseReverse { -webkit-animation-name:pulseReverse; animation-name:pulseReverse; -webkit-animation-timing-function:ease-in-out; animation-timing-function:ease-in-out; }
 
 		/* the block slides smoothly when we shift it out from under the menu */
-		.roam-block-container { transition: transform 0.18s ease-out; }
+		.roam-block-container { transition: transform 0.15s ease-out; }
 
 		/* keep the context menu above the left sidebar */
 		.bp3-transition-container { z-index: 9999 !important; }
