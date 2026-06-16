@@ -1,11 +1,11 @@
 /*
  * Viktor's Roam Mobile Command Bar — THE mobile toolbar (replaces Roam's native gray bar).
- * version: 0.6.4  (2026-06-16)  — CODE-BLOCK reveal-scroll fix: code blocks (CM6) reveal-scroll AFTER
- *   focus (vvtop 0→306, fires visualViewport 'scroll' not 'resize'); without re-latching there the frozen
- *   lift was stale → bar behind kb. Added a DEBOUNCED (120ms) vv 'scroll' re-latch: catches the settled
- *   reveal-scroll vvtop, ignores rubber-band overscroll transients. Text blocks unaffected (scrolldamper
- *   prevents their reveal-scroll). Numbers Gemini-read from device HUD; formula grounded in the working
- *   text case (relatch@vvtop=306 → dockBot=742=flush). Still HUD-on (diag) pending device confirm.
+ * version: 0.6.5  (2026-06-16)  — CODE-BLOCK root cause (Opus + web research + on-device HUD): iOS WebKit
+ *   shrinks visualViewport.height ONLY for FORM-CONTROL focus (textarea); CM6 code blocks are contentEditable
+ *   so vv.height stays = innerHeight (keyboard INVISIBLE to the API, sometimes zero signal) → no vv formula
+ *   can detect the kb for code blocks. FIX: LEARN the device kb height from textarea focuses (cache per
+ *   orientation) + apply it whenever EDITING (a block/CM6 is focused). Pure translateY(-kb); no
+ *   getBoundingClientRect (scrollY-contaminated) and no offsetTop (scroll-couples). Text unchanged (snug).
  * version: 0.6.3  (2026-06-15)  — MEASUREMENT-BASED lift (board Opus/Gemini/Codex + web research): the
  *   5× failure was `innerHeight − vv.height`, which MIXES two coordinate systems. Fix: measure a fixed
  *   `bottom:0` sentinel's getBoundingClientRect().bottom (`floorBot`) and lift by `(vv.offsetTop +
@@ -184,7 +184,6 @@ window.ViktorCmdbar = (function () {
 	var mo = null, healTimer = null, ac = null, rafPos = 0, rafSync = 0;
 	var open = false, ctx = 'OFF', redoAvail = false, editingCode = false;
 	var kbAnimUntil = 0;              // while now()<this, dock transitions (focus/blur moments only)
-	var scrollSettleT = null;        // debounce timer for the visualViewport 'scroll' re-latch (reveal-scroll)
 	var gesture = null, drag = null;  // shield gesture state
 	var dragGuardUntil = 0;           // eat the ghost mouseup/click that trails a knob release
 	var prevFocusBottom = null, crossT = null; // knob crossing detector
@@ -1057,7 +1056,7 @@ window.ViktorCmdbar = (function () {
 		// (ensureHandles), so it scrolls natively with the blocks. dock/hud stay body-fixed.
 		document.body.appendChild(root);
 		root.dataset.debug = debugOn() ? '1' : '0';
-		relatch(); place();   // park the dock (bottom:0, kb-down) before first paint
+		learnKb(); place();   // park the dock (bottom:0, kb-down) before first paint
 	}
 
 	// which buttons show in which form
@@ -1100,49 +1099,48 @@ window.ViktorCmdbar = (function () {
 		return o <= 30 ? 0 : o;
 	}
 	function orientKey() { return window.innerHeight >= window.innerWidth ? 'p' : 'l'; }
-	var GAP = 0;   // flush: bar bottom AT the visible-area bottom (user wants snug). Raise if the kb pill clips.
-	// floorBottom = where a `position:fixed; bottom:0` 1px sentinel ACTUALLY paints (client coords) on THIS
-	// device/iOS version. It and the visible-area bottom (vv.offsetTop+vv.height) are in the SAME coordinate
-	// space, so their difference is the EXACT lift — absorbing every chrome/pill/safe-area/offset unknown we
-	// could never decompose from innerHeight. (Mixing innerHeight−vv.height = two coord systems = the 5×
-	// failure. Board Opus/Gemini/Codex + web research unanimous; see learnings.)
-	function floorBottom() {
-		var f = document.getElementById('vt-floor');
-		if (!f) { f = document.createElement('div'); f.id = 'vt-floor'; f.style.cssText = 'position:fixed;left:0;bottom:0;width:1px;height:1px;opacity:0;pointer-events:none;'; document.body.appendChild(f); }
-		return f.getBoundingClientRect().bottom;
+	var GAP = 0;   // flush: bar bottom AT the keyboard top (user wants snug). Raise if the kb pill clips.
+	// THE KEYBOARD HEIGHT, ROOT-CAUSED (board + web research + on-device HUD, 7th iteration):
+	// iOS WebKit shrinks visualViewport.height ONLY for FORM-CONTROL focus (<textarea>/<input>) — its
+	// "reveal focused control" path. CodeMirror-6 code blocks are contentEditable, NOT form controls, so
+	// WebKit pans/scrolls instead and leaves vv.height === innerHeight (kb invisible to the API) — sometimes
+	// with ZERO signal at all (vvh=ih, vvtop=0, scrollY=0 while the kb is up). So NO visualViewport formula
+	// can detect the keyboard for code blocks, and getBoundingClientRect is scrollY-contaminated. THEREFORE:
+	// don't read the kb height from the viewport for code blocks. LEARN the device kb height from textarea
+	// focuses (where vv.height genuinely shrinks) + cache it, and apply it whenever EDITING (the app knows
+	// editing reliably). Pure translateY(−kb), no getBoundingClientRect, no offsetTop, no scroll listener →
+	// static transform, compositor-pinned through scroll/overscroll.
+	var cachedKb = 0;   // learned device keyboard height (per orientation), persisted in localStorage
+	function learnKb() {
+		var vv = window.visualViewport; if (!vv) return;
+		var live = Math.round(window.innerHeight - vv.height);   // valid ONLY when iOS shrank the visual vp
+		if (live > 100 && live !== cachedKb) { cachedKb = live; lsSet('VBS_kb_' + orientKey(), String(live)); }
 	}
-	// relatch: recompute the lift = (visible-area bottom) − floorBot from LIVE measurements. raw≈0 when the
-	// kb is down, negative when up. Clamp ≤0 so the bar never pushes down off-screen; GAP only when up (so
-	// kb-down stays truly flush). Called ONLY on settle (resize / focus ladder / orientation) — NOT in the
-	// per-frame heal — so the latched value is stable through scroll & rubber-band overscroll (offsetTop
-	// spikes there; freezing the MEASURED lift, not raw offsetTop, is what v0.6.1 got wrong). Re-latched on
-	// every focusin → per-element correct (CM6 contentEditable vs textarea reveal-pan differently).
-	var frozenTy = 0;
-	function relatch() {
+	function kbHeight() {
 		var vv = window.visualViewport;
-		var visBottom = vv ? (vv.offsetTop + vv.height) : window.innerHeight;
-		var raw = visBottom - floorBottom();
-		var up = raw < -30;
-		frozenTy = Math.min(0, Math.round(raw - (up ? GAP : 0)));
+		var live = vv ? Math.round(window.innerHeight - vv.height) : 0;
+		if (live > 100) return live;                                   // textarea: real visual-vp shrink
+		if (!cachedKb) cachedKb = parseInt(lsGet('VBS_kb_' + orientKey()) || '0', 10) || 0;
+		if (cachedKb > 100) return cachedKb;                           // CM6/contentEditable: cached device height
+		return isTouch() ? Math.round(window.innerHeight * 0.45) : 0;  // first-ever use, no cache: rough estimate
 	}
-	// place: dock = `position:fixed; bottom:0`; apply the (frozen) lift. No live read → the compositor pins
-	// the static-transform bar through scroll/overscroll with zero JS lag.
+	// place: dock = `position:fixed; bottom:0`. The keyboard is up ⟺ we're EDITING a block on touch. Lift by
+	// the (live-or-cached) keyboard height; 0 when not editing → flush at screen bottom. Static lift.
 	function place() {
 		if (!dock) return;
+		var kb = (ctx === 'EDITING') ? kbHeight() : 0;
+		var ty = kb > 60 ? -(kb + GAP) : 0;
 		dock.classList.toggle('vt-anim', now() < kbAnimUntil);
-		setS(dock, 'transform', 'translateY(' + frozenTy + 'px)');
-		dock.dataset.kb = frozenTy < -30 ? 'up' : 'down';   // CSS adds home-indicator safe-area padding when down
-		if (-frozenTy > 60) lsSet('VBS_kb_' + orientKey(), String(-frozenTy));
+		setS(dock, 'transform', 'translateY(' + ty + 'px)');
+		dock.dataset.kb = ty < 0 ? 'up' : 'down';   // CSS adds home-indicator safe-area padding when down
 		if (ctx === 'SELECTING') updateHandles();
 	}
 	function schedulePos() { if (rafPos) return; rafPos = requestAnimationFrame(function () { rafPos = 0; place(); }); }
-	// re-latch + re-place across the keyboard settle window: a focusin fires BEFORE the kb animates and a
-	// block→code switch keeps the kb open so NO 'resize' fires. relatch() each tick (double-rAF first —
-	// getBoundingClientRect/offsetTop read 0/stale if sampled too soon), then place. Latching only on these
-	// settle ticks (not the per-frame heal) is what keeps the bar from chasing scroll/overscroll.
+	// re-place across the keyboard settle window: a focusin fires BEFORE the kb animates; learnKb() each tick
+	// captures the device kb height once the visual viewport settles (textarea), and place() applies it.
 	function settlePlace() {
-		requestAnimationFrame(function () { requestAnimationFrame(function () { relatch(); place(); }); });
-		[120, 300, 550].forEach(function (t) { setTimeout(function () { relatch(); place(); }, t); });
+		requestAnimationFrame(function () { learnKb(); place(); });
+		[120, 300, 550].forEach(function (t) { setTimeout(function () { learnKb(); place(); }, t); });
 	}
 	function preRide() {
 		// keyboard is coming (focusin) — pre-lift with the cached height so the bar rides up WITH the
@@ -1473,9 +1471,10 @@ window.ViktorCmdbar = (function () {
 		var fb = Math.round(floor.getBoundingClientRect().bottom);
 		var dr = dock ? dock.getBoundingClientRect() : null;
 		var ih = window.innerHeight, vvh = vv ? Math.round(vv.height) : ih, vvtop = vv ? Math.round(vv.offsetTop) : 0;
-		var diag = 'DIAG ih' + ih + ' vvh' + vvh + ' vvtop' + vvtop + ' kb' + overlap() +
-			' floorBot' + fb + ' dockBot' + (dr ? Math.round(dr.bottom) : '?') + ' dockTop' + (dr ? Math.round(dr.top) : '?') +
-			' code' + (inCodeBlock(document.activeElement) ? 1 : 0) + ' scrY' + Math.round(window.scrollY);
+		var liveKb = vv ? Math.round(ih - vv.height) : 0;
+		var diag = 'DIAG ih' + ih + ' vvh' + vvh + ' vvtop' + vvtop + ' liveKb' + liveKb +
+			' cachedKb' + cachedKb + ' edit' + (ctx === 'EDITING' ? 1 : 0) + ' code' + (inCodeBlock(document.activeElement) ? 1 : 0) +
+			' floorBot' + fb + ' dockBot' + (dr ? Math.round(dr.bottom) : '?') + ' scrY' + Math.round(window.scrollY);
 		hud.textContent = diag + '\nctx=' + ctx + ' sel=' + getSel().length +
 			'\n' + logRing.slice(-5).join('\n');
 	}
@@ -1503,28 +1502,18 @@ window.ViktorCmdbar = (function () {
 		}, { capture: true, signal: sig });
 		document.addEventListener('focusout', function () {
 			kbAnimUntil = now() + 450;
-			frozenTy = 0;   // keyboard is dismissing → drop to the screen bottom immediately; settle re-latches
-			setTimeout(scheduleSync, 60);
-			// settle ladder on close too: the kb-dismiss resize can land late, and on iOS 26 (#297779)
-			// vv.height/offsetTop restore short for a beat → settlePlace re-latches + the ≤30 clamp zeroes it.
+			setTimeout(scheduleSync, 60);   // ctx → IDLE → place() sets ty=0 (bar drops to the screen bottom)
 			settlePlace();
 		}, { capture: true, signal: sig });
 		document.addEventListener('input', function (e) { if (isBlockTextarea(e.target)) { redoAvail = false; paintRedo(); } }, { capture: true, signal: sig });
 		if (window.visualViewport) {
-			// resize = the keyboard opened/closed/changed height. Re-latch + re-place immediately.
-			window.visualViewport.addEventListener('resize', function () { relatch(); schedulePos(); scheduleSync(); }, { signal: sig });
-			// scroll = the visual viewport PANNED within the layout viewport. This fires for the CM6
-			// code-block REVEAL-SCROLL (vvtop 0→306 AFTER focus, no resize) — without re-latching there, the
-			// frozen lift is stale and the bar sits behind the keyboard. DEBOUNCED (120ms after the last
-			// scroll) so we re-latch the SETTLED vvtop but IGNORE rubber-band overscroll transients (which
-			// fire a burst then return) → the bar never chases the scroll. place() still uses the frozen
-			// value between latches, so the compositor pins it through the motion.
-			window.visualViewport.addEventListener('scroll', function () {
-				if (scrollSettleT) clearTimeout(scrollSettleT);
-				scrollSettleT = setTimeout(function () { scrollSettleT = null; relatch(); schedulePos(); }, 120);
-			}, { signal: sig });
+			// resize = the keyboard opened/closed/changed height (textarea path). learnKb() captures the
+			// device kb height from the genuine visual-viewport shrink; place() re-applies it. NO 'scroll'
+			// listener: the lift is gated on EDITING + a static cached height, so it never chases pan/scroll/
+			// overscroll (the compositor pins the static-transform bar for free).
+			window.visualViewport.addEventListener('resize', function () { learnKb(); schedulePos(); scheduleSync(); }, { signal: sig });
 		}
-		window.addEventListener('orientationchange', function () { setTimeout(function () { relatch(); schedulePos(); scheduleSync(); }, 120); }, { signal: sig });
+		window.addEventListener('orientationchange', function () { setTimeout(function () { learnKb(); schedulePos(); scheduleSync(); }, 120); }, { signal: sig });
 		// NO scroll listener: the handles are abspos children of the scroller now, so the compositor
 		// scrolls them in lockstep with the blocks — repositioning them in JS on scroll was exactly
 		// what made them shake (a frame behind iOS momentum scroll). Gone.
@@ -1541,7 +1530,7 @@ window.ViktorCmdbar = (function () {
 			if (debugOn()) hudPaint();
 		}, 280);
 		applyCtx(true);
-		log("cmdbar v0.6.4-diag up");
+		log("cmdbar v0.6.5-diag up");
 	}
 	function stop() {
 		if (!added) return; added = false;
