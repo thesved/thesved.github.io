@@ -1,0 +1,14 @@
+{
+  "name": "KB Notes Test",
+  "short_name": "KBTest",
+  "description": "iOS keyboard reveal sandbox (Apple Notes clone)",
+  "start_url": "/kbtest.html",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#000000",
+  "background_color": "#000000",
+  "icons": [
+    { "src": "kbtest-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any maskable" },
+    { "src": "kbtest-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any maskable" }
+  ]
+}

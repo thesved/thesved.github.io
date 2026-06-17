@@ -3,8 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, maximum-scale=1">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- Match Roam's PWA: standalone via WEB MANIFEST (keyboard OVERLAYS the content), NOT the legacy
+     apple-mobile-web-app-capable meta (which makes iOS RESIZE the viewport / push content up). -->
+<link rel="manifest" href="kbtest.webmanifest">
 <meta name="theme-color" content="#000000">
 <title>Notes</title>
 <style>
