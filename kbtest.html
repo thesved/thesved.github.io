@@ -33,6 +33,11 @@
     white-space: pre-wrap; outline: none; background: #1d2330; color: #d6e2ff;
     border-radius: 0 4px 4px 4px;
   }
+  /* plain Notes-style lines (each line is its own editable, like Apple Notes) */
+  .notes { background: #fff; border-radius: 0 4px 4px 4px; padding: 4px 0; }
+  .notes .nl { padding: 9px 12px; font: 16px/1.3 -apple-system, system-ui, sans-serif; outline: none; border-bottom: 1px solid #eee; }
+  .notes .nl:last-child { border-bottom: 0; }
+  .notes .nl:focus { background: #eef4ff; }
   /* CM6 mount */
   .cmmount { min-height: 120px; background: #fff; border-radius: 0 4px 4px 4px; overflow: hidden; }
   .cm-editor { font: 13px/1.5 ui-monospace, monospace; }
@@ -115,6 +120,16 @@ function ceTop() {
       <span class="lbl">CM6-TOP</span>
       <div class="box"><div id="cm2" class="cmmount"></div></div>
     </div>
+
+    <div class="target">
+      <span class="lbl">NOTES-TOP</span>
+      <div class="box notes">
+        <div class="nl" contenteditable="true">Note line one — tap me (TOP)</div>
+        <div class="nl" contenteditable="true">Note line two — tap me</div>
+        <div class="nl" contenteditable="true">Note line three — tap me</div>
+        <div class="nl" contenteditable="true">Note line four — tap me</div>
+      </div>
+    </div>
   </div>
 
   <div class="filler">
@@ -145,6 +160,17 @@ function ceBottom() {
     <div class="target">
       <span class="lbl">CM6-BOTTOM</span>
       <div class="box"><div id="cm" class="cmmount"></div></div>
+    </div>
+
+    <div class="target">
+      <span class="lbl">NOTES-BOTTOM</span>
+      <div class="box notes">
+        <div class="nl" contenteditable="true">Note line one — tap me (BOTTOM)</div>
+        <div class="nl" contenteditable="true">Note line two — tap me</div>
+        <div class="nl" contenteditable="true">Note line three — tap me</div>
+        <div class="nl" contenteditable="true">Note line four — tap me</div>
+        <div class="nl" contenteditable="true">Note line five — tap me</div>
+      </div>
     </div>
   </div>
 
@@ -221,6 +247,10 @@ function cm(target) {
   // Apple-Notes reveal state (declared early so buildActRow can read them — avoid TDZ)
   let AN = true, AN_DELAY = 230, AN_DUR = 283, AN_GAP = 14;
   let anFocusEl = null, anArmed = false, anScheduled = false, anTween = 0;
+  // FREEZE: during the keyboard-open window, stop the scroller so WebKit's OWN native caret-reveal can't
+  // move the content — then run OUR animation. This is what makes our easing visible/finetunable (without it
+  // WebKit reveals the caret itself and our reveal has ~nothing to do). Toggle 'freeze' to compare raw behavior.
+  let FREEZE = true, frozen = false, frozenTop = 0, frozenOverflow = '';
   const STRATS = ['S0', 'SA', 'SB', 'SB2', 'SC', 'OFF'];
   const STRAT_LABEL = {
     S0: 'S0 static',
@@ -356,7 +386,7 @@ function cm(target) {
     lines.push('bar.top       ' + Math.round(r.top));
     lines.push('bar.bottom    ' + Math.round(r.bottom));
     lines.push('learnedKb     ' + learnedKb);
-    lines.push('AN reveal     ' + (AN ? 'ON' : 'off') + '  gap=' + AN_GAP + ' delay=' + AN_DELAY + ' dur=' + AN_DUR);
+    lines.push('AN reveal     ' + (AN ? 'ON' : 'off') + '  freeze=' + (FREEZE ? 'ON' : 'off') + '  gap=' + AN_GAP + ' delay=' + AN_DELAY + ' dur=' + AN_DUR);
     lines.push('CM6           ' + (cm6ok ? 'loaded' : (cm6err ? 'FAILED: ' + cm6err : 'loading…')));
     lines.push('— vv events (last 6) —');
     for (const e of ring) {
@@ -415,6 +445,7 @@ function cm(target) {
     mk('blur', () => { const a = document.activeElement; if (a && a.blur) a.blur(); });
     // Apple-Notes reveal: toggle + live finetune (tap cycles the value)
     mk('AN:' + (AN ? 'ON' : 'off'), () => { AN = !AN; });
+    mk('freeze:' + (FREEZE ? 'ON' : 'off'), () => { FREEZE = !FREEZE; if (!FREEZE) unfreezeScroll(); });
     mk('gap ' + AN_GAP, () => { AN_GAP = AN_GAP >= 42 ? 0 : AN_GAP + 7; });
     mk('delay ' + AN_DELAY, () => { AN_DELAY = AN_DELAY >= 550 ? 0 : AN_DELAY + 110; });
     mk('dur ' + AN_DUR, () => { AN_DUR = AN_DUR >= 600 ? 150 : AN_DUR + 100; });
@@ -499,6 +530,9 @@ function cm(target) {
     if (delta <= 1) return;                          // already above the keyboard → NO scroll (Apple)
     animateScrollTo(wrap.scrollTop + delta);
   }
+  function freezeScroll() { if (!FREEZE || frozen) return; frozen = true; frozenTop = wrap.scrollTop; frozenOverflow = wrap.style.overflow; wrap.style.overflow = 'hidden'; }
+  function unfreezeScroll() { if (!frozen) return; frozen = false; wrap.style.overflow = frozenOverflow || ''; wrap.scrollTop = frozenTop; }
+  function doRevealNow() { unfreezeScroll(); appleReveal(); }
   function isEditableEl(t) {
     return !!t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable
       || (t.classList && t.classList.contains('cm-content')));
@@ -509,7 +543,7 @@ function cm(target) {
     const kbUp = vv && vv.height < SCREEN_H - 100;
     if (AN && anArmed && !anScheduled && kbUp) {
       anScheduled = true;
-      setTimeout(() => { if (anArmed) { anArmed = false; appleReveal(); } }, AN_DELAY);
+      setTimeout(() => { if (anArmed) { anArmed = false; doRevealNow(); } }, AN_DELAY);
     }
   }
   function onVV(kind) {
@@ -527,13 +561,15 @@ function cm(target) {
   document.addEventListener('focusin', (e) => {
     if (isEditableEl(e.target)) {
       anFocusEl = e.target; anArmed = true; anScheduled = false;
+      freezeScroll();   // hold the content still while the keyboard opens (suppress WebKit's own reveal)
       // fallback: if iOS doesn't shrink vv for this element, still reveal once after the kb should be up
-      setTimeout(() => { if (AN && anArmed) { anArmed = false; appleReveal(); } }, 650);
+      setTimeout(() => { if (AN && anArmed) { anArmed = false; doRevealNow(); } }, 650);
     }
     [0, 120, 300, 550].forEach((d) => setTimeout(() => { learnKb(); place(); renderHud(); }, d));
   });
   document.addEventListener('focusout', () => {
     anArmed = false; anScheduled = false;   // closing / leaving → NO reveal scroll (matches Apple)
+    unfreezeScroll();
     setTimeout(() => { place(); renderHud(); }, 60);
     setTimeout(() => { place(); renderHud(); }, 280);
   });
@@ -541,8 +577,9 @@ function cm(target) {
   // expose internals for CDP/headless testing of the reveal mechanics (diag harness only)
   window.__AN = {
     reveal: appleReveal, kbTop: kbTopScreenY, caretBottom: caretBottomScreenY, animate: animateScrollTo,
-    set: (k, v) => { if (k === 'learnedKb') learnedKb = v; else if (k === 'AN') AN = v; else if (k === 'gap') AN_GAP = v; else if (k === 'delay') AN_DELAY = v; else if (k === 'dur') AN_DUR = v; },
-    state: () => ({ AN, AN_DELAY, AN_DUR, AN_GAP, anArmed, anScheduled, learnedKb, SCREEN_H, scrollTop: wrap.scrollTop, strategy: STRATEGY })
+    freeze: freezeScroll, unfreeze: unfreezeScroll,
+    set: (k, v) => { if (k === 'learnedKb') learnedKb = v; else if (k === 'AN') AN = v; else if (k === 'gap') AN_GAP = v; else if (k === 'delay') AN_DELAY = v; else if (k === 'dur') AN_DUR = v; else if (k === 'FREEZE') FREEZE = v; },
+    state: () => ({ AN, FREEZE, frozen, AN_DELAY, AN_DUR, AN_GAP, anArmed, anScheduled, learnedKb, SCREEN_H, scrollTop: wrap.scrollTop, strategy: STRATEGY })
   };
 
   // ---- rAF loop ----
