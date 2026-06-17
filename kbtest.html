@@ -107,6 +107,9 @@
 
   // tunables (live-editable from the ⚙ panel)
   let AN = true, FREEZE = true, AN_DELAY = 230, AN_DUR = 283, AN_GAP = 14;
+  // ANIM on = use the measured delay + duration (smooth reveal). off = INSTANT reveal (delay 0, duration 0):
+  // flip it to prove whether the delay/duration actually change the feel, or are doing nothing.
+  let ANIM = true;
   let learnedKb = parseInt(localStorage.getItem('kbtest_kb') || '0', 10) || 0;
   let SCREEN_H = window.innerHeight;
   let anFocusEl = null, anArmed = false, anScheduled = false, anTween = 0;
@@ -212,8 +215,10 @@
     if (anTween) cancelAnimationFrame(anTween);
     const from = wrap.scrollTop, dist = toTop - from, t0 = performance.now();
     if (Math.abs(dist) < 1) return;
+    const dur = ANIM ? AN_DUR : 0;          // ANIM off ⇒ duration 0 ⇒ instant jump (no tween)
+    if (dur <= 0) { wrap.scrollTop = toTop; paintFx(); return; }
     anTween = requestAnimationFrame(function step(now) {
-      const p = Math.min(1, (now - t0) / AN_DUR);
+      const p = Math.min(1, (now - t0) / dur);
       wrap.scrollTop = from + dist * AN_EASE(p);
       paintFx();
       if (p < 1) anTween = requestAnimationFrame(step); else anTween = 0;
@@ -238,7 +243,7 @@
     const kbUp = vv && vv.height < SCREEN_H - 100;
     if (AN && anArmed && !anScheduled && kbUp) {
       anScheduled = true;
-      setTimeout(() => { if (anArmed) { anArmed = false; doRevealNow(); } }, AN_DELAY);
+      setTimeout(() => { if (anArmed) { anArmed = false; doRevealNow(); } }, ANIM ? AN_DELAY : 0);   // ANIM off ⇒ no delay
     }
   }
 
@@ -252,6 +257,7 @@
       fxbtns.appendChild(b);
     };
     mk('AN:' + (AN ? 'ON' : 'off'), () => { AN = !AN; });
+    mk('anim:' + (ANIM ? 'ON(smooth)' : 'off(instant)'), () => { ANIM = !ANIM; });
     mk('freeze:' + (FREEZE ? 'ON' : 'off'), () => { FREEZE = !FREEZE; if (!FREEZE) unfreezeScroll(); });
     mk('gap ' + AN_GAP, () => { AN_GAP = AN_GAP >= 42 ? 0 : AN_GAP + 7; });
     mk('delay ' + AN_DELAY, () => { AN_DELAY = AN_DELAY >= 550 ? 0 : AN_DELAY + 60; });
@@ -262,7 +268,7 @@
     });
   }
   function paintFx() {
-    fxone.textContent = (AN ? 'AN' : 'an') + '/' + (FREEZE ? 'FRZ' : 'frz') +
+    fxone.textContent = (AN ? 'AN' : 'an') + '/' + (ANIM ? 'ANIM' : 'instant') + '/' + (FREEZE ? 'FRZ' : 'frz') +
       ' gap' + AN_GAP + ' delay' + AN_DELAY + ' dur' + AN_DUR +
       ' | vvh' + (vv ? Math.round(vv.height) : '?') + ' vvtop' + (vv ? Math.round(vv.offsetTop) : '?') +
       ' kb' + learnedKb + ' SH' + SCREEN_H + ' scr' + Math.round(wrap.scrollTop);
@@ -273,7 +279,7 @@
         'window.scrollY ' + Math.round(window.scrollY) + '  wrap.scrollTop ' + Math.round(wrap.scrollTop) + '\n' +
         'learnedKb ' + learnedKb + '  bar.bottom ' + Math.round(bar.getBoundingClientRect().bottom) + '\n' +
         'active ' + (document.activeElement ? (document.activeElement.tagName + (document.activeElement.className ? '.' + String(document.activeElement.className).split(' ')[0] : '')) : 'none') + '\n' +
-        'AN ' + (AN ? 'ON' : 'off') + '  FREEZE ' + (FREEZE ? 'ON' : 'off') + '  frozen ' + frozen + '\n' +
+        'AN ' + (AN ? 'ON' : 'off') + '  ANIM ' + (ANIM ? 'ON(smooth)' : 'off(instant)') + '  FREEZE ' + (FREEZE ? 'ON' : 'off') + '  frozen ' + frozen + '\n' +
         'gap ' + AN_GAP + '  delay ' + AN_DELAY + '  dur ' + AN_DUR + '\n' +
         'CM6 ' + (cm6ok ? 'loaded' : (cm6err ? 'FAILED: ' + cm6err : 'loading…'));
     }
@@ -308,8 +314,8 @@
   window.__AN = {
     reveal: appleReveal, kbTop: kbTopScreenY, caretBottom: caretBottomScreenY, animate: animateScrollTo,
     freeze: freezeScroll, unfreeze: unfreezeScroll,
-    set: (k, v) => { if (k === 'learnedKb') learnedKb = v; else if (k === 'AN') AN = v; else if (k === 'FREEZE') FREEZE = v; else if (k === 'gap') AN_GAP = v; else if (k === 'delay') AN_DELAY = v; else if (k === 'dur') AN_DUR = v; },
-    state: () => ({ AN, FREEZE, frozen, AN_DELAY, AN_DUR, AN_GAP, learnedKb, SCREEN_H, scrollTop: Math.round(wrap.scrollTop), barBottom: Math.round(bar.getBoundingClientRect().bottom), cm6ok, cm6err, codeRows: codeMounts.length })
+    set: (k, v) => { if (k === 'learnedKb') learnedKb = v; else if (k === 'AN') AN = v; else if (k === 'ANIM') ANIM = v; else if (k === 'FREEZE') FREEZE = v; else if (k === 'gap') AN_GAP = v; else if (k === 'delay') AN_DELAY = v; else if (k === 'dur') AN_DUR = v; },
+    state: () => ({ AN, ANIM, FREEZE, frozen, AN_DELAY, AN_DUR, AN_GAP, learnedKb, SCREEN_H, scrollTop: Math.round(wrap.scrollTop), barBottom: Math.round(bar.getBoundingClientRect().bottom), cm6ok, cm6err, codeRows: codeMounts.length })
   };
 
   // ---------- rAF loop ----------
