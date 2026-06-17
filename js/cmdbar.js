@@ -638,9 +638,29 @@ window.ViktorCmdbar = (function () {
 		else if (anchorIdx >= gi.max) focusSide = 'min';                        // anchor at bottom → focus is top edge
 		else focusSide = (lastEdge === 'top') ? 'min' : 'max';                  // anchor interior (rare): trust knob side
 		var growing = dirDown ? (focusSide === 'max') : (focusSide === 'min');
-		var nidx = growing
-			? (focusSide === 'max' ? gi.max + 1 : gi.min - 1)   // grow outward, past any subtree at the edge
-			: (focusSide === 'max' ? gi.max - 1 : gi.min + 1);  // shrink inward toward the anchor
+		var nidx;
+		if (growing) {
+			nidx = (focusSide === 'max' ? gi.max + 1 : gi.min - 1);   // grow outward, past any subtree at the edge
+		} else {
+			// SHRINK inward toward the anchor. The moving-edge block may have SELECTED CHILDREN —
+			// getSelected() includes a selected parent's whole subtree, so gi.max/gi.min can sit on a
+			// DESCENDANT. Stepping one flat-list row then lands back on the parent (or a sibling child),
+			// assertRange re-grabs the same subtree → "no progress" → collapseToAnchor nuked the entire
+			// selection (the runaway, CDP-confirmed: select A..D[child D1] → getSelected includes D1 →
+			// max=D1 → shrink targets D → re-selects D1 → collapse). Fix: drop the edge's ENTIRE subtree
+			// in one step — target the row just OUTSIDE the edge block's selected subtree.
+			var selIdx = {};
+			getSel().forEach(function (s) { var n = uidNode(s['block-uid']); var i = n ? gi.list.indexOf(n) : -1; if (i >= 0) selIdx[i] = 1; });
+			if (focusSide === 'max') {
+				var botNode = gi.list[gi.max], rootIdx = gi.max;        // outermost SELECTED ancestor of the bottom row = bottom subtree root
+				for (var j = gi.min; j < gi.max; j++) { if (selIdx[j] && gi.list[j].contains(botNode)) { rootIdx = j; break; } }
+				nidx = rootIdx - 1;
+			} else {
+				var topNode = gi.list[gi.min], lastDesc = gi.min;       // last SELECTED descendant of the top row = bottom of the top subtree
+				for (var j2 = gi.max; j2 > gi.min; j2--) { if (selIdx[j2] && topNode.contains(gi.list[j2])) { lastDesc = j2; break; } }
+				nidx = lastDesc + 1;
+			}
+		}
 		// shrinking onto / across the anchor ⇒ collapse to the single anchor block
 		if (!growing && anchorIdx >= 0 && (focusSide === 'max' ? nidx <= anchorIdx : nidx >= anchorIdx)) {
 			collapseToAnchor(dirDown); return;
@@ -1141,6 +1161,7 @@ window.ViktorCmdbar = (function () {
 	                        // NOT "kb currently up" — once true it stays true; it distinguishes a soft-kb
 	                        // session (iPhone) from a hardware-kb session (iPad+keyboard, never shrinks vv).
 	var lastRevealD = 0;    // HUD: last reveal() scroll delta
+	var kbDownSince = 0;    // when a focused form-control first reported kb-down (for the sustained-close debounce)
 	var TOPBAR_H = 45, TOP_MARGIN = 14, COMFORT = 16;   // reveal: keep block top below topbar, bottom this far above the bar
 	function kbCap() { return Math.round(window.innerHeight * 0.55); }   // a stale/blind value can never lift past this
 	function learnKb() {
@@ -1162,12 +1183,21 @@ window.ViktorCmdbar = (function () {
 		var vv = window.visualViewport;
 		var live = vv ? Math.round(window.innerHeight - vv.height) : 0;
 		var ae = document.activeElement;
-		if (isBlockTextarea(ae)) return live > 100 ? live : 0;
-		if (inCodeBlock(ae)) {
-			if (live > 100) return live;                               // (rare) a real shrink showed — use it
-			if (!cachedKb) cachedKb = parseInt(lsGet('VBS_kb_' + orientKey()) || '0', 10) || 0;
-			return (cachedKb > 100 && kbSeen) ? Math.min(cachedKb, kbCap()) : 0;
+		if (!cachedKb) cachedKb = parseInt(lsGet('VBS_kb_' + orientKey()) || '0', 10) || 0;
+		var held = (kbSeen && cachedKb > 100) ? Math.min(cachedKb, kbCap()) : 0;   // last stable learned device height
+		if (isBlockTextarea(ae)) {
+			// form control: the visual viewport is honest. BUT while a block mounts — especially a code block,
+			// where Roam bounces focus textarea↔CM6 — the vv OSCILLATES (live flips full↔shrunk 4-5×). Chasing
+			// that flip IS the "dance". So: a clear kb-up (live>100) → exact live; a kb-DOWN reading must be
+			// SUSTAINED (>300ms) before we believe it (a real close → drop, Bug C); a transient flip just HOLDS
+			// the stable cached height (no dance). Hysteresis: noisy signal in, steady lift out.
+			if (live > 100) { kbDownSince = 0; return live; }
+			if (!kbDownSince) kbDownSince = now();
+			if (now() - kbDownSince > 300) return 0;
+			return held;
 		}
+		kbDownSince = 0;
+		if (inCodeBlock(ae)) return live > 100 ? live : held;   // contentEditable: vv blind → cached while editing
 		return 0;
 	}
 	// place: dock = `position:fixed; bottom:0`. The keyboard is up ⟺ we're EDITING a block on touch. Lift by
@@ -1185,8 +1215,12 @@ window.ViktorCmdbar = (function () {
 	// re-place across the keyboard settle window: a focusin fires BEFORE the kb animates; learnKb() each tick
 	// captures the device kb height once the visual viewport settles (textarea), and place() applies it.
 	function settlePlace() {
-		requestAnimationFrame(function () { learnKb(); place(); reveal(); });
-		[120, 300, 550].forEach(function (t) { setTimeout(function () { learnKb(); place(); reveal(); }, t); });
+		// place() (the bar lift) rides the whole settle window — cheap, setS-deduped, and the hysteretic kbHeight
+		// keeps it steady. reveal() (the inner-scroller seat) runs ONCE, after the kb + native caret-reveal have
+		// quiesced: running it per-tick retargets against a still-moving rect = a mini-dance. One late seat = clean.
+		requestAnimationFrame(function () { learnKb(); place(); });
+		[120, 300, 550].forEach(function (t) { setTimeout(function () { learnKb(); place(); }, t); });
+		setTimeout(reveal, 380);
 	}
 	function preRide() {
 		// keyboard is coming (focusin). On touch, with a device height learned this session, pre-lift the bar by
@@ -1221,9 +1255,7 @@ window.ViktorCmdbar = (function () {
 		if (window.scrollY || window.scrollX) window.scrollTo(0, 0);   // cancel the CM6 window-shove BEFORE measuring → clean rect
 		// target the FINAL keyboard top: during the textarea kb-open animation the live shrink is still ramping,
 		// so fall back to the learned height → the block seats at its final spot immediately (behind the rising kb).
-		var vv = window.visualViewport;
-		var liveShrink = vv ? Math.round(window.innerHeight - vv.height) : 0;
-		var kb = liveShrink > 100 ? liveShrink : ((kbSeen && cachedKb > 100) ? Math.min(cachedKb, kbCap()) : kbHeight());
+		var kb = kbHeight();                                          // hysteretic, stable height — same value place() uses
 		var visualBottom = window.innerHeight - kb;                   // client-y of the keyboard top (window pinned ⇒ offsetTop 0)
 		var obstruction = dock.offsetHeight + GAP + COMFORT;          // kb already folded into visualBottom
 		var r = node.getBoundingClientRect();
@@ -1597,7 +1629,7 @@ window.ViktorCmdbar = (function () {
 			// device kb height from the genuine visual-viewport shrink; place() re-applies it. NO 'scroll'
 			// listener: the lift is gated on EDITING + a static cached height, so it never chases pan/scroll/
 			// overscroll (the compositor pins the static-transform bar for free).
-			window.visualViewport.addEventListener('resize', function () { learnKb(); schedulePos(); reveal(); scheduleSync(); }, { signal: sig });
+			window.visualViewport.addEventListener('resize', function () { learnKb(); schedulePos(); scheduleSync(); }, { signal: sig });
 		}
 		// Reactive window-scroll lock for CM6: a contentEditable caret-reveal (on focus AND mid-typing past the
 		// viewport edge) shoves window.scrollY. Roam scrolls the inner container, so any window scroll is the
@@ -1607,7 +1639,7 @@ window.ViktorCmdbar = (function () {
 		// listener (the lift stays a static compositor-pinned transform) — it only neutralizes the window shove.
 		window.addEventListener('scroll', function () {
 			if (!isTouch() || ctx !== 'EDITING' || !inCodeBlock(document.activeElement)) return;
-			if (window.scrollY || window.scrollX) { window.scrollTo(0, 0); reveal(); }
+			if (window.scrollY || window.scrollX) window.scrollTo(0, 0);   // neutralize the CM6 window-shove ONLY; never re-enter reveal() from a scroll event (kills the ping-pong)
 		}, { capture: true, passive: true, signal: sig });
 		// orientation flips the per-orientation cache key → drop the in-memory value so kbHeight re-reads the
 		// right VBS_kb_<o>; kbSeen persists (it's a per-session "a soft kb exists" flag, orientation-agnostic).
@@ -1633,7 +1665,7 @@ window.ViktorCmdbar = (function () {
 		}, 280);
 		applyShell();
 		applyCtx(true);
-		log("cmdbar v0.7.1-diag up");
+		log("cmdbar v0.7.2-diag up");
 	}
 	function stop() {
 		if (!added) return; added = false;
