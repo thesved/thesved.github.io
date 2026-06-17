@@ -114,6 +114,8 @@
   let SCREEN_H = window.innerHeight;
   let anFocusEl = null, anArmed = false, anScheduled = false, anTween = 0;
   let frozen = false, frozenTop = 0, frozenOverflow = '';
+  // DIAGNOSTIC: did OUR reveal move the content, or did WebKit already do it before we ran?
+  let dbgScroll0 = 0, lastDelta = null, lastOurMove = null, lastWkScroll = null, lastVvtopRev = null;
   let cm6ok = false, cm6err = '';
 
   // ---------- build the checklist: letters a..z with a few CM6 code blocks mixed in ----------
@@ -228,7 +230,11 @@
     if (!AN) return;
     const cb = caretBottomScreenY(); if (cb == null) return;
     const delta = cb - (kbTopScreenY() - AN_GAP);
-    if (delta <= 1) return;                 // already above the keyboard → NO scroll (Apple)
+    lastDelta = Math.round(delta);
+    lastWkScroll = Math.round(wrap.scrollTop - dbgScroll0);   // how much WebKit scrolled the content BEFORE our reveal
+    lastVvtopRev = vv ? Math.round(vv.offsetTop) : 0;         // WebKit visual-viewport pan at reveal time
+    if (delta <= 1) { lastOurMove = 0; return; }              // delta≈0 ⇒ WebKit already revealed it ⇒ we do nothing
+    lastOurMove = Math.round(delta);
     animateScrollTo(wrap.scrollTop + delta);
   }
   function freezeScroll() { if (!FREEZE || frozen) return; frozen = true; frozenTop = wrap.scrollTop; frozenOverflow = wrap.style.overflowY; wrap.style.overflowY = 'hidden'; }
@@ -271,7 +277,8 @@
     fxone.textContent = (AN ? 'AN' : 'an') + '/' + (ANIM ? 'ANIM' : 'instant') + '/' + (FREEZE ? 'FRZ' : 'frz') +
       ' gap' + AN_GAP + ' delay' + AN_DELAY + ' dur' + AN_DUR +
       ' | vvh' + (vv ? Math.round(vv.height) : '?') + ' vvtop' + (vv ? Math.round(vv.offsetTop) : '?') +
-      ' kb' + learnedKb + ' SH' + SCREEN_H + ' scr' + Math.round(wrap.scrollTop);
+      ' kb' + learnedKb + ' SH' + SCREEN_H + ' scr' + Math.round(wrap.scrollTop) +
+      '\nLAST REVEAL → Δ' + lastDelta + '  ourMove ' + lastOurMove + '  webkitScrolled ' + lastWkScroll + '  webkitPan ' + lastVvtopRev;
     if (fx.getAttribute('data-open') === '1') {
       fxdetail.textContent =
         'innerHeight ' + window.innerHeight + '  SCREEN_H ' + SCREEN_H + '\n' +
@@ -299,6 +306,7 @@
   document.addEventListener('focusin', (e) => {
     if (isEditableEl(e.target)) {
       anFocusEl = e.target; anArmed = true; anScheduled = false;
+      dbgScroll0 = wrap.scrollTop;   // baseline to detect WebKit scrolling before our reveal
       freezeScroll();
       setTimeout(() => { if (AN && anArmed) { anArmed = false; doRevealNow(); } }, 650);   // fallback if vv never shrinks
     }
@@ -315,7 +323,7 @@
     reveal: appleReveal, kbTop: kbTopScreenY, caretBottom: caretBottomScreenY, animate: animateScrollTo,
     freeze: freezeScroll, unfreeze: unfreezeScroll,
     set: (k, v) => { if (k === 'learnedKb') learnedKb = v; else if (k === 'AN') AN = v; else if (k === 'ANIM') ANIM = v; else if (k === 'FREEZE') FREEZE = v; else if (k === 'gap') AN_GAP = v; else if (k === 'delay') AN_DELAY = v; else if (k === 'dur') AN_DUR = v; },
-    state: () => ({ AN, ANIM, FREEZE, frozen, AN_DELAY, AN_DUR, AN_GAP, learnedKb, SCREEN_H, scrollTop: Math.round(wrap.scrollTop), barBottom: Math.round(bar.getBoundingClientRect().bottom), cm6ok, cm6err, codeRows: codeMounts.length })
+    state: () => ({ AN, ANIM, FREEZE, frozen, AN_DELAY, AN_DUR, AN_GAP, learnedKb, SCREEN_H, scrollTop: Math.round(wrap.scrollTop), barBottom: Math.round(bar.getBoundingClientRect().bottom), cm6ok, cm6err, codeRows: codeMounts.length, lastDelta, lastOurMove, lastWkScroll, lastVvtopRev })
   };
 
   // ---------- rAF loop ----------
