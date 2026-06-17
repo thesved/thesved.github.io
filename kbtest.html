@@ -49,7 +49,7 @@
   #bar .spacer { flex: 1 1 auto; }
   #bar .compose { color: #f5c518; font-size: 21px; }
 
-  /* finetune panel (hidden; opened by the ⚙) so the clone stays clean */
+  /* tiny debug panel (hidden; opened by the ⚙) — bar/viewport numbers only; the reveal is WebKit's, not tunable */
   #fxToggle { position: fixed; right: 10px; bottom: 56px; z-index: 70; width: 34px; height: 34px; border-radius: 50%;
               background: rgba(60,60,64,.85); color: #fff; border: 0; font-size: 16px; will-change: transform; }
   #fx { position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; background: rgba(0,0,0,.93); color: #9fe3a1;
@@ -83,7 +83,7 @@
   <span>☑</span><span>Aa</span><span>📷</span><span>✎</span><span class="spacer"></span><span class="compose">✐</span>
 </div>
 
-<!-- finetune (hidden) -->
+<!-- tiny debug (hidden) -->
 <button id="fxToggle" type="button">⚙</button>
 <div id="fx" data-open="0">
   <div class="one" id="fxone">…</div>
@@ -92,33 +92,23 @@
 </div>
 
 <script type="module">
-  // ===================== Apple Notes clone — keyboard reveal sandbox =====================
-  // Bar pinning = SB2 (confirmed on device): translateY(vv.height + vv.offsetTop − SCREEN_H), SCREEN_H constant.
-  // Reveal = measured from a real Notes clip (OpenCV, frame-by-frame): after the keyboard is up, scroll the
-  // caret line to ~AN_GAP px above the keyboard top, over AN_DUR ms, ease-in-out. No scroll above-fold / on close.
+  // ===================== Apple Notes clone — iOS keyboard sandbox =====================
+  // FINDING (measured frame-by-frame, two independent methods, OCR of toggled settings): the content reveal
+  // when you tap a line is WebKit's OWN native keyboard content-scroll (~250ms ease-in-out open / ~383ms close,
+  // coupled to the keyboard) — IDENTICAL to Apple Notes, and NOT app-controllable. App-side delay/duration/
+  // easing/freeze had ZERO measurable effect (matched reveals were pixel-identical regardless of the toggles),
+  // so that machinery was REMOVED. The only app-controlled motion is pinning the bar (SB2). WebKit reveals free.
   const wrap = document.getElementById('scrollwrap');
-  const note = document.getElementById('note');
   const checklist = document.getElementById('checklist');
   const bar = document.getElementById('bar');
   const fx = document.getElementById('fx'), fxone = document.getElementById('fxone'),
         fxbtns = document.getElementById('fxbtns'), fxdetail = document.getElementById('fxdetail'),
         fxToggle = document.getElementById('fxToggle');
   const vv = window.visualViewport;
-
-  // tunables (live-editable from the ⚙ panel)
-  let AN = true, FREEZE = true, AN_DELAY = 230, AN_DUR = 283, AN_GAP = 14;
-  // ANIM on = use the measured delay + duration (smooth reveal). off = INSTANT reveal (delay 0, duration 0):
-  // flip it to prove whether the delay/duration actually change the feel, or are doing nothing.
-  let ANIM = true;
-  let learnedKb = parseInt(localStorage.getItem('kbtest_kb') || '0', 10) || 0;
   let SCREEN_H = window.innerHeight;
-  let anFocusEl = null, anArmed = false, anScheduled = false, anTween = 0;
-  let frozen = false, frozenTop = 0, frozenOverflow = '';
-  // DIAGNOSTIC: did OUR reveal move the content, or did WebKit already do it before we ran?
-  let dbgScroll0 = 0, lastDelta = null, lastOurMove = null, lastWkScroll = null, lastVvtopRev = null;
   let cm6ok = false, cm6err = '';
 
-  // ---------- build the checklist: letters a..z with a few CM6 code blocks mixed in ----------
+  // ---------- checklist: a..z with a few CM6 code blocks mixed in ----------
   const LETTERS = 'abcdefghijklmnopqrstuvwxyz'.split('');
   const CODE_AT = {
     5: 'const x = 1;\nconst y = 2;\nreturn x + y;',
@@ -141,7 +131,7 @@
   }
   LETTERS.forEach((ch, i) => { textRow(ch); if (CODE_AT[i]) codeRow(CODE_AT[i]); });
 
-  // ---------- CM6 (real editor for the code-block note items); graceful fallback to editable text ----------
+  // ---------- CM6 for the code-block note items (graceful fallback to editable text) ----------
   (async function initCM6() {
     try {
       const [V, St, Cm, LJ] = await Promise.all([
@@ -150,15 +140,10 @@
         import('https://esm.sh/@codemirror/commands@6'),
         import('https://esm.sh/@codemirror/lang-javascript@6'),
       ]);
-      const { EditorView, keymap } = V;
-      const { EditorState } = St;
-      const { defaultKeymap, history, historyKeymap } = Cm;
-      const { javascript } = LJ;
+      const { EditorView, keymap } = V; const { EditorState } = St;
+      const { defaultKeymap, history, historyKeymap } = Cm; const { javascript } = LJ;
       for (const m of codeMounts) {
-        new EditorView({
-          state: EditorState.create({ doc: m.doc, extensions: [history(), keymap.of([...defaultKeymap, ...historyKeymap]), javascript(), EditorView.lineWrapping] }),
-          parent: m.el
-        });
+        new EditorView({ state: EditorState.create({ doc: m.doc, extensions: [history(), keymap.of([...defaultKeymap, ...historyKeymap]), javascript(), EditorView.lineWrapping] }), parent: m.el });
       }
       cm6ok = true;
     } catch (e) {
@@ -167,167 +152,50 @@
     }
   })();
 
-  // ---------- SCREEN_H (constant; window.innerHeight drifts with scroll on iOS) ----------
+  // ---------- the ONLY app-controlled motion: pin the bar to the keyboard top (SB2) ----------
+  // SCREEN_H constant — window.innerHeight drifts with scroll on iOS, so capture the full height in a clean state.
   function refreshScreenH() {
     if (document.activeElement === document.body && window.scrollY === 0 && vv && Math.round(vv.offsetTop) === 0
         && Math.round(vv.height) >= window.innerHeight - 2) SCREEN_H = window.innerHeight;
   }
-  // ---------- bar pin = SB2 ----------
   function place() {
     refreshScreenH();
     let ty = vv ? Math.round(vv.height + vv.offsetTop - SCREEN_H) : 0;
     if (ty > -2) ty = 0;
     bar.style.transform = 'translateY(' + ty + 'px)';
   }
-  // ---------- learn the real keyboard height from a form-control-style shrink ----------
-  function learnKb() {
-    if (!vv) return;
-    const d = Math.round(window.innerHeight - vv.height);
-    if (d > 100) { learnedKb = d; try { localStorage.setItem('kbtest_kb', String(d)); } catch (_) {} }
-  }
 
-  // ---------- the measured Apple-Notes reveal ----------
-  function cubicBezier(x1, y1, x2, y2) {
-    const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
-    const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
-    const fx = t => ((ax * t + bx) * t + cx) * t, fy = t => ((ay * t + by) * t + cy) * t;
-    const dfx = t => (3 * ax * t + 2 * bx) * t + cx;
-    return function (x) {
-      let t = x;
-      for (let i = 0; i < 8; i++) { const e = fx(t) - x; if (Math.abs(e) < 1e-5) break; const d = dfx(t); if (Math.abs(d) < 1e-6) break; t -= e / d; }
-      return fy(Math.max(0, Math.min(1, t)));
-    };
-  }
-  const AN_EASE = cubicBezier(0.42, 0, 0.58, 1);   // ease-in-out (best match to the measured curve)
-  function kbTopScreenY() { return (vv && vv.height < SCREEN_H - 100) ? vv.height : (SCREEN_H - (learnedKb || 0)); }
-  function caretBottomScreenY() {
-    let rect = null;
-    try {
-      const s = window.getSelection && window.getSelection();
-      if (s && s.rangeCount) {
-        const rs = s.getRangeAt(0).getClientRects();
-        if (rs && rs.length) rect = rs[rs.length - 1];
-        else { const rr = s.getRangeAt(0).getBoundingClientRect(); if (rr && (rr.height || rr.width)) rect = rr; }
-      }
-    } catch (_) {}
-    if (!rect) { const a = anFocusEl || document.activeElement; if (a && a.getBoundingClientRect) rect = a.getBoundingClientRect(); }
-    return rect ? rect.bottom - (vv ? vv.offsetTop : 0) : null;
-  }
-  function animateScrollTo(toTop) {
-    if (anTween) cancelAnimationFrame(anTween);
-    const from = wrap.scrollTop, dist = toTop - from, t0 = performance.now();
-    if (Math.abs(dist) < 1) return;
-    const dur = ANIM ? AN_DUR : 0;          // ANIM off ⇒ duration 0 ⇒ instant jump (no tween)
-    if (dur <= 0) { wrap.scrollTop = toTop; paintFx(); return; }
-    anTween = requestAnimationFrame(function step(now) {
-      const p = Math.min(1, (now - t0) / dur);
-      wrap.scrollTop = from + dist * AN_EASE(p);
-      paintFx();
-      if (p < 1) anTween = requestAnimationFrame(step); else anTween = 0;
-    });
-  }
-  function appleReveal() {
-    if (!AN) return;
-    const cb = caretBottomScreenY(); if (cb == null) return;
-    const delta = cb - (kbTopScreenY() - AN_GAP);
-    lastDelta = Math.round(delta);
-    lastWkScroll = Math.round(wrap.scrollTop - dbgScroll0);   // how much WebKit scrolled the content BEFORE our reveal
-    lastVvtopRev = vv ? Math.round(vv.offsetTop) : 0;         // WebKit visual-viewport pan at reveal time
-    if (delta <= 1) { lastOurMove = 0; return; }              // delta≈0 ⇒ WebKit already revealed it ⇒ we do nothing
-    lastOurMove = Math.round(delta);
-    animateScrollTo(wrap.scrollTop + delta);
-  }
-  function freezeScroll() { if (!FREEZE || frozen) return; frozen = true; frozenTop = wrap.scrollTop; frozenOverflow = wrap.style.overflowY; wrap.style.overflowY = 'hidden'; }
-  function unfreezeScroll() { if (!frozen) return; frozen = false; wrap.style.overflowY = frozenOverflow || 'auto'; wrap.scrollTop = frozenTop; }
-  function doRevealNow() { unfreezeScroll(); appleReveal(); }
-
-  function isEditableEl(t) {
-    return !!t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable
-      || (t.classList && t.classList.contains('cm-content')));
-  }
-  function maybeScheduleReveal() {
-    const kbUp = vv && vv.height < SCREEN_H - 100;
-    if (AN && anArmed && !anScheduled && kbUp) {
-      anScheduled = true;
-      setTimeout(() => { if (anArmed) { anArmed = false; doRevealNow(); } }, ANIM ? AN_DELAY : 0);   // ANIM off ⇒ no delay
-    }
-  }
-
-  // ---------- finetune panel ----------
-  function buildFxBtns() {
-    fxbtns.innerHTML = '';
-    const mk = (label, fn) => {
-      const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
-      b.addEventListener('mousedown', e => e.preventDefault());
-      b.addEventListener('click', e => { e.preventDefault(); fn(); buildFxBtns(); place(); paintFx(); });
-      fxbtns.appendChild(b);
-    };
-    mk('AN:' + (AN ? 'ON' : 'off'), () => { AN = !AN; });
-    mk('anim:' + (ANIM ? 'ON(smooth)' : 'off(instant)'), () => { ANIM = !ANIM; });
-    mk('freeze:' + (FREEZE ? 'ON' : 'off'), () => { FREEZE = !FREEZE; if (!FREEZE) unfreezeScroll(); });
-    mk('gap ' + AN_GAP, () => { AN_GAP = AN_GAP >= 42 ? 0 : AN_GAP + 7; });
-    mk('delay ' + AN_DELAY, () => { AN_DELAY = AN_DELAY >= 550 ? 0 : AN_DELAY + 60; });
-    mk('dur ' + AN_DUR, () => { AN_DUR = AN_DUR >= 600 ? 120 : AN_DUR + 60; });
-    mk('copy', () => {
-      const txt = fxdetail.textContent;
-      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).catch(() => {});
-    });
-  }
+  // ---------- tiny ⚙ debug: bar/viewport numbers + copy. (No reveal knobs — the reveal is WebKit's.) ----------
   function paintFx() {
-    fxone.textContent = (AN ? 'AN' : 'an') + '/' + (ANIM ? 'ANIM' : 'instant') + '/' + (FREEZE ? 'FRZ' : 'frz') +
-      ' gap' + AN_GAP + ' delay' + AN_DELAY + ' dur' + AN_DUR +
-      ' | vvh' + (vv ? Math.round(vv.height) : '?') + ' vvtop' + (vv ? Math.round(vv.offsetTop) : '?') +
-      ' kb' + learnedKb + ' SH' + SCREEN_H + ' scr' + Math.round(wrap.scrollTop) +
-      '\nLAST REVEAL → Δ' + lastDelta + '  ourMove ' + lastOurMove + '  webkitScrolled ' + lastWkScroll + '  webkitPan ' + lastVvtopRev;
+    const o = vv ? Math.round(vv.offsetTop) : 0;
+    fxone.textContent = 'BAR(SB2)  vvh ' + (vv ? Math.round(vv.height) : '?') + '  vvtop ' + o + '  SH ' + SCREEN_H +
+      '  bar.bottom ' + Math.round(bar.getBoundingClientRect().bottom) + '  scr ' + Math.round(wrap.scrollTop);
     if (fx.getAttribute('data-open') === '1') {
       fxdetail.textContent =
         'innerHeight ' + window.innerHeight + '  SCREEN_H ' + SCREEN_H + '\n' +
-        'vv.height ' + (vv ? Math.round(vv.height) : 'n/a') + '  vv.offsetTop ' + (vv ? Math.round(vv.offsetTop) : 'n/a') + '\n' +
+        'vv.height ' + (vv ? Math.round(vv.height) : 'n/a') + '  vv.offsetTop ' + o + '\n' +
         'window.scrollY ' + Math.round(window.scrollY) + '  wrap.scrollTop ' + Math.round(wrap.scrollTop) + '\n' +
-        'learnedKb ' + learnedKb + '  bar.bottom ' + Math.round(bar.getBoundingClientRect().bottom) + '\n' +
-        'active ' + (document.activeElement ? (document.activeElement.tagName + (document.activeElement.className ? '.' + String(document.activeElement.className).split(' ')[0] : '')) : 'none') + '\n' +
-        'AN ' + (AN ? 'ON' : 'off') + '  ANIM ' + (ANIM ? 'ON(smooth)' : 'off(instant)') + '  FREEZE ' + (FREEZE ? 'ON' : 'off') + '  frozen ' + frozen + '\n' +
-        'gap ' + AN_GAP + '  delay ' + AN_DELAY + '  dur ' + AN_DUR + '\n' +
-        'CM6 ' + (cm6ok ? 'loaded' : (cm6err ? 'FAILED: ' + cm6err : 'loading…'));
+        'bar.bottom ' + Math.round(bar.getBoundingClientRect().bottom) + '\n' +
+        'CM6 ' + (cm6ok ? 'loaded' : (cm6err ? 'FAILED: ' + cm6err : 'loading…')) + '\n' +
+        'reveal = WebKit native (~250ms ease-in-out, system-driven, not app-controlled)';
     }
-    // keep the panel + toggle on-screen during a visual-viewport pan
-    const oy = vv ? Math.round(vv.offsetTop) : 0;
-    fx.style.transform = 'translateY(' + oy + 'px)';
-    fxToggle.style.transform = 'translateY(' + oy + 'px)';
+    fx.style.transform = 'translateY(' + o + 'px)'; fxToggle.style.transform = 'translateY(' + o + 'px)';
   }
-  buildFxBtns();
+  (function buildFxBtns() {
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = 'copy';
+    b.addEventListener('mousedown', e => e.preventDefault());
+    b.addEventListener('click', e => { e.preventDefault(); if (navigator.clipboard) navigator.clipboard.writeText(fxdetail.textContent).catch(() => {}); });
+    fxbtns.appendChild(b);
+  })();
   fxToggle.addEventListener('mousedown', e => e.preventDefault());
   fxToggle.addEventListener('click', e => { e.preventDefault(); fx.setAttribute('data-open', fx.getAttribute('data-open') === '1' ? '0' : '1'); paintFx(); });
 
-  // ---------- event wiring ----------
-  function onVV() { learnKb(); place(); maybeScheduleReveal(); paintFx(); }
-  if (vv) { vv.addEventListener('resize', onVV); vv.addEventListener('scroll', onVV); }
-  window.addEventListener('orientationchange', () => { learnKb(); place(); paintFx(); });
-  document.addEventListener('focusin', (e) => {
-    if (isEditableEl(e.target)) {
-      anFocusEl = e.target; anArmed = true; anScheduled = false;
-      dbgScroll0 = wrap.scrollTop;   // baseline to detect WebKit scrolling before our reveal
-      freezeScroll();
-      setTimeout(() => { if (AN && anArmed) { anArmed = false; doRevealNow(); } }, 650);   // fallback if vv never shrinks
-    }
-    [0, 120, 300, 550].forEach(d => setTimeout(() => { learnKb(); place(); paintFx(); }, d));
-  });
-  document.addEventListener('focusout', () => {
-    anArmed = false; anScheduled = false; unfreezeScroll();
-    setTimeout(() => { place(); paintFx(); }, 60);
-    setTimeout(() => { place(); paintFx(); }, 280);
-  });
-
-  // expose for CDP/headless testing
-  window.__AN = {
-    reveal: appleReveal, kbTop: kbTopScreenY, caretBottom: caretBottomScreenY, animate: animateScrollTo,
-    freeze: freezeScroll, unfreeze: unfreezeScroll,
-    set: (k, v) => { if (k === 'learnedKb') learnedKb = v; else if (k === 'AN') AN = v; else if (k === 'ANIM') ANIM = v; else if (k === 'FREEZE') FREEZE = v; else if (k === 'gap') AN_GAP = v; else if (k === 'delay') AN_DELAY = v; else if (k === 'dur') AN_DUR = v; },
-    state: () => ({ AN, ANIM, FREEZE, frozen, AN_DELAY, AN_DUR, AN_GAP, learnedKb, SCREEN_H, scrollTop: Math.round(wrap.scrollTop), barBottom: Math.round(bar.getBoundingClientRect().bottom), cm6ok, cm6err, codeRows: codeMounts.length, lastDelta, lastOurMove, lastWkScroll, lastVvtopRev })
-  };
-
-  // ---------- rAF loop ----------
+  // ---------- wiring ----------
+  if (vv) { vv.addEventListener('resize', () => { place(); paintFx(); }); vv.addEventListener('scroll', () => { place(); paintFx(); }); }
+  window.addEventListener('orientationchange', () => { place(); paintFx(); });
   (function loop() { place(); paintFx(); requestAnimationFrame(loop); })();
+
+  window.__KB = { state: () => ({ SCREEN_H, vvh: vv ? Math.round(vv.height) : 0, vvtop: vv ? Math.round(vv.offsetTop) : 0, barBottom: Math.round(bar.getBoundingClientRect().bottom), cm6ok, cm6err, codeRows: codeMounts.length }) };
 </script>
 </body>
 </html>
