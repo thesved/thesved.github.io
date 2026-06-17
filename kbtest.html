@@ -52,22 +52,34 @@
   }
   #bar .bartag { margin-left: auto; font: 700 11px monospace; color: #fff; opacity: .9; }
 
-  /* HUD */
+  /* HUD — unobtrusive: a THIN one-line strip by default (won't cover the editors); tap ▼ to expand
+     the full readout; ⧉ copies everything to the clipboard. Counter-translated by vv.offsetTop in JS
+     so it stays on-screen during the reveal pan. */
   #hud {
-    position: fixed; top: 0; left: 0; z-index: 10000;
-    font: 11px/1.4 monospace; background: rgba(0,0,0,.85); color: #9fe3a1;
-    padding: 6px; white-space: pre; will-change: transform;
-    max-width: 100vw; pointer-events: auto;
+    position: fixed; top: 0; left: 0; right: 0; z-index: 10000; will-change: transform;
+    font: 11px/1.35 ui-monospace, monospace; color: #9fe3a1; pointer-events: auto;
   }
-  #hud .strat-big { color: #ffd166; font-weight: 700; font-size: 13px; }
-  #hud #stratrow { margin-top: 5px; white-space: normal; }
-  #hud #stratrow button, #hud #actrow button {
-    font: 10px monospace; color: #000; background: #9fe3a1; border: 0;
-    border-radius: 4px; padding: 4px 6px; margin: 2px 2px 0 0;
+  #hudbar {
+    display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,.82);
+    padding: 3px 6px; min-height: 22px;
   }
-  #hud #stratrow button.on { background: #ffd166; }
-  #hud #actrow { margin-top: 3px; white-space: normal; }
-  #hud #actrow button { background: #7fc7ff; }
+  #hudone { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #ffd166; }
+  #hud button {
+    flex: 0 0 auto; font: 10px/1 monospace; color: #000; background: #9fe3a1; border: 0;
+    border-radius: 4px; padding: 5px 7px;
+  }
+  #huddetail {
+    display: none; background: rgba(0,0,0,.9); padding: 6px; white-space: pre;
+    max-height: 46vh; overflow: auto;
+  }
+  #hud[data-open="1"] #huddetail { display: block; }
+  #hud[data-open="1"] #hudtoggle { background: #ffd166; }
+  #stratrow, #actrow { margin-top: 5px; white-space: normal; }
+  #stratrow button, #actrow button { margin: 2px 3px 0 0; }
+  #stratrow button.on { background: #ffd166; }
+  #actrow button { background: #7fc7ff; }
+  /* push page content below the thin strip so it never hides under the HUD */
+  #topfill { padding-top: 34px; }
 </style>
 </head>
 <body>
@@ -150,18 +162,33 @@ function ceBottom() {
   <span class="bartag" id="bartag">bar</span>
 </div>
 
-<!-- HUD -->
-<div id="hud"><span id="hudtext"></span><div id="stratrow"></div><div id="actrow"></div></div>
+<!-- HUD: thin strip + collapsible detail + copy -->
+<div id="hud" data-open="0">
+  <div id="hudbar">
+    <span id="hudone">…</span>
+    <button id="hudcopy" type="button">⧉ copy</button>
+    <button id="hudtoggle" type="button">▼</button>
+  </div>
+  <div id="huddetail"><span id="hudtext"></span><div id="stratrow"></div><div id="actrow"></div></div>
+</div>
 
 <script type="module">
   // ---- Try to load CodeMirror 6 from esm.sh; degrade gracefully on failure. ----
   let cm6ok = false, cm6err = '';
   async function initCM6() {
     try {
-      const [{ EditorView, basicSetup }, { javascript }] = await Promise.all([
-        import('https://esm.sh/codemirror@6'),
+      // esm.sh/codemirror@6 exports ONLY `default` (no named EditorView/basicSetup) → "not a constructor".
+      // Build from the sub-packages instead (PROVEN to construct in a real browser via CDP).
+      const [V, St, Cm, LJ] = await Promise.all([
+        import('https://esm.sh/@codemirror/view@6'),
+        import('https://esm.sh/@codemirror/state@6'),
+        import('https://esm.sh/@codemirror/commands@6'),
         import('https://esm.sh/@codemirror/lang-javascript@6'),
       ]);
+      const { EditorView, lineNumbers, keymap } = V;
+      const { EditorState } = St;
+      const { defaultKeymap, history, historyKeymap } = Cm;
+      const { javascript } = LJ;
       const doc = `// real CodeMirror 6 editor (mirrors Roam code block)
 function cm(target) {
   for (let i = 0; i < 3; i++) {
@@ -169,11 +196,12 @@ function cm(target) {
   }
   return target;
 }`;
+      const exts = () => [lineNumbers(), history(), keymap.of([...defaultKeymap, ...historyKeymap]), javascript()];
       const mounts = [['cm', 'CM6-BOTTOM'], ['cm2', 'CM6-TOP']];
       for (const [id] of mounts) {
         const el = document.getElementById(id);
         if (!el) continue;
-        new EditorView({ doc, extensions: [basicSetup, javascript()], parent: el });
+        new EditorView({ state: EditorState.create({ doc, extensions: exts() }), parent: el });
       }
       cm6ok = true;
     } catch (e) {
@@ -189,7 +217,7 @@ function cm(target) {
   // ---- State ----
   const KB_KEY = 'kbtest_kb';
   let learnedKb = parseInt(localStorage.getItem(KB_KEY) || '0', 10) || 0;
-  let STRATEGY = 'S0';
+  let STRATEGY = 'SB2';   // confirmed on-device winner (pin bar to vv bottom via constant screen height)
   const STRATS = ['S0', 'SA', 'SB', 'SB2', 'SC', 'OFF'];
   const STRAT_LABEL = {
     S0: 'S0 static',
@@ -211,6 +239,9 @@ function cm(target) {
   const bar = document.getElementById('bar');
   const hud = document.getElementById('hud');
   const hudtext = document.getElementById('hudtext');
+  const hudone = document.getElementById('hudone');
+  const hudtoggle = document.getElementById('hudtoggle');
+  const hudcopy = document.getElementById('hudcopy');
   const stratrow = document.getElementById('stratrow');
   const actrow = document.getElementById('actrow');
   const wrap = document.getElementById('scrollwrap');
@@ -329,7 +360,12 @@ function cm(target) {
     }
     // Big strategy on first line via span styling handled in CSS for whole node;
     // prepend a styled marker line.
-    hudtext.textContent = lines.join('\n') + '\n';
+    lastHudText = lines.join('\n');
+    if (hud.getAttribute('data-open') === '1') hudtext.textContent = lastHudText + '\n';
+    // thin one-line live readout (always visible, doesn't cover the editors)
+    hudone.textContent = STRATEGY + ' | vvh ' + (vv ? Math.round(vv.height) : '?') +
+      ' vvtop ' + (vv ? Math.round(vv.offsetTop) : '?') + ' scrY ' + Math.round(window.scrollY) +
+      ' | bar.bot ' + Math.round(r.bottom) + ' kb ' + learnedKb;
 
     // Counter-translate the WHOLE HUD by vv.offsetTop so it never pans off-screen,
     // and shift it right by vv.offsetLeft if pinch-zoomed.
@@ -337,6 +373,7 @@ function cm(target) {
     const oy = vv ? vv.offsetTop : 0;
     hud.style.transform = 'translate(' + Math.round(ox) + 'px,' + Math.round(oy) + 'px)';
   }
+  let lastHudText = '';
 
   // ---- strategy + action buttons ----
   function buildStratRow() {
@@ -375,6 +412,30 @@ function cm(target) {
   }
   buildStratRow();
   buildActRow();
+
+  // ---- HUD expand/collapse + copy-to-clipboard (so it doesn't cover the editors + is easy to grab) ----
+  hudtoggle.addEventListener('mousedown', (e) => e.preventDefault());
+  hudtoggle.addEventListener('click', (e) => {
+    e.preventDefault();
+    hud.setAttribute('data-open', hud.getAttribute('data-open') === '1' ? '0' : '1');
+    renderHud();
+  });
+  hudcopy.addEventListener('mousedown', (e) => e.preventDefault());
+  hudcopy.addEventListener('click', (e) => {
+    e.preventDefault();
+    const txt = lastHudText;
+    const ok = () => { const o = '⧉ copy'; hudcopy.textContent = '✓ copied'; setTimeout(() => hudcopy.textContent = o, 900); };
+    const fallback = () => {
+      try {
+        const t = document.createElement('textarea');
+        t.value = txt; t.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+        document.body.appendChild(t); t.focus(); t.select(); document.execCommand('copy'); t.remove(); ok();
+      } catch (_) { hudcopy.textContent = 'copy failed'; }
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(ok, fallback);
+    } else { fallback(); }
+  });
 
   // ---- event wiring ----
   function onVV(kind) {
