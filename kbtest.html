@@ -218,6 +218,9 @@ function cm(target) {
   const KB_KEY = 'kbtest_kb';
   let learnedKb = parseInt(localStorage.getItem(KB_KEY) || '0', 10) || 0;
   let STRATEGY = 'SB2';   // confirmed on-device winner (pin bar to vv bottom via constant screen height)
+  // Apple-Notes reveal state (declared early so buildActRow can read them — avoid TDZ)
+  let AN = true, AN_DELAY = 230, AN_DUR = 283, AN_GAP = 14;
+  let anFocusEl = null, anArmed = false, anScheduled = false, anTween = 0;
   const STRATS = ['S0', 'SA', 'SB', 'SB2', 'SC', 'OFF'];
   const STRAT_LABEL = {
     S0: 'S0 static',
@@ -353,6 +356,7 @@ function cm(target) {
     lines.push('bar.top       ' + Math.round(r.top));
     lines.push('bar.bottom    ' + Math.round(r.bottom));
     lines.push('learnedKb     ' + learnedKb);
+    lines.push('AN reveal     ' + (AN ? 'ON' : 'off') + '  gap=' + AN_GAP + ' delay=' + AN_DELAY + ' dur=' + AN_DUR);
     lines.push('CM6           ' + (cm6ok ? 'loaded' : (cm6err ? 'FAILED: ' + cm6err : 'loading…')));
     lines.push('— vv events (last 6) —');
     for (const e of ring) {
@@ -363,7 +367,7 @@ function cm(target) {
     lastHudText = lines.join('\n');
     if (hud.getAttribute('data-open') === '1') hudtext.textContent = lastHudText + '\n';
     // thin one-line live readout (always visible, doesn't cover the editors)
-    hudone.textContent = STRATEGY + ' | vvh ' + (vv ? Math.round(vv.height) : '?') +
+    hudone.textContent = STRATEGY + ' AN:' + (AN ? 'on' : 'off') + ' | vvh ' + (vv ? Math.round(vv.height) : '?') +
       ' vvtop ' + (vv ? Math.round(vv.offsetTop) : '?') + ' scrY ' + Math.round(window.scrollY) +
       ' | bar.bot ' + Math.round(r.bottom) + ' kb ' + learnedKb;
 
@@ -404,11 +408,16 @@ function cm(target) {
       b.type = 'button';
       b.textContent = label;
       b.addEventListener('mousedown', (ev) => ev.preventDefault());
-      b.addEventListener('click', (ev) => { ev.preventDefault(); fn(); place(); renderHud(); });
+      b.addEventListener('click', (ev) => { ev.preventDefault(); fn(); buildActRow(); place(); renderHud(); });
       actrow.appendChild(b);
     };
-    mk('reset scroll', () => window.scrollTo(0, 0));
+    mk('reset scroll', () => { if (anTween) cancelAnimationFrame(anTween); wrap.scrollTo(0, 0); window.scrollTo(0, 0); });
     mk('blur', () => { const a = document.activeElement; if (a && a.blur) a.blur(); });
+    // Apple-Notes reveal: toggle + live finetune (tap cycles the value)
+    mk('AN:' + (AN ? 'ON' : 'off'), () => { AN = !AN; });
+    mk('gap ' + AN_GAP, () => { AN_GAP = AN_GAP >= 42 ? 0 : AN_GAP + 7; });
+    mk('delay ' + AN_DELAY, () => { AN_DELAY = AN_DELAY >= 550 ? 0 : AN_DELAY + 110; });
+    mk('dur ' + AN_DUR, () => { AN_DUR = AN_DUR >= 600 ? 150 : AN_DUR + 100; });
   }
   buildStratRow();
   buildActRow();
@@ -437,11 +446,77 @@ function cm(target) {
     } else { fallback(); }
   });
 
+  // ===== Apple Notes reveal (MEASURED from a real iPhone clip, frame-by-frame @60fps) =====
+  // Behavior to recreate: tap a line ABOVE the keyboard zone → NO scroll. Tap a line the keyboard WILL
+  // overlap → AFTER the keyboard is fully up, ONE smooth scroll seats the caret ~AN_GAP px above the
+  // keyboard top. Close keyboard → NO scroll. Measured: scroll starts ~230ms after the kb settles,
+  // duration ~283ms, easing ≈ ease-in-out (raw fit cubic-bezier(.356,.001,.652,1.04)), gap ~14 CSS px.
+  // (AN state vars are declared near the top to avoid a temporal-dead-zone error in buildActRow.)
+  function cubicBezier(x1, y1, x2, y2) {
+    const cx = 3 * x1, bx = 3 * (x2 - x1) - cx, ax = 1 - cx - bx;
+    const cy = 3 * y1, by = 3 * (y2 - y1) - cy, ay = 1 - cy - by;
+    const fx = t => ((ax * t + bx) * t + cx) * t, fy = t => ((ay * t + by) * t + cy) * t;
+    const dfx = t => (3 * ax * t + 2 * bx) * t + cx;
+    return function (x) {
+      let t = x;
+      for (let i = 0; i < 8; i++) { const e = fx(t) - x; if (Math.abs(e) < 1e-5) break; const d = dfx(t); if (Math.abs(d) < 1e-6) break; t -= e / d; }
+      return fy(Math.max(0, Math.min(1, t)));
+    };
+  }
+  const AN_EASE = cubicBezier(0.42, 0, 0.58, 1);   // ease-in-out (best named match to the measured curve)
+  function kbTopScreenY() {   // screen-y of the keyboard top: vv.height when iOS shrinks it, else estimate
+    if (vv && vv.height < SCREEN_H - 100) return vv.height;
+    return SCREEN_H - (learnedKb || 0);
+  }
+  function caretBottomScreenY() {   // caret/selection bottom in VISUAL-viewport coords (minus any vv pan)
+    let rect = null;
+    try {
+      const s = window.getSelection && window.getSelection();
+      if (s && s.rangeCount) {
+        const rs = s.getRangeAt(0).getClientRects();
+        if (rs && rs.length) rect = rs[rs.length - 1];
+        else { const rr = s.getRangeAt(0).getBoundingClientRect(); if (rr && (rr.height || rr.width)) rect = rr; }
+      }
+    } catch (_) {}
+    if (!rect) { const a = anFocusEl || document.activeElement; if (a && a.getBoundingClientRect) rect = a.getBoundingClientRect(); }
+    return rect ? rect.bottom - (vv ? vv.offsetTop : 0) : null;
+  }
+  function animateScrollTo(toTop) {
+    if (anTween) cancelAnimationFrame(anTween);
+    const from = wrap.scrollTop, dist = toTop - from, t0 = performance.now();
+    if (Math.abs(dist) < 1) return;
+    anTween = requestAnimationFrame(function step(now) {
+      const p = Math.min(1, (now - t0) / AN_DUR);
+      wrap.scrollTop = from + dist * AN_EASE(p);
+      renderHud();
+      if (p < 1) anTween = requestAnimationFrame(step); else anTween = 0;
+    });
+  }
+  function appleReveal() {
+    if (!AN) return;
+    const cb = caretBottomScreenY(); if (cb == null) return;
+    const delta = cb - (kbTopScreenY() - AN_GAP);   // >0 ⇒ caret below the seat line → scroll content up
+    if (delta <= 1) return;                          // already above the keyboard → NO scroll (Apple)
+    animateScrollTo(wrap.scrollTop + delta);
+  }
+  function isEditableEl(t) {
+    return !!t && (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT' || t.isContentEditable
+      || (t.classList && t.classList.contains('cm-content')));
+  }
+
   // ---- event wiring ----
+  function maybeScheduleReveal() {
+    const kbUp = vv && vv.height < SCREEN_H - 100;
+    if (AN && anArmed && !anScheduled && kbUp) {
+      anScheduled = true;
+      setTimeout(() => { if (anArmed) { anArmed = false; appleReveal(); } }, AN_DELAY);
+    }
+  }
   function onVV(kind) {
     pushRing(kind);
     learnKb();
     place();
+    maybeScheduleReveal();
     renderHud();
   }
   if (vv) {
@@ -449,14 +524,26 @@ function cm(target) {
     vv.addEventListener('scroll', () => onVV('scroll'));
   }
   window.addEventListener('orientationchange', () => { learnKb(); place(); renderHud(); });
-  document.addEventListener('focusin', () => {
-    // settle ladder: place across several frames as the keyboard animates in
+  document.addEventListener('focusin', (e) => {
+    if (isEditableEl(e.target)) {
+      anFocusEl = e.target; anArmed = true; anScheduled = false;
+      // fallback: if iOS doesn't shrink vv for this element, still reveal once after the kb should be up
+      setTimeout(() => { if (AN && anArmed) { anArmed = false; appleReveal(); } }, 650);
+    }
     [0, 120, 300, 550].forEach((d) => setTimeout(() => { learnKb(); place(); renderHud(); }, d));
   });
   document.addEventListener('focusout', () => {
+    anArmed = false; anScheduled = false;   // closing / leaving → NO reveal scroll (matches Apple)
     setTimeout(() => { place(); renderHud(); }, 60);
     setTimeout(() => { place(); renderHud(); }, 280);
   });
+
+  // expose internals for CDP/headless testing of the reveal mechanics (diag harness only)
+  window.__AN = {
+    reveal: appleReveal, kbTop: kbTopScreenY, caretBottom: caretBottomScreenY, animate: animateScrollTo,
+    set: (k, v) => { if (k === 'learnedKb') learnedKb = v; else if (k === 'AN') AN = v; else if (k === 'gap') AN_GAP = v; else if (k === 'delay') AN_DELAY = v; else if (k === 'dur') AN_DUR = v; },
+    state: () => ({ AN, AN_DELAY, AN_DUR, AN_GAP, anArmed, anScheduled, learnedKb, SCREEN_H, scrollTop: wrap.scrollTop, strategy: STRATEGY })
+  };
 
   // ---- rAF loop ----
   function loop() {
