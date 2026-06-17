@@ -1,14 +1,32 @@
 /*
  * Viktor's Roam Mobile Command Bar — THE mobile toolbar (replaces Roam's native gray bar).
+ * version: 0.7.3-diag  (2026-06-17)  — CODE-BLOCK "DANCE" = SELF-INFLICTED FIGHT, root-caused (Roam-source +
+ *   our-code audit + iOS research + Gemini frame-by-frame of two real-iPhone clips). On iOS Safari WEB tapping a
+ *   CM6 code block (.cm-content, contentEditable) makes WebKit run its OWN native caret-reveal — a UI-process
+ *   obscured-insets scroll (WebKit commit 184aa40) that pans, then scroll-anchoring over-corrects vs a stale
+ *   offset and YANKS back, REPEATEDLY across the ~1.75s kb-open+settle window. Roam adds ZERO reveal here (its
+ *   only reveal `tvc` + its `focus({preventScroll})` are Flutter-gated `nR()`, DEAD on web; the code-block editor
+ *   is a lazy chunk that wires no focus/scroll on mount). cmdbar then added a SECOND scroller into that unstable
+ *   window: (1) the window 'scroll' listener doing window.scrollTo(0,0) on every WebKit shove (shell=0 ping-pong),
+ *   (2) reveal()'s sc.scrollBy on .rm-article-wrapper (shell=1, where window.scrollTo is a no-op — the pan thrash).
+ *   FIX = STOP FIGHTING + place-before-reveal: (a) the counter-scroll is OFF by default (gated behind VBS_fight=1
+ *   for A/B); (b) reveal() early-returns for CM6 (OS owns the seat); (c) place() lifts on LIVE editing-ness (not
+ *   lagging ctx) so the bar is up from frame one (fixes dockBot812-at-focus — an ORDERING bug, NOT a seeding one:
+ *   the device already had cachedKb/kbSeen); (d) scroll-padding-bottom on the scroller (VBS_pad, default ON) nudges
+ *   even the NATIVE reveal to clear the bar — UNVERIFIED on device, isolate-test it. NOTE: scrolldamper v0.2 does
+ *   NOT touch .cm-content (only textarea preventScroll) — the old v0.7.1 header claim was stale. DIAG: HUD now
+ *   tracks the vv pan (stays readable during the dance) + shows fight/rev FIRE COUNTERS (prove our writers are
+ *   silent → any residual jumps are pure WebKit) + tap-the-HUD toggles VBS_fight for on-device A/B. Revert
+ *   debugOn()+drop -diag after device confirm.
  * version: 0.7.1-diag  (2026-06-17)  — UNIFIED KEYBOARD-REVEAL (Opus design + full board Opus/Gemini/Codex +
  *   Craft.do reference + on-device HUD ground-truth). Fixes 3 bugs: (A) DESKTOP bar jumped to mid-screen —
  *   kbHeight() now returns 0 when !isTouch(). (C) Chrome-iOS bar stuck up on kb-close — kbHeight() is now
  *   ELEMENT-TYPE-AWARE: a focused <textarea> TRUSTS the live visualViewport shrink BOTH ways (live<=100 ⇒ kb
  *   down ⇒ 0, even while still focused); CM6 contentEditable (vv-blind) uses the learned device height gated
  *   on kbSeen (a soft kb exists this session) + capped at 55% ih. (B) CM6 code-block shove + huge gap —
- *   scrolldamper now reactively pins window.scrollY to 0 for .cm-content (transfers the reveal delta into the
- *   inner scroller), and cmdbar owns ONE deterministic reveal() that scrolls .rm-article-wrapper so the focused
- *   block's bottom lands a constant COMFORT margin above (kb+bar), top-clamped under the topbar, idempotent.
+ *   cmdbar owned ONE deterministic reveal() that scrolls .rm-article-wrapper so the focused block's bottom lands
+ *   a constant COMFORT margin above (kb+bar), top-clamped under the topbar, idempotent — SUPERSEDED by v0.7.3
+ *   (that reveal was a fighter for CM6).
  *   EXPERIMENTAL flag VBS_shell / ViktorOpts.cmdbarShell = non-scrolling-window shell A/B (default OFF). HUD
  *   still forced on (-diag) + new fields kbSeen/barH/revD; revert debugOn() + drop -diag after device confirm.
  * version: 0.6.5  (2026-06-16)  — CODE-BLOCK root cause (Opus + web research + on-device HUD): iOS WebKit
@@ -223,6 +241,29 @@ window.ViktorCmdbar = (function () {
 	// or localStorage VBS_shell='1'. Removing the flag removes the <style> → fully reversible. Compare on a
 	// real iPhone across block edit / sidebars / search / popovers / pull-to-refresh before adopting.
 	function shellOn() { return opts().cmdbarShell === true || lsGet('VBS_shell') === '1'; }
+	// v0.7.3 "stop fighting the OS reveal": by DEFAULT cmdbar issues NO counter-scroll for a CM6 code block —
+	// it lets WebKit's native obscured-insets caret-reveal seat the caret (Craft-style single authority). Set
+	// VBS_fight='1' to RESTORE the old counter-scroll (the window.scrollTo(0,0) lock + reveal's sc.scrollBy) for
+	// on-device A/B against the known-bad baseline. padOn(): scroll-padding-bottom on the scroller so even the
+	// native reveal lands above our bar (default ON; UNVERIFIED that iOS honors it for the kb-reveal — isolate-test).
+	function fightOn() { return lsGet('VBS_fight') === '1'; }
+	function padOn() { return lsGet('VBS_pad') !== '0'; }
+	var fightFires = 0, revFires = 0;   // DIAG fire counters: prove our scroll writers are silent (HUD)
+	// DIAG on-device A/B: tap the HUD to cycle test modes (no console needed on the iOS PWA). The heal interval
+	// re-reads VBS_shell within 280ms; fight/pad are read live. Record one clip per mode, Gemini-measure jumps.
+	var MODES = [
+		{ n: 'FIX',        fight: '0', shell: '0', pad: '1' },   // recommended: ride the OS, no counter-scroll
+		{ n: 'BASELINE',   fight: '1', shell: '0', pad: '1' },   // the old fighters ON → reproduces the dance (A/B)
+		{ n: 'FIX+SHELL',  fight: '0', shell: '1', pad: '1' },   // + window-lock (single scroll authority)
+		{ n: 'FIX+SHELL/NOPAD', fight: '0', shell: '1', pad: '0' }
+	];
+	function modeName() { var f = fightOn() ? '1' : '0', s = shellOn() ? '1' : '0', p = padOn() ? '1' : '0'; for (var i = 0; i < MODES.length; i++) if (MODES[i].fight === f && MODES[i].shell === s && MODES[i].pad === p) return MODES[i].n; return '?'; }
+	function cycleMode() {
+		var cur = -1; for (var i = 0; i < MODES.length; i++) if (MODES[i].n === modeName()) { cur = i; break; }
+		var m = MODES[(cur + 1) % MODES.length];
+		lsSet('VBS_fight', m.fight); lsSet('VBS_shell', m.shell); lsSet('VBS_pad', m.pad);
+		fightFires = revFires = 0; applyShell(); place(); hudPaint();
+	}
 	function applyShell() {
 		var ex = document.getElementById('vt-shell-style');
 		if (!shellOn()) { if (ex) ex.remove(); return; }
@@ -1032,8 +1073,8 @@ window.ViktorCmdbar = (function () {
 			'#vt-handles.vt-snap #vt-tick,#vt-handles.vt-snap .vt-knob{transition:none!important;}',
 
 			/* HUD */
-			'#vt-hud{position:fixed;left:8px;top:8px;z-index:9999;pointer-events:none;display:none;max-width:70vw;',
-			'  background:rgba(0,0,0,.85);color:#9fe3a1;font:12px/1.5 ui-monospace,Menlo,monospace;padding:7px 9px;border-radius:8px;white-space:pre-wrap;}',
+			'#vt-hud{position:fixed;left:8px;top:8px;z-index:9999;pointer-events:auto;display:none;max-width:80vw;',
+			'  will-change:transform;background:rgba(0,0,0,.85);color:#9fe3a1;font:12px/1.5 ui-monospace,Menlo,monospace;padding:7px 9px;border-radius:8px;white-space:pre-wrap;}',
 			'#' + ROOT_ID + '[data-debug="1"] #vt-hud{display:block;}',
 
 			/* page accommodation + overlay suppression */
@@ -1204,12 +1245,31 @@ window.ViktorCmdbar = (function () {
 	// the (live-or-cached) keyboard height; 0 when not editing → flush at screen bottom. Static lift.
 	function place() {
 		if (!dock) return;
-		var kb = (ctx === 'EDITING') ? kbHeight() : 0;
+		// LIFT on LIVE editing-ness, not the lagging `ctx`. focusin fires preRide() (synchronous lift) BUT also
+		// schedules an applyCtx via rAF; if a same-frame place() runs while ctx is still IDLE it would compute
+		// kb=0 and OVERWRITE preRide's lift with translateY(0) → the bar drops then re-lifts = the "bar not up at
+		// focus" (dockBot812) the device showed despite cachedKb/kbSeen already set. Reading activeElement here
+		// makes the lift instant + flicker-free (kbHeight() still returns 0 on desktop via !isTouch()).
+		var ae = document.activeElement;
+		// editing = current ctx OR (about-to-be EDITING this frame — focusin lifts before applyCtx sets ctx).
+		// Exclude SELECTING (kb is down by nature; a transient focused textarea during collapse must not lift).
+		var editing = ctx === 'EDITING' || (ctx !== 'SELECTING' && (isBlockTextarea(ae) || inCodeBlock(ae)));
+		var kb = editing ? kbHeight() : 0;
 		var ty = kb > 60 ? -(kb + GAP) : 0;
 		dock.classList.toggle('vt-anim', now() < kbAnimUntil);
 		setS(dock, 'transform', 'translateY(' + ty + 'px)');
 		dock.dataset.kb = ty < 0 ? 'up' : 'down';   // CSS adds home-indicator safe-area padding when down
+		applyPad(editing && inCodeBlock(ae));       // scroll-padding-bottom so the native reveal clears the bar
 		if (ctx === 'SELECTING') updateHandles();
+	}
+	// scroll-padding-bottom on the inner scroller: influences the scroll container's reveal/snap target so even
+	// WebKit's native caret-reveal (and any CM6 programmatic scrollIntoView) lands the caret ABOVE our bar instead
+	// of behind it — zero JS, no counter-scroll. UNVERIFIED that iOS honors it for the kb-reveal; harmless if not
+	// (scroll-padding never affects free/momentum scrolling). Pad = learned kb + bar + comfort.
+	function applyPad(on) {
+		var sc = scroller(); if (!sc || !sc.style) return;
+		var want = (on && padOn() && isTouch()) ? (Math.min(cachedKb, kbCap()) + (dock ? dock.offsetHeight : 48) + COMFORT) : 0;
+		setS(sc, 'scroll-padding-bottom', want ? want + 'px' : '');
 	}
 	function schedulePos() { if (rafPos) return; rafPos = requestAnimationFrame(function () { rafPos = 0; place(); }); }
 	// re-place across the keyboard settle window: a focusin fires BEFORE the kb animates; learnKb() each tick
@@ -1250,6 +1310,11 @@ window.ViktorCmdbar = (function () {
 	}
 	function reveal() {
 		if (ctx !== 'EDITING' || !isTouch() || !dock) { lastRevealD = 0; return; }
+		// CM6 code block: the OS owns the caret-reveal. Our scrollBy here was a FIGHTER — moving the inner scroller
+		// relocates the caret in client space, so WebKit's next native reveal recomputes and shoves again (this is
+		// the shell=1 thrash, where window.scrollTo is a no-op). Do NOTHING for CM6 by default; scroll-padding-bottom
+		// (applyPad) seats it above the bar. VBS_fight='1' restores the old behavior for A/B.
+		if (inCodeBlock(document.activeElement) && !fightOn()) { lastRevealD = 0; return; }
 		var node = focusedBlockNode(); if (!node) return;
 		var sc = scroller(); if (!sc || !sc.getBoundingClientRect || !sc.contains(node)) return;   // only seat blocks in OUR scroller (not the right sidebar)
 		if (window.scrollY || window.scrollX) window.scrollTo(0, 0);   // cancel the CM6 window-shove BEFORE measuring → clean rect
@@ -1268,7 +1333,7 @@ window.ViktorCmdbar = (function () {
 		var maxDown = -sc.scrollTop;                                  // room to scroll content down
 		d = Math.max(maxDown, Math.min(maxUp, d));
 		lastRevealD = Math.round(d);
-		if (Math.abs(d) > 2) sc.scrollBy({ top: d, behavior: 'auto' });
+		if (Math.abs(d) > 2) { revFires++; sc.scrollBy({ top: d, behavior: 'auto' }); }
 	}
 
 	// ---------- handles ----------
@@ -1378,6 +1443,7 @@ window.ViktorCmdbar = (function () {
 		// gestures are driven by POINTER events; touch/mouse only feed preventDefault above
 		if (t === 'pointerdown') {
 			var p = evPoint(e);
+			if (e.target.closest && e.target.closest('#vt-hud')) { cycleMode(); return; }   // DIAG: tap the HUD = cycle test mode (on-device A/B)
 			if (e.target.closest && e.target.closest('.vt-knob')) { dragStart(e.pointerId, p); return; }
 			var b = e.target.closest && e.target.closest('.vt-b,#vt-fab');
 			if (b) gestureStart(e.pointerId, b, p);
@@ -1589,10 +1655,15 @@ window.ViktorCmdbar = (function () {
 		var dr = dock ? dock.getBoundingClientRect() : null;
 		var ih = window.innerHeight, vvh = vv ? Math.round(vv.height) : ih, vvtop = vv ? Math.round(vv.offsetTop) : 0;
 		var liveKb = vv ? Math.round(ih - vv.height) : 0;
+		// keep the HUD ON-SCREEN during the dance: WebKit pans the VISUAL viewport (vvtop grows) but #vt-hud is
+		// position:fixed to the LAYOUT viewport, so it slides off the top. Counter-translate by vvtop so it rides
+		// the pan and stays readable (diag-only; this reads vv.offsetTop purely to MOVE the readout, never the bar).
+		setS(hud, 'transform', 'translateY(' + vvtop + 'px)');
 		var diag = 'DIAG ih' + ih + ' vvh' + vvh + ' vvtop' + vvtop + ' liveKb' + liveKb +
 			' cachedKb' + cachedKb + ' kbSeen' + (kbSeen ? 1 : 0) + ' edit' + (ctx === 'EDITING' ? 1 : 0) + ' code' + (inCodeBlock(document.activeElement) ? 1 : 0) +
 			' barH' + (dock ? dock.offsetHeight : 0) + ' revD' + lastRevealD +
-			' floorBot' + fb + ' dockBot' + (dr ? Math.round(dr.bottom) : '?') + ' scrY' + Math.round(window.scrollY);
+			' floorBot' + fb + ' dockBot' + (dr ? Math.round(dr.bottom) : '?') + ' scrY' + Math.round(window.scrollY) +
+			'\nMODE ' + modeName() + '  FIRES fight' + fightFires + ' rev' + revFires + '  [tap HUD = next mode]';
 		hud.textContent = diag + '\nctx=' + ctx + ' sel=' + getSel().length +
 			'\n' + logRing.slice(-5).join('\n');
 	}
@@ -1630,6 +1701,14 @@ window.ViktorCmdbar = (function () {
 			// listener: the lift is gated on EDITING + a static cached height, so it never chases pan/scroll/
 			// overscroll (the compositor pins the static-transform bar for free).
 			window.visualViewport.addEventListener('resize', function () { learnKb(); schedulePos(); scheduleSync(); }, { signal: sig });
+			// DIAG only: track the HUD to the visual-viewport pan at FRAME RATE (vv 'scroll' fires each frame during
+			// the reveal pan) so it stays readable through the whole dance — the 280ms heal repaint judders. NOT a
+			// bar writer (the bar must never ride vv 'scroll' — it scroll-couples); this moves only the diag readout.
+			if (debugOn()) {
+				var hudTrack = function () { if (hud) setS(hud, 'transform', 'translateY(' + Math.round((window.visualViewport.offsetTop) || 0) + 'px)'); };
+				window.visualViewport.addEventListener('scroll', hudTrack, { signal: sig });
+				window.visualViewport.addEventListener('resize', hudTrack, { signal: sig });
+			}
 		}
 		// Reactive window-scroll lock for CM6: a contentEditable caret-reveal (on focus AND mid-typing past the
 		// viewport edge) shoves window.scrollY. Roam scrolls the inner container, so any window scroll is the
@@ -1638,8 +1717,9 @@ window.ViktorCmdbar = (function () {
 		// editing a code block, so normal scrolling and textarea editing are untouched. This is NOT a dock-follow
 		// listener (the lift stays a static compositor-pinned transform) — it only neutralizes the window shove.
 		window.addEventListener('scroll', function () {
+			if (!fightOn()) return;   // v0.7.3 DEFAULT: do NOT counter-scroll — riding WebKit's reveal beats fighting it.
 			if (!isTouch() || ctx !== 'EDITING' || !inCodeBlock(document.activeElement)) return;
-			if (window.scrollY || window.scrollX) window.scrollTo(0, 0);   // neutralize the CM6 window-shove ONLY; never re-enter reveal() from a scroll event (kills the ping-pong)
+			if (window.scrollY || window.scrollX) { fightFires++; window.scrollTo(0, 0); }   // (A/B only) the old window-shove lock — the shell=0 ping-pong source
 		}, { capture: true, passive: true, signal: sig });
 		// orientation flips the per-orientation cache key → drop the in-memory value so kbHeight re-reads the
 		// right VBS_kb_<o>; kbSeen persists (it's a per-session "a soft kb exists" flag, orientation-agnostic).
@@ -1665,7 +1745,7 @@ window.ViktorCmdbar = (function () {
 		}, 280);
 		applyShell();
 		applyCtx(true);
-		log("cmdbar v0.7.2-diag up");
+		log("cmdbar v0.7.3-diag up");
 	}
 	function stop() {
 		if (!added) return; added = false;
