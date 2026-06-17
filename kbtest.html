@@ -1,102 +1,410 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- mirror Roam's viewport meta exactly so iOS behaves identically -->
 <meta name="viewport" content="width=device-width, maximum-scale=1">
-<title>iOS keyboard-bar diagnostic</title>
+<title>iOS Keyboard / Bottom-Bar Reveal Test Harness</title>
 <style>
-  :root { color-scheme: dark; }
   * { box-sizing: border-box; -webkit-text-size-adjust: 100%; }
-  html, body { margin: 0; height: 100%; background: #0d0f12; color: #d6dde6;
-    font: 13px/1.35 -apple-system, system-ui, sans-serif; overflow: hidden; }
-  /* Roam-like inner scroll container (the real app scrolls THIS, not the document) */
-  #scroller { position: absolute; inset: 0; overflow: auto; -webkit-overflow-scrolling: touch; padding: 8px 12px 60vh; }
-  h1 { font-size: 15px; color: #8fd; margin: 6px 0 12px; }
-  .note { color: #93a; color: #b9a3d6; margin: 4px 0 14px; }
-  .blk { margin: 0 0 38vh; }
-  textarea { width: 100%; height: 44px; resize: none; background: #1a1f26; color: #e8eef5;
-    border: 1px solid #2c3540; border-radius: 8px; padding: 8px 10px; font: 14px/1.2 ui-monospace, monospace; }
-  label { display: block; color: #7f8c99; margin: 0 0 4px; font-size: 12px; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: -apple-system, system-ui, sans-serif; background: #f4f4f6; color: #1c1c20; }
 
-  /* HUD pinned to the visual-viewport top so we can always read it */
-  #hud { position: fixed; top: 0; left: 0; right: 0; z-index: 100; pointer-events: none;
-    background: rgba(8,10,13,.92); border-bottom: 1px solid #2c3540; padding: 6px 8px;
-    font: 11px/1.3 ui-monospace, monospace; white-space: pre-wrap; }
+  /* Wrapper for SC resize-fit strategy. Default = 100vh scroller. */
+  #scrollwrap { height: 100vh; overflow: auto; -webkit-overflow-scrolling: touch; }
 
-  /* candidate bars — each position:fixed, a different pin strategy, stacked & color-coded.
-     Each shows its label + its own rect.bottom so a screenshot reveals which hugs the keyboard. */
-  .bar { position: fixed; left: 0; right: 0; height: 26px; z-index: 90; pointer-events: none;
-    display: flex; align-items: center; padding: 0 8px; font: 700 11px/1 ui-monospace, monospace;
-    color: #000; will-change: transform; }
-  #barRED    { bottom: 0; background: #ff5a5a; }   /* MDN/current: translateY(vvtop+vvh-ih)  (= -overlap WITH offsetTop) */
-  #barGREEN  { bottom: 0; background: #56d364; }   /* scroll-invariant: translateY(-(ih-vvh))  (NO offsetTop) */
-  #barBLUE   { bottom: 0; background: #6cb6ff; }   /* raw fixed bottom:0, NO transform (reveals iOS native anchor) */
-  #barMAGENTA{ top: 0;   background: #e571e5; }    /* top:0 anchor: translateY(vvtop+vvh-barH)  (the cmdbar's current model) */
+  .filler { padding: 28px 16px; line-height: 1.5; color: #777; }
+  .section { padding: 16px; }
+  .section h2 { margin: 0 0 8px; font-size: 13px; letter-spacing: .5px; color: #444; text-transform: uppercase; }
+
+  .target { margin: 0 0 90px; }
+  .target .lbl {
+    display: inline-block; font: 700 11px/1 monospace; letter-spacing: 1px;
+    background: #222; color: #fff; padding: 4px 8px; border-radius: 4px 4px 0 0;
+  }
+  .target .box { border: 3px solid #222; border-radius: 0 4px 4px 4px; background: #fff; }
+
+  textarea#ta, textarea#ta2 {
+    width: 100%; min-height: 92px; padding: 10px; border: 0; resize: vertical;
+    font: 13px/1.4 monospace; outline: none; background: #fffef5;
+  }
+  /* contenteditable "code block" */
+  .ce {
+    min-height: 120px; padding: 10px; font: 13px/1.5 ui-monospace, monospace;
+    white-space: pre-wrap; outline: none; background: #1d2330; color: #d6e2ff;
+    border-radius: 0 4px 4px 4px;
+  }
+  /* CM6 mount */
+  .cmmount { min-height: 120px; background: #fff; border-radius: 0 4px 4px 4px; overflow: hidden; }
+  .cm-editor { font: 13px/1.5 ui-monospace, monospace; }
+  .cmfail { padding: 10px; font: 12px monospace; color: #b00; background: #ffecec; }
+
+  /* Fixed bottom toolbar standing in for cmdbar */
+  #bar {
+    position: fixed; left: 0; right: 0; bottom: 0; height: 48px;
+    will-change: transform; z-index: 9999;
+    background: linear-gradient(#ff4d8d, #e0306f);
+    display: flex; align-items: center; gap: 8px; padding: 0 10px;
+    box-shadow: 0 -2px 10px rgba(0,0,0,.3);
+  }
+  #bar button {
+    font: 700 12px/1 system-ui; color: #fff; background: rgba(255,255,255,.22);
+    border: 1px solid rgba(255,255,255,.5); border-radius: 6px; padding: 8px 12px;
+  }
+  #bar .bartag { margin-left: auto; font: 700 11px monospace; color: #fff; opacity: .9; }
+
+  /* HUD */
+  #hud {
+    position: fixed; top: 0; left: 0; z-index: 10000;
+    font: 11px/1.4 monospace; background: rgba(0,0,0,.85); color: #9fe3a1;
+    padding: 6px; white-space: pre; will-change: transform;
+    max-width: 100vw; pointer-events: auto;
+  }
+  #hud .strat-big { color: #ffd166; font-weight: 700; font-size: 13px; }
+  #hud #stratrow { margin-top: 5px; white-space: normal; }
+  #hud #stratrow button, #hud #actrow button {
+    font: 10px monospace; color: #000; background: #9fe3a1; border: 0;
+    border-radius: 4px; padding: 4px 6px; margin: 2px 2px 0 0;
+  }
+  #hud #stratrow button.on { background: #ffd166; }
+  #hud #actrow { margin-top: 3px; white-space: normal; }
+  #hud #actrow button { background: #7fc7ff; }
 </style>
 </head>
 <body>
-<div id="scroller">
-  <h1>iOS keyboard-bar diagnostic</h1>
-  <div class="note">Focus each box, then scroll up/down and rubber-band overscroll. Screen-record.<br>
-    The bar that stays EXACTLY at the keyboard top in EVERY case wins. Read the HUD numbers.</div>
-  <div class="blk"><label>TOP input — tap here first</label><textarea>top</textarea></div>
-  <div class="blk"><label>UPPER-MIDDLE input</label><textarea>upper-mid</textarea></div>
-  <div class="blk"><label>CENTER input — tap (caret already visible, may NOT auto-scroll)</label><textarea>center</textarea></div>
-  <div class="blk"><label>LOWER input — tap (likely forces a reveal-scroll)</label><textarea>lower</textarea></div>
-  <div class="blk"><label>BOTTOM input</label><textarea>bottom</textarea></div>
+<div id="scrollwrap">
+
+  <div class="filler" id="topfill">
+    <h1>iOS Keyboard Reveal Test Harness</h1>
+    <p>Open in <b>Safari on a real iPhone</b> (not a PWA). Scroll down to reach the focus targets.
+    Watch the HUD (top-left): focus each target and observe whether <code>visualViewport.height</code>
+    <b>shrinks</b> (form-control behaviour) or only <code>offsetTop</code> <b>pans</b> (contentEditable behaviour),
+    and whether the pink bottom bar stays glued to the keyboard top under each STRATEGY.</p>
+    <p>Tip: focus the TEXTAREA first to teach <code>learnedKb</code>, then try CE / CM6.</p>
+  </div>
+
+  <!-- ============ TOP SET ============ -->
+  <div class="section">
+    <h2>Top set (scroll-down reveal — less overlap)</h2>
+
+    <div class="target">
+      <span class="lbl">TEXTAREA-TOP</span>
+      <div class="box"><textarea id="ta2" rows="4" placeholder="textarea (form control) — TOP"></textarea></div>
+    </div>
+
+    <div class="target">
+      <span class="lbl">CE-TOP</span>
+      <div class="box"><div id="ce2" class="ce" contenteditable="true">// contenteditable code block (TOP)
+function ceTop() {
+  return "edit me";
+}</div></div>
+    </div>
+
+    <div class="target">
+      <span class="lbl">CM6-TOP</span>
+      <div class="box"><div id="cm2" class="cmmount"></div></div>
+    </div>
+  </div>
+
+  <div class="filler">
+    <p>· · · spacer · · ·</p>
+    <p style="height:60vh">Keep scrolling toward the bottom set, which sits low enough that focusing it
+    forces the keyboard to overlap the caret (the real test condition).</p>
+  </div>
+
+  <!-- ============ BOTTOM SET ============ -->
+  <div class="section">
+    <h2>Bottom set (forces keyboard-overlap reveal)</h2>
+
+    <div class="target">
+      <span class="lbl">TEXTAREA-BOTTOM</span>
+      <div class="box"><textarea id="ta" rows="4" placeholder="textarea (form control) — BOTTOM"></textarea></div>
+    </div>
+
+    <div class="target">
+      <span class="lbl">CE-BOTTOM</span>
+      <div class="box"><div id="ce" class="ce" contenteditable="true">// contenteditable code block (BOTTOM)
+function ceBottom() {
+  const x = 1;
+  const y = 2;
+  return x + y;
+}</div></div>
+    </div>
+
+    <div class="target">
+      <span class="lbl">CM6-BOTTOM</span>
+      <div class="box"><div id="cm" class="cmmount"></div></div>
+    </div>
+  </div>
+
+  <div class="filler" style="padding-bottom:160px">
+    <p>End of page. The pink bar below should hover at the keyboard top while editing
+    (depending on STRATEGY) and rest at the screen bottom otherwise.</p>
+  </div>
+
+</div><!-- /#scrollwrap -->
+
+<!-- Fixed bottom toolbar (cmdbar stand-in) -->
+<div id="bar">
+  <button type="button">Btn A</button>
+  <button type="button">Btn B</button>
+  <span class="bartag" id="bartag">bar</span>
 </div>
 
-<div id="hud">starting…</div>
-<div class="bar" id="barRED">RED fixed+offsetTop</div>
-<div class="bar" id="barGREEN">GREEN fixed −(ih−vvh)</div>
-<div class="bar" id="barBLUE">BLUE raw fixed bottom:0</div>
-<div class="bar" id="barMAGENTA">MAGENTA top:0 +offsetTop</div>
+<!-- HUD -->
+<div id="hud"><span id="hudtext"></span><div id="stratrow"></div><div id="actrow"></div></div>
 
-<script>
-  var R = document.getElementById('barRED'),
-      G = document.getElementById('barGREEN'),
-      B = document.getElementById('barBLUE'),
-      M = document.getElementById('barMAGENTA'),
-      H = document.getElementById('hud'),
-      SC = document.getElementById('scroller');
-  var BARH = 26, GAP = 8;
-  var raf = 0;
-  function n(x){ return Math.round(x); }
-  function update() {
-    raf = 0;
-    var vv = window.visualViewport;
-    var ih = window.innerHeight, iw = window.innerWidth;
-    var vvh = vv ? vv.height : ih, vvtop = vv ? vv.offsetTop : 0,
-        vvpt = vv && 'pageTop' in vv ? vv.pageTop : -1, vvs = vv ? vv.scale : 1;
-    // stack the bars 26px apart so all four are visible at once
-    // RED  (MDN): bottom:0 + translateY(vvtop+vvh-ih)  → bar bottom should land at visual-viewport bottom
-    R.style.transform = 'translateY(' + n(vvtop + vvh - ih) + 'px)';
-    // GREEN: bottom:0 + translateY(-(ih-vvh)) (NO offsetTop) — stack 26 above RED
-    G.style.transform = 'translateY(' + n(-(ih - vvh) - 26) + 'px)';
-    // BLUE: raw bottom:0, no transform, stacked 52 above
-    B.style.transform = 'translateY(-52px)';
-    // MAGENTA: top:0 + translateY(vvtop+vvh-BARH) stacked 26 below top-of-stack via -78
-    M.style.transform = 'translateY(' + n(vvtop + vvh - BARH - 78) + 'px)';
-    var rr = R.getBoundingClientRect(), gr = G.getBoundingClientRect(),
-        br = B.getBoundingClientRect(), mr = M.getBoundingClientRect();
-    var visBottom = vvtop + vvh;          // visual-viewport bottom in layout coords
-    H.textContent =
-      'ih=' + ih + ' iw=' + iw + '  vvh=' + n(vvh) + ' vvtop=' + n(vvtop) + ' pageTop=' + n(vvpt) + ' scale=' + vvs.toFixed(2) + '\n' +
-      'scrollY=' + n(window.scrollY) + ' scroller.scrollTop=' + n(SC.scrollTop) + '\n' +
-      'ih-vvh=' + n(ih - vvh) + '  ih-vvh-vvtop(overlap)=' + n(ih - vvh - vvtop) + '  visBottom=' + n(visBottom) + '\n' +
-      'RED.bottom=' + n(rr.bottom) + ' GREEN.bottom=' + n(gr.bottom) + ' BLUE.bottom=' + n(br.bottom) + ' MAG.bottom=' + n(mr.bottom);
+<script type="module">
+  // ---- Try to load CodeMirror 6 from esm.sh; degrade gracefully on failure. ----
+  let cm6ok = false, cm6err = '';
+  async function initCM6() {
+    try {
+      const [{ EditorView, basicSetup }, { javascript }] = await Promise.all([
+        import('https://esm.sh/codemirror@6'),
+        import('https://esm.sh/@codemirror/lang-javascript@6'),
+      ]);
+      const doc = `// real CodeMirror 6 editor (mirrors Roam code block)
+function cm(target) {
+  for (let i = 0; i < 3; i++) {
+    console.log("line", i, target);
   }
-  function sched(){ if (!raf) raf = requestAnimationFrame(update); }
-  if (window.visualViewport) {
-    visualViewport.addEventListener('resize', sched);
-    visualViewport.addEventListener('scroll', sched);
+  return target;
+}`;
+      const mounts = [['cm', 'CM6-BOTTOM'], ['cm2', 'CM6-TOP']];
+      for (const [id] of mounts) {
+        const el = document.getElementById(id);
+        if (!el) continue;
+        new EditorView({ doc, extensions: [basicSetup, javascript()], parent: el });
+      }
+      cm6ok = true;
+    } catch (e) {
+      cm6err = String(e && e.message || e).slice(0, 80);
+      for (const id of ['cm', 'cm2']) {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = '<div class="cmfail">CM6 failed: ' + cm6err + '</div>';
+      }
+    }
   }
-  window.addEventListener('scroll', sched, true);
-  SC.addEventListener('scroll', sched);
-  window.addEventListener('orientationchange', function(){ setTimeout(sched, 200); });
-  setInterval(sched, 250);   // heartbeat so the HUD stays live even if an event is missed
-  update();
+  initCM6();
+
+  // ---- State ----
+  const KB_KEY = 'kbtest_kb';
+  let learnedKb = parseInt(localStorage.getItem(KB_KEY) || '0', 10) || 0;
+  let STRATEGY = 'S0';
+  const STRATS = ['S0', 'SA', 'SB', 'SB2', 'SC', 'OFF'];
+  const STRAT_LABEL = {
+    S0: 'S0 static',
+    SA: 'SA vv-comp',
+    SB: 'SB vv-bottom',
+    SB2: 'SB2 vv-const',
+    SC: 'SC resize-fit',
+    OFF: 'OFF',
+  };
+  // CONSTANT full-viewport height: captured at load (scrollY=0, no kb) and only re-captured in that clean
+  // state. window.innerHeight is NOT constant on iOS (it tracks ~ initial-scrollY), so SB (which uses live
+  // innerHeight) can mis-pin; SB2 pins to the visual-viewport bottom using this stable constant instead.
+  let SCREEN_H = window.innerHeight;
+  function refreshScreenH() {
+    if (!activeIsEditable() && window.scrollY === 0 && vv && Math.round(vv.offsetTop) === 0
+        && Math.round(vv.height) >= window.innerHeight - 2) SCREEN_H = window.innerHeight;
+  }
+
+  const bar = document.getElementById('bar');
+  const hud = document.getElementById('hud');
+  const hudtext = document.getElementById('hudtext');
+  const stratrow = document.getElementById('stratrow');
+  const actrow = document.getElementById('actrow');
+  const wrap = document.getElementById('scrollwrap');
+  const bartag = document.getElementById('bartag');
+  const vv = window.visualViewport;
+
+  // ---- ring log of vv events ----
+  const ring = [];
+  function pushRing(kind) {
+    ring.push({
+      kind,
+      t: Math.round(performance.now()),
+      vvh: vv ? Math.round(vv.height) : 0,
+      vvtop: vv ? Math.round(vv.offsetTop) : 0,
+      scrY: Math.round(window.scrollY),
+    });
+    while (ring.length > 6) ring.shift();
+  }
+
+  // ---- helpers ----
+  function activeIsEditable() {
+    const a = document.activeElement;
+    if (!a) return false;
+    const tag = a.tagName;
+    if (tag === 'TEXTAREA' || tag === 'INPUT') return true;
+    if (a.isContentEditable) return true;
+    // CM6 contentDOM is a contenteditable div with class cm-content
+    if (a.classList && a.classList.contains('cm-content')) return true;
+    return false;
+  }
+
+  function learnKb() {
+    // Only the textarea (form control) reliably shrinks vv.height.
+    const a = document.activeElement;
+    if (!vv) return;
+    if (a && (a.tagName === 'TEXTAREA' || a.tagName === 'INPUT')) {
+      const delta = window.innerHeight - vv.height;
+      if (delta > 100) {
+        learnedKb = Math.round(delta);
+        try { localStorage.setItem(KB_KEY, String(learnedKb)); } catch (_) {}
+      }
+    }
+  }
+
+  // ---- placement strategies ----
+  function place() {
+    refreshScreenH();
+    const editing = activeIsEditable();
+    const vvtop = vv ? vv.offsetTop : 0;
+    const vvh = vv ? vv.height : window.innerHeight;
+
+    // SC manages a wrapper height instead of a transform.
+    if (STRATEGY === 'SC') {
+      bar.style.transform = 'translateY(0)';
+      if (editing && learnedKb > 0) {
+        wrap.style.height = (window.innerHeight - learnedKb) + 'px';
+      } else {
+        wrap.style.height = '100vh';
+      }
+      bartag.textContent = 'SC h=' + wrap.style.height;
+      return;
+    }
+    // Any other strategy keeps wrapper full height.
+    wrap.style.height = '100vh';
+
+    let ty = 0, tag = '';
+    if (STRATEGY === 'S0') {
+      ty = editing ? -(learnedKb) : 0;
+      tag = 'S0';
+    } else if (STRATEGY === 'SA') {
+      ty = editing ? (-(learnedKb) + vvtop) : 0;
+      tag = 'SA';
+    } else if (STRATEGY === 'SB') {
+      // glue to visual-viewport bottom (Roam native bar formula) — ALWAYS, uses LIVE innerHeight
+      ty = (vvh + vvtop - window.innerHeight);
+      tag = 'SB';
+    } else if (STRATEGY === 'SB2') {
+      // glue to visual-viewport bottom using the CONSTANT screen height (immune to iOS innerHeight drift)
+      ty = (vvh + vvtop - SCREEN_H);
+      tag = 'SB2';
+    } else { // OFF
+      ty = 0;
+      tag = 'OFF';
+    }
+    bar.style.transform = 'translateY(' + Math.round(ty) + 'px)';
+    bartag.textContent = tag + ' ty=' + Math.round(ty);
+  }
+
+  // ---- HUD render ----
+  function describeActive() {
+    const a = document.activeElement;
+    if (!a) return 'null';
+    let s = a.tagName.toLowerCase();
+    if (a.id) s += '#' + a.id;
+    else if (a.classList && a.classList.length) s += '.' + a.classList[0];
+    return s;
+  }
+
+  function renderHud() {
+    const r = bar.getBoundingClientRect();
+    const lines = [];
+    lines.push('STRATEGY: ' + STRAT_LABEL[STRATEGY]);
+    lines.push('innerHeight   ' + window.innerHeight + '  (SCREEN_H ' + SCREEN_H + ')');
+    lines.push('vv.height     ' + (vv ? Math.round(vv.height) : 'n/a'));
+    lines.push('vv.offsetTop  ' + (vv ? Math.round(vv.offsetTop) : 'n/a'));
+    lines.push('vv.scale      ' + (vv ? (Math.round(vv.scale * 1000) / 1000) : 'n/a'));
+    lines.push('scrollY       ' + Math.round(window.scrollY));
+    lines.push('active        ' + describeActive());
+    lines.push('bar.top       ' + Math.round(r.top));
+    lines.push('bar.bottom    ' + Math.round(r.bottom));
+    lines.push('learnedKb     ' + learnedKb);
+    lines.push('CM6           ' + (cm6ok ? 'loaded' : (cm6err ? 'FAILED: ' + cm6err : 'loading…')));
+    lines.push('— vv events (last 6) —');
+    for (const e of ring) {
+      lines.push(' ' + e.kind.padEnd(6) + ' t=' + e.t + ' vvh=' + e.vvh + ' top=' + e.vvtop + ' scrY=' + e.scrY);
+    }
+    // Big strategy on first line via span styling handled in CSS for whole node;
+    // prepend a styled marker line.
+    hudtext.textContent = lines.join('\n') + '\n';
+
+    // Counter-translate the WHOLE HUD by vv.offsetTop so it never pans off-screen,
+    // and shift it right by vv.offsetLeft if pinch-zoomed.
+    const ox = vv ? vv.offsetLeft : 0;
+    const oy = vv ? vv.offsetTop : 0;
+    hud.style.transform = 'translate(' + Math.round(ox) + 'px,' + Math.round(oy) + 'px)';
+  }
+
+  // ---- strategy + action buttons ----
+  function buildStratRow() {
+    stratrow.innerHTML = '';
+    for (const s of STRATS) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = STRAT_LABEL[s];
+      if (s === STRATEGY) b.className = 'on';
+      b.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        STRATEGY = s;
+        // reset wrapper height when leaving SC
+        wrap.style.height = '100vh';
+        buildStratRow();
+        place();
+        renderHud();
+      });
+      // Avoid stealing focus / dismissing keyboard.
+      b.addEventListener('mousedown', (ev) => ev.preventDefault());
+      stratrow.appendChild(b);
+    }
+  }
+  function buildActRow() {
+    actrow.innerHTML = '';
+    const mk = (label, fn) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = label;
+      b.addEventListener('mousedown', (ev) => ev.preventDefault());
+      b.addEventListener('click', (ev) => { ev.preventDefault(); fn(); place(); renderHud(); });
+      actrow.appendChild(b);
+    };
+    mk('reset scroll', () => window.scrollTo(0, 0));
+    mk('blur', () => { const a = document.activeElement; if (a && a.blur) a.blur(); });
+  }
+  buildStratRow();
+  buildActRow();
+
+  // ---- event wiring ----
+  function onVV(kind) {
+    pushRing(kind);
+    learnKb();
+    place();
+    renderHud();
+  }
+  if (vv) {
+    vv.addEventListener('resize', () => onVV('resize'));
+    vv.addEventListener('scroll', () => onVV('scroll'));
+  }
+  window.addEventListener('orientationchange', () => { learnKb(); place(); renderHud(); });
+  document.addEventListener('focusin', () => {
+    // settle ladder: place across several frames as the keyboard animates in
+    [0, 120, 300, 550].forEach((d) => setTimeout(() => { learnKb(); place(); renderHud(); }, d));
+  });
+  document.addEventListener('focusout', () => {
+    setTimeout(() => { place(); renderHud(); }, 60);
+    setTimeout(() => { place(); renderHud(); }, 280);
+  });
+
+  // ---- rAF loop ----
+  function loop() {
+    learnKb();
+    place();
+    renderHud();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
 </script>
 </body>
 </html>
