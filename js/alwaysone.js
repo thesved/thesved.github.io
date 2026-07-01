@@ -76,6 +76,9 @@ window.ViktorAlwaysone = (function () {
 	// (Datascript pull LAGS the render — an ensure() fired by the commit-render mutation still
 	// pulls the OLD string, and no later mutation comes → stale phantom. DOM never lags.)
 	function isEmptyBlock(container) {
+		// virtual placeholder (fresh empty day/page): data-block-uid=null, shows "Click here to
+		// start writing" ghost text — it IS the free node, so: empty
+		if (!container.getAttribute('data-block-uid')) return true;
 		var main = container.querySelector(':scope > .rm-block-main');
 		if (!main) return false;
 		var ta = main.querySelector('textarea');
@@ -208,6 +211,7 @@ window.ViktorAlwaysone = (function () {
 			if (!blocks.length) return;
 			var edge = isTop ? blocks[0] : blocks[blocks.length - 1];
 			var edgeUid = edge.getAttribute('data-block-uid');
+			if (!edgeUid) return;   // virtual placeholder — tap IT, not us
 			var winId = o.closest('.roam-log-page')
 				? 'log-outline'
 				: api.user.uid() + '-body-outline-' + pageUidOf(edgeUid);
