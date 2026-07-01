@@ -85,7 +85,9 @@ window.ViktorAlwaysone = (function () {
 		if (ta) return ta.value === '';
 		var inp = main.querySelector('.rm-block__input');
 		if (!inp) return false;
-		return inp.textContent.trim() === '' && inp.childElementCount === 0;   // element kids = embeds/images
+		// view-mode empty block renders "<span></span>" → element count lies; probe for real content
+		return inp.textContent.trim() === ''
+			&& !inp.querySelector('img,iframe,video,audio,canvas,svg,input,button,embed,object');
 	}
 
 	function makeRow(kind) {
