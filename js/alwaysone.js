@@ -1,6 +1,9 @@
 /*
  * Viktor's Roam plugin: AlwaysOne — always a free node at the top and bottom of the page.
- * version: 0.1  (2026-07-01)
+ * version: 0.2  (2026-07-02)  — desktop fixes: dont-unfocus-block (Roam's global mousedown
+ * unfocuses clicks outside blocks — the class opts out, same one the virtual placeholder uses);
+ * ArrowUp on the first root block / ArrowDown on the last visible block enters the free node
+ * (keyboard parity: the phantom behaves like a real line); hidden-textarea hop = touch only.
  *
  * PAIN: adding a line at the very top (or bottom) of a page = tap the first block, drag the caret
  * to position 0, hit Enter, cursor gymnastics. On mobile it's worse.
@@ -92,7 +95,10 @@ window.ViktorAlwaysone = (function () {
 
 	function makeRow(kind) {
 		var row = document.createElement('div');
-		row.className = ROW + ' ' + kind;
+		// dont-unfocus-block: Roam's document-level mousedown blurs the editor on any click
+		// OUTSIDE a block unless the target chain carries this class → without it the block we
+		// just focused loses focus the moment the click lands (desktop "requires multiple tries")
+		row.className = ROW + ' ' + kind + ' dont-unfocus-block';
 		var ta = document.createElement('textarea');       // focused in-gesture → iOS keyboard opens,
 		ta.className = 'vt-a1-ta';                          // then textarea→textarea handoff keeps it
 		ta.tabIndex = -1; ta.setAttribute('aria-hidden', 'true');
@@ -100,10 +106,15 @@ window.ViktorAlwaysone = (function () {
 		var hint = document.createElement('span'); hint.className = 'vt-a1-hint';
 		hint.textContent = kind === TOP ? 'new line at top' : 'new line at bottom';
 		row.appendChild(ta); row.appendChild(dot); row.appendChild(hint);
-		row.addEventListener('mousedown', function (e) { e.preventDefault(); });
+		row.addEventListener('mousedown', function (e) { e.preventDefault(); e.stopPropagation(); });
+		row.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); });
 		row.addEventListener('pointerdown', function (e) {
-			e.preventDefault();
-			try { ta.focus({ preventScroll: true }); } catch (err) { }
+			e.preventDefault(); e.stopPropagation();
+			// touch only: the in-gesture hop that opens the iOS keyboard; on desktop it just
+			// steals focus for a beat and adds churn
+			if ((navigator.maxTouchPoints || 0) > 0 && e.pointerType !== 'mouse') {
+				try { ta.focus({ preventScroll: true }); } catch (err) { }
+			}
 			add(row, kind === TOP);
 		});
 		return row;
@@ -186,22 +197,23 @@ window.ViktorAlwaysone = (function () {
 		var tries = 0;
 		function attempt() {
 			api.ui.setBlockFocusAndSelection({ location: { 'block-uid': uid, 'window-id': winId } });
-			poll();
 		}
-		function poll() {
+		function loop() {
 			var ae = document.activeElement;
 			if (ae && ae.id && ae.id.slice(-uid.length) === uid) {         // success gate: activeElement, not getFocusedBlock
 				if (pending && pending.uid === uid) pending.focused = true;
 				return;
 			}
-			if (++tries > 20) {                                            // focus never landed:
+			if (++tries > 25) {                                            // focus never landed:
 				if (pending && pending.uid === uid) pending.focused = true; // let reap() collect the stray
 				schedule();
 				return;
 			}
-			setTimeout(tries % 8 === 0 ? attempt : poll, 100);
+			attempt();                                                     // idempotent — hammer until it lands
+			setTimeout(loop, 80);
 		}
 		attempt();
+		setTimeout(loop, 60);
 	}
 	function add(row, isTop) {
 		if (busy) return; busy = true;
@@ -227,6 +239,43 @@ window.ViktorAlwaysone = (function () {
 		})().catch(function (e) { console.warn('alwaysone add failed', e); });
 	}
 
+	// Keyboard parity: the free node must be reachable like a real line. ArrowUp with the caret
+	// at 0 in the FIRST root block → top free node; ArrowDown with the caret at the end of the
+	// LAST VISIBLE block (deepest expanded descendant of the last root block) → bottom free node.
+	// Only when that phantom is shown (edge non-empty) — otherwise native behavior stands.
+	function lastVisible(container) {
+		var kid = container.querySelector(':scope > .rm-block-children > .roam-block-container:last-of-type');
+		return kid ? lastVisible(kid) : container;
+	}
+	function onKey(e) {
+		if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+		if (e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+		var ta = e.target;
+		if (!ta || ta.tagName !== 'TEXTAREA' || ta.id.indexOf('block-input') !== 0) return;
+		if (ta.selectionStart !== ta.selectionEnd) return;
+		var isTop = e.key === 'ArrowUp';
+		if (isTop ? ta.selectionStart !== 0 : ta.selectionEnd !== ta.value.length) return;
+		var cont = ta.closest('.roam-block-container');
+		if (!cont) return;
+		// climb to the root container whose parent is a phantom-flanked outline
+		var node = cont, outline = null, rootCont = null;
+		while (node) {
+			var p = node.parentElement;
+			if (p && p.classList.contains('rm-block-children')) {
+				var sib = isTop ? p.previousElementSibling : p.nextElementSibling;
+				if (sib && sib.classList && sib.classList.contains(ROW)) { outline = p; rootCont = node; break; }
+			}
+			node = p ? p.closest('.roam-block-container') : null;
+		}
+		if (!outline) return;
+		var blocks = blocksOf(outline);
+		if (!blocks.length) return;
+		if (isTop ? cont !== blocks[0] : cont !== lastVisible(blocks[blocks.length - 1])) return;
+		var row = isTop ? outline.previousElementSibling : outline.nextElementSibling;
+		if (!row || row.style.display === 'none') return;   // edge already empty → native handles it
+		e.preventDefault(); e.stopPropagation();
+		add(row, isTop);
+	}
 	function start() {
 		if (started) return; started = true;
 		document.head.appendChild(css);
@@ -240,12 +289,14 @@ window.ViktorAlwaysone = (function () {
 		});
 		observer.observe(document.body, { childList: true, subtree: true });
 		document.addEventListener('focusout', schedule, true);   // blur alone mutates nothing → reap needs this
+		document.addEventListener('keydown', onKey, true);       // capture: beat Roam's own arrow handling
 		return true;
 	}
 	function stop() {
 		if (!started) return; started = false;
 		if (observer) { observer.disconnect(); observer = null; }
 		document.removeEventListener('focusout', schedule, true);
+		document.removeEventListener('keydown', onKey, true);
 		if (raf) { cancelAnimationFrame(raf); raf = 0; }
 		if (late) { clearTimeout(late); late = 0; }
 		Array.from(document.querySelectorAll('.' + ROW)).forEach(function (el) { el.remove(); });
