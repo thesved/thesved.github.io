@@ -1,9 +1,12 @@
 /*
  * Viktor's Roam plugin: AlwaysOne — always a free node at the top and bottom of the page.
- * version: 0.2  (2026-07-02)  — desktop fixes: dont-unfocus-block (Roam's global mousedown
- * unfocuses clicks outside blocks — the class opts out, same one the virtual placeholder uses);
- * ArrowUp on the first root block / ArrowDown on the last visible block enters the free node
- * (keyboard parity: the phantom behaves like a real line); hidden-textarea hop = touch only.
+ * version: 0.3  (2026-07-02)  — desktop, from Roam's compiled source (route-app.js $APP.JNb):
+ * Roam unfocuses on document CLICK when the target chain lacks dont-unfocus-block. Our add hid
+ * the row mid-gesture → the click retargeted to a class-less ancestor → blur. Fix: row carries
+ * the class, holds visible until pointerup, and a capture-phase click shield swallows structural
+ * clicks for 600ms after an add. Arrows now mirror Roam's own semantics (caret-mirror pixel-top:
+ * first/last VISUAL line, wrapped lines count): Up on first root block / Down on last visible
+ * block enters the free node. Hidden-textarea hop = touch only.
  *
  * PAIN: adding a line at the very top (or bottom) of a page = tap the first block, drag the caret
  * to position 0, hit Enter, cursor gymnastics. On mobile it's worse.
@@ -28,7 +31,9 @@ if (window.ViktorAlwaysone && window.ViktorAlwaysone.stop) window.ViktorAlwayson
 window.ViktorAlwaysone = (function () {
 	var ROW = 'vt-a1-row', TOP = 'vt-a1-top', BOT = 'vt-a1-bot';
 	var started = false, observer = null, raf = 0, late = 0, busy = false;
-	var pending = null;   // {uid, focused} — block WE created; deleted again if abandoned empty
+	var pending = null;      // {uid, focused} — block WE created; deleted again if abandoned empty
+	var shieldUntil = 0;     // swallow structural clicks right after an add (see clickShield)
+	var noReapUntil = 0;     // never reap mid-click: the layout shift retargets the in-flight click
 	var api = window.roamAlphaAPI;
 	var css = document.createElement('style');
 	css.id = 'CSSViktorAlwaysone';
@@ -110,6 +115,11 @@ window.ViktorAlwaysone = (function () {
 		row.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); });
 		row.addEventListener('pointerdown', function (e) {
 			e.preventDefault(); e.stopPropagation();
+			// the add re-renders + HIDES this row mid-gesture → mouseup retargets → the click
+			// lands on a class-less ancestor → Roam's document click handler unfocuses what we
+			// just focused. Hold the row visible until the gesture ends + shield the click.
+			row._gesture = true;
+			shieldUntil = performance.now() + 600;
 			// touch only: the in-gesture hop that opens the iOS keyboard; on desktop it just
 			// steals focus for a beat and adds churn
 			if ((navigator.maxTouchPoints || 0) > 0 && e.pointerType !== 'mouse') {
@@ -117,7 +127,21 @@ window.ViktorAlwaysone = (function () {
 			}
 			add(row, kind === TOP);
 		});
+		['pointerup', 'pointercancel', 'pointerleave'].forEach(function (ev) {
+			row.addEventListener(ev, function () {
+				if (!row._gesture) return;
+				setTimeout(function () { row._gesture = false; schedule(); }, 0);   // after the click dispatch
+			});
+		});
 		return row;
+	}
+	// Roam registers its unfocus handler on document CLICK (bubble; route-app.js $APP.JNb):
+	// editing + target chain without dont-unfocus-block → blur. A click retargeted off our row
+	// (layout changed mid-gesture) hits structural divs and triggers it — swallow exactly those.
+	function clickShield(e) {
+		if (performance.now() > shieldUntil) return;
+		if (e.target && e.target.closest && e.target.closest('.roam-block-container,.rm-title-display,.' + ROW)) return;
+		e.stopPropagation();
 	}
 	function rowFor(host, outline, kind) {
 		var row = null;
@@ -132,8 +156,13 @@ window.ViktorAlwaysone = (function () {
 
 	// A tap that never got typed into must not litter the graph: once OUR block was focused and
 	// then left while still empty, delete it — the page returns to exactly its pre-tap state.
+	// A pointer gesture is in flight anywhere on the page: deleting a block NOW shifts the layout
+	// between mousedown and mouseup → the click retargets to a structural div → Roam blurs the
+	// freshly clicked block. Defer the reap until the gesture is over.
+	function deferReaps() { noReapUntil = performance.now() + 450; }
 	function reap() {
 		if (!pending || !pending.focused) return;
+		if (performance.now() < noReapUntil) { setTimeout(schedule, 500); return; }
 		var uid = pending.uid;
 		var ae = document.activeElement;
 		if (ae && ae.id && ae.id.slice(-uid.length) === uid) return;   // still editing it
@@ -166,8 +195,8 @@ window.ViktorAlwaysone = (function () {
 			var topShow = !isEmptyBlock(blocks[0]);
 			var botShow = !isEmptyBlock(last) || hasKids(last);
 			var topDisp = topShow ? '' : 'none', botDisp = botShow ? '' : 'none';
-			if (top.style.display !== topDisp) top.style.display = topDisp;
-			if (bot.style.display !== botDisp) bot.style.display = botDisp;
+			if (!top._gesture && top.style.display !== topDisp) top.style.display = topDisp;
+			if (!bot._gesture && bot.style.display !== botDisp) bot.style.display = botDisp;
 			// align our dot's center with the outline's real bullets — MEASURED, not assumed: themes
 			// pad the host and Roam pulls the outline back out with negative margins (can go negative)
 			var bullet = blocks[0].querySelector('.rm-bullet');
@@ -239,22 +268,41 @@ window.ViktorAlwaysone = (function () {
 		})().catch(function (e) { console.warn('alwaysone add failed', e); });
 	}
 
-	// Keyboard parity: the free node must be reachable like a real line. ArrowUp with the caret
-	// at 0 in the FIRST root block → top free node; ArrowDown with the caret at the end of the
-	// LAST VISIBLE block (deepest expanded descendant of the last root block) → bottom free node.
-	// Only when that phantom is shown (edge non-empty) — otherwise native behavior stands.
+	// Keyboard parity: the free node must be reachable like a real line. Mirrors Roam's OWN
+	// arrow semantics (route-app.js textarea "up"/"down" handlers): leave the block upward when
+	// the caret sits on the FIRST VISUAL LINE (caret pixel-top == pos-0 top), downward when on
+	// the LAST VISUAL LINE (== value-end top) — NOT selectionStart 0/end, wrapped lines count.
+	// Then: first root block + Up → top free node; last visible block + Down → bottom free node.
 	function lastVisible(container) {
 		var kid = container.querySelector(':scope > .rm-block-children > .roam-block-container:last-of-type');
 		return kid ? lastVisible(kid) : container;
+	}
+	var MIRROR_PROPS = ['boxSizing', 'width', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+		'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+		'fontStyle', 'fontVariant', 'fontWeight', 'fontStretch', 'fontSize', 'fontFamily', 'lineHeight',
+		'letterSpacing', 'wordSpacing', 'textIndent', 'textTransform', 'tabSize'];
+	function caretTop(ta, pos) {   // caret-coordinates mirror, top only (same trick as Roam's cS)
+		var d = document.createElement('div'), s = getComputedStyle(ta);
+		for (var i = 0; i < MIRROR_PROPS.length; i++) d.style[MIRROR_PROPS[i]] = s[MIRROR_PROPS[i]];
+		d.style.position = 'absolute'; d.style.visibility = 'hidden'; d.style.top = '0'; d.style.left = '-9999px';
+		d.style.whiteSpace = 'pre-wrap'; d.style.wordWrap = 'break-word';
+		d.textContent = ta.value.substring(0, pos);
+		var sp = document.createElement('span');
+		sp.textContent = ta.value.substring(pos) || '.';
+		d.appendChild(sp);
+		document.body.appendChild(d);
+		var top = sp.offsetTop;
+		d.remove();
+		return top;
 	}
 	function onKey(e) {
 		if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
 		if (e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
 		var ta = e.target;
 		if (!ta || ta.tagName !== 'TEXTAREA' || ta.id.indexOf('block-input') !== 0) return;
-		if (ta.selectionStart !== ta.selectionEnd) return;
 		var isTop = e.key === 'ArrowUp';
-		if (isTop ? ta.selectionStart !== 0 : ta.selectionEnd !== ta.value.length) return;
+		var edgeTop = caretTop(ta, isTop ? 0 : ta.value.length);
+		if (caretTop(ta, ta.selectionEnd) !== edgeTop) return;   // caret not on the edge visual line → native
 		var cont = ta.closest('.roam-block-container');
 		if (!cont) return;
 		// climb to the root container whose parent is a phantom-flanked outline
@@ -290,6 +338,8 @@ window.ViktorAlwaysone = (function () {
 		observer.observe(document.body, { childList: true, subtree: true });
 		document.addEventListener('focusout', schedule, true);   // blur alone mutates nothing → reap needs this
 		document.addEventListener('keydown', onKey, true);       // capture: beat Roam's own arrow handling
+		document.addEventListener('click', clickShield, true);   // capture: beat Roam's unfocus click handler
+		document.addEventListener('pointerdown', deferReaps, true);
 		return true;
 	}
 	function stop() {
@@ -297,6 +347,8 @@ window.ViktorAlwaysone = (function () {
 		if (observer) { observer.disconnect(); observer = null; }
 		document.removeEventListener('focusout', schedule, true);
 		document.removeEventListener('keydown', onKey, true);
+		document.removeEventListener('click', clickShield, true);
+		document.removeEventListener('pointerdown', deferReaps, true);
 		if (raf) { cancelAnimationFrame(raf); raf = 0; }
 		if (late) { clearTimeout(late); late = 0; }
 		Array.from(document.querySelectorAll('.' + ROW)).forEach(function (el) { el.remove(); });
