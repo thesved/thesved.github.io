@@ -1,6 +1,9 @@
 /*
  * Viktor's Roam plugin: AlwaysOne — always a free node at the top and bottom of the page.
- * version: 0.4  (2026-07-02)  — ZERO-CLS entry. v0.3 held the row IN FLOW until pointerup →
+ * version: 0.4.1  (2026-07-02)  — click-out reap is INSTANT: release the noReap guard on
+ * pointerup + timeout(0) (post click-dispatch) instead of waiting out the fixed 450ms timer;
+ * the timer stays only as a fallback for gestures that end off-window.
+ * v0.4 — ZERO-CLS entry. v0.3 held the row IN FLOW until pointerup →
  * for ~100-300ms both the row and the new block occupied space (+56px push, then pop). Now the
  * row LIFTS out of flow (position:absolute + opacity:0) in the same pre-paint ensure() that sees
  * the new block — never painted double, but still in the DOM under the pointer so the in-flight
@@ -207,6 +210,15 @@ window.ViktorAlwaysone = (function () {
 	// between mousedown and mouseup → the click retargets to a structural div → Roam blurs the
 	// freshly clicked block. Defer the reap until the gesture is over.
 	function deferReaps() { noReapUntil = performance.now() + 450; }
+	// Gesture is over at pointerup; timeout(0) runs after the click (if any) has dispatched —
+	// mouseup+click are one synchronous input sequence (same assumption as the row's own
+	// gesture-end handler). Reap immediately instead of riding out the 450ms fallback (that
+	// wait was a visible half-second lag on every click-out before the empty block swapped
+	// back to the dashed phantom). NOT hookable on 'click': clicking a view-mode block swaps
+	// span→textarea between mousedown and mouseup → mousedown target leaves the DOM → Chrome
+	// suppresses the click entirely (event-log verified). The 450ms timer stays as fallback
+	// for gestures that end off-window (no pointerup).
+	function releaseReaps() { setTimeout(function () { noReapUntil = 0; if (pending && pending.focused) ensure(); }, 0); }
 	function reap() {
 		if (!pending || !pending.focused) return;
 		if (performance.now() < noReapUntil) { setTimeout(schedule, 500); return; }
@@ -402,6 +414,8 @@ window.ViktorAlwaysone = (function () {
 		document.addEventListener('keydown', onKey, true);       // capture: beat Roam's own arrow handling
 		document.addEventListener('click', clickShield, true);   // capture: beat Roam's unfocus click handler
 		document.addEventListener('pointerdown', deferReaps, true);
+		document.addEventListener('pointerup', releaseReaps, true);      // reap right after the gesture,
+		document.addEventListener('pointercancel', releaseReaps, true);  // not 450ms later
 		return true;
 	}
 	function stop() {
@@ -411,6 +425,8 @@ window.ViktorAlwaysone = (function () {
 		document.removeEventListener('keydown', onKey, true);
 		document.removeEventListener('click', clickShield, true);
 		document.removeEventListener('pointerdown', deferReaps, true);
+		document.removeEventListener('pointerup', releaseReaps, true);
+		document.removeEventListener('pointercancel', releaseReaps, true);
 		if (raf) { cancelAnimationFrame(raf); raf = 0; }
 		if (late) { clearTimeout(late); late = 0; }
 		Array.from(document.querySelectorAll('.' + ROW)).forEach(function (el) { el.remove(); });
