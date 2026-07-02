@@ -1,6 +1,25 @@
 /*
  * Viktor's Roam plugin: AlwaysOne — always a free node at the top and bottom of the page.
- * version: 0.4.1  (2026-07-02)  — click-out reap is INSTANT: release the noReap guard on
+ * version: 0.5.0  (2026-07-02)
+ * v0.5 — (1) phantoms ALWAYS VISIBLE on a non-empty outline (no hide-when-edge-empty logic;
+ * hidden only on a completely empty page = no uid-bearing root block, just Roam's ghost
+ * placeholder). Tapping / arrowing into the phantom while the edge block is already empty still
+ * focuses that block (idempotent, no duplicate empties). (2) Arrows COOPERATE with typeahead
+ * menus: Roam's own up/down keymap lives ON the textarea (target phase, last in line) and gets
+ * swapped out via React state while its autocomplete is open; plugins like colonmenu win by
+ * claiming the key at document-capture. We mirror that: listen capture on #app (any document-
+ * level menu plugin preempts us load-order-free; we still beat Roam's textarea keymap), skip
+ * when e.defaultPrevented, and skip while any typeahead is VISIBLE (.rm-autocomplete__results —
+ * Roam's [[ (( / ;; # :: menus AND colonmenu all use it — plus ARIA listbox/menu for foreign
+ * plugins; checkVisibility, since colonmenu parks its menu mounted with display:none).
+ * (3) The v0.4 lift/hotUntil zero-CLS machinery is DELETED:
+ * with rows always visible there is no phantom↔block swap — an add is legitimate one-line
+ * growth (same as Enter), a reap is legitimate one-line removal. The clickShield still covers
+ * the bottom-row slide-under-pointer retarget (exemption tightened to .rm-block-main so the
+ * zoomed-view structural ancestor no longer slips through), and gesture-end moved to the
+ * document-level pointerup hook (the row can slide out from under the pointer, so row-local
+ * pointerup may never fire).
+ * v0.4.1 — click-out reap is INSTANT: release the noReap guard on
  * pointerup + timeout(0) (post click-dispatch) instead of waiting out the fixed 450ms timer;
  * the timer stays only as a fallback for gestures that end off-window.
  * v0.4 — ZERO-CLS entry. v0.3 held the row IN FLOW until pointerup →
@@ -22,7 +41,7 @@
  * FIX: render a phantom "free node" row above the first and below the last top-level block of every
  * page outline (single page, each DNP-log day, zoomed block). One tap on it creates an empty block
  * there (order 0 / last) and focuses it — keyboard up, caret ready. If the edge block is ALREADY
- * empty, the phantom hides (the empty block itself is the free node) and tapping just focuses it.
+ * empty, tapping just focuses it (the empty block IS the free node — no duplicate empties).
  * Phantoms are virtual: nothing is written to the graph until you tap, so no empty-block litter.
  *
  * Mechanics (see CLAUDE.md cheat-sheet):
@@ -39,13 +58,13 @@
 if (window.ViktorAlwaysone && window.ViktorAlwaysone.stop) window.ViktorAlwaysone.stop();
 window.ViktorAlwaysone = (function () {
 	var ROW = 'vt-a1-row', TOP = 'vt-a1-top', BOT = 'vt-a1-bot';
-	var started = false, observer = null, raf = 0, late = 0, busy = false;
+	var started = false, observer = null, raf = 0, late = 0, busy = false, keyHost = null;
 	var pending = null;      // {uid, focused} — block WE created; deleted again if abandoned empty
 	var shieldUntil = 0;     // swallow structural clicks right after an add (see clickShield)
-	var noReapUntil = 0;     // never reap mid-click: the layout shift retargets the in-flight click
-	var hotUntil = 0;        // add/reap in flight: ensure() must run SYNC in the observer microtask
-	// (pre-paint even when React commits inside a rAF phase — a rAF-scheduled ensure() lands one
-	// frame LATE there and the row+block double-height state gets painted; measured 1-2 frames)
+	var noReapUntil = 0;     // reap debounce floor; see deferReaps
+	var pointerHeld = false; // never reap while a pointer is down: the shift retargets the in-flight click
+	// (v0.4's hotUntil sync-ensure + lift/unlift zero-CLS machinery is GONE in v0.5: rows never
+	// swap with blocks anymore, so there is no double-height state to keep out of the paint)
 	var api = window.roamAlphaAPI;
 	var css = document.createElement('style');
 	css.id = 'CSSViktorAlwaysone';
@@ -58,11 +77,7 @@ window.ViktorAlwaysone = (function () {
 		'@media(hover:hover){.' + ROW + ':hover .vt-a1-dot{opacity:.6}.' + ROW + ':hover .vt-a1-hint{opacity:.45}}',
 		'.' + ROW + ':active .vt-a1-dot{opacity:.75}',
 		'.' + ROW + ' .vt-a1-ta{position:absolute;left:0;top:0;width:1px;height:1px;opacity:.01;',
-		'  border:0;padding:0;resize:none;caret-color:transparent;background:transparent;}',
-		// lifted = out of flow the moment the real block renders (zero-CLS swap) but still in the
-		// DOM at its static position, invisible yet hit-testable: the in-flight click lands HERE
-		// (dont-unfocus-block chain intact) instead of retargeting to a structural div
-		'.' + ROW + '.vt-a1-lift{position:absolute;opacity:0;z-index:1;}'
+		'  border:0;padding:0;resize:none;caret-color:transparent;background:transparent;}'
 	].join('\n');
 
 	function outlines() {
@@ -78,8 +93,13 @@ window.ViktorAlwaysone = (function () {
 			return !o.closest('.rm-reference-main,.rm-reference-container,.rm-embed-container,#right-sidebar');
 		});
 	}
+	// REAL blocks only: a completely empty page/day renders a ghost placeholder that is a
+	// .roam-block-container WITHOUT data-block-uid ("Click here to start writing…") — it is not
+	// a block we can flank or edge off, so uid-less containers don't count anywhere.
 	function blocksOf(o) {
-		return Array.from(o.children).filter(function (c) { return c.classList.contains('roam-block-container'); });
+		return Array.from(o.children).filter(function (c) {
+			return c.classList.contains('roam-block-container') && c.getAttribute('data-block-uid');
+		});
 	}
 	function parentUidOf(uid) {
 		try {
@@ -100,9 +120,6 @@ window.ViktorAlwaysone = (function () {
 	// (Datascript pull LAGS the render — an ensure() fired by the commit-render mutation still
 	// pulls the OLD string, and no later mutation comes → stale phantom. DOM never lags.)
 	function isEmptyBlock(container) {
-		// virtual placeholder (fresh empty day/page): data-block-uid=null, shows "Click here to
-		// start writing" ghost text — it IS the free node, so: empty
-		if (!container.getAttribute('data-block-uid')) return true;
 		var main = container.querySelector(':scope > .rm-block-main');
 		if (!main) return false;
 		var ta = main.querySelector('textarea');
@@ -125,15 +142,15 @@ window.ViktorAlwaysone = (function () {
 		ta.tabIndex = -1; ta.setAttribute('aria-hidden', 'true');
 		var dot = document.createElement('div'); dot.className = 'vt-a1-dot';
 		var hint = document.createElement('span'); hint.className = 'vt-a1-hint';
-		hint.textContent = kind === TOP ? 'new line at top' : 'new line at bottom';
+		hint.textContent = 'new line';
 		row.appendChild(ta); row.appendChild(dot); row.appendChild(hint);
 		row.addEventListener('mousedown', function (e) { e.preventDefault(); e.stopPropagation(); });
 		row.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); });
 		row.addEventListener('pointerdown', function (e) {
 			e.preventDefault(); e.stopPropagation();
-			// the add re-renders + HIDES this row mid-gesture → mouseup retargets → the click
-			// lands on a class-less ancestor → Roam's document click handler unfocuses what we
-			// just focused. Hold the row visible until the gesture ends + shield the click.
+			// a bottom add slides this row down mid-gesture → mouseup retargets → the click lands
+			// on a class-less ancestor → Roam's document click handler would unfocus what we just
+			// focused. Freeze the row's styling until the gesture ends + shield the click.
 			row._gesture = true;
 			shieldUntil = performance.now() + 600;
 			// touch only: the in-gesture hop that opens the iOS keyboard; on desktop it just
@@ -143,25 +160,26 @@ window.ViktorAlwaysone = (function () {
 			}
 			add(row, kind === TOP);
 		});
-		['pointerup', 'pointercancel', 'pointerleave'].forEach(function (ev) {
-			row.addEventListener(ev, function () {
-				if (!row._gesture) return;
-				setTimeout(function () { row._gesture = false; schedule(); }, 0);   // after the click dispatch
-			});
-		});
+		// no row-local gesture-end listeners: a bottom add slides the row out from under the
+		// pointer, so its own pointerup may never fire — the document-level releaseReaps hook
+		// (fires on ANY pointerup) clears _gesture instead.
 		return row;
 	}
 	// Roam registers its unfocus handler on document CLICK (bubble; route-app.js $APP.JNb):
 	// editing + target chain without dont-unfocus-block → blur. A click retargeted off our row
 	// (layout changed mid-gesture) hits structural divs and triggers it — swallow exactly those.
+	// Exemption = .rm-block-main (real click INTO a block: content, bullet, caret, checkbox all
+	// live inside it) + .rm-multibar (thread collapse line — sits directly in .rm-block-children,
+	// live-verified), NOT .roam-block-container: in zoomed view the retargeted click's common
+	// ancestor is an .rm-block-children INSIDE the zoomed container, which the broader match
+	// would exempt → Roam blur → reap eats the fresh block ("requires multiple tries" again).
 	function clickShield(e) {
 		if (performance.now() > shieldUntil) return;
-		if (e.target && e.target.closest && e.target.closest('.roam-block-container,.rm-title-display,.' + ROW)) return;
+		if (e.target && e.target.closest && e.target.closest('.rm-block-main,.rm-multibar,.rm-title-display,.' + ROW)) return;
 		e.stopPropagation();
 	}
-	// Row height that makes phantom↔block swap layout-NEUTRAL, measured (themes vary):
-	// inserting a block into the outline costs singleLineBlockHeight + outline row-gap; removing
-	// the row from the host frees rowHeight + host row-gap → rowH = single + og − hg.
+	// Row height = one real block pitch, MEASURED (themes vary) — the phantom reads as exactly
+	// one line slot and add/reap growth is exactly one pitch: rowH = single + outlineGap − hostGap.
 	// single from the edge block, wrap-proof: mainH minus the extra wrapped lines (lines from
 	// inputH/lineH; VERIFIED single mainH == real block pitch, wrapped mainH == single + n·lineH).
 	// Falls back to 26px when the measure is implausible.
@@ -181,18 +199,6 @@ window.ViktorAlwaysone = (function () {
 			+ gapOf(outline) - gapOf(host));
 		return (h > 8 && h < 120) ? h : 0;
 	}
-	// Out of flow, same paint as the block render — the pointer may still be down on the row, so
-	// it must stay in the DOM (hit-testable, class chain intact), just not occupy height.
-	function lift(row) {
-		if (row._lifted) return; row._lifted = true;
-		row.style.width = row.offsetWidth + 'px';   // abs would shrink-wrap; keep the hit area
-		row.classList.add('vt-a1-lift');
-	}
-	function unlift(row) {
-		if (!row._lifted) return; row._lifted = false;
-		row.classList.remove('vt-a1-lift');
-		row.style.width = '';
-	}
 	function rowFor(host, outline, kind) {
 		var row = null;
 		for (var el = host.firstElementChild; el; el = el.nextElementSibling)
@@ -208,20 +214,35 @@ window.ViktorAlwaysone = (function () {
 	// then left while still empty, delete it — the page returns to exactly its pre-tap state.
 	// A pointer gesture is in flight anywhere on the page: deleting a block NOW shifts the layout
 	// between mousedown and mouseup → the click retargets to a structural div → Roam blurs the
-	// freshly clicked block. Defer the reap until the gesture is over.
-	function deferReaps() { noReapUntil = performance.now() + 450; }
+	// freshly clicked block. Defer the reap for as long as the pointer is actually HELD (v0.5:
+	// the reap shrink is no longer layout-neutral, so a fixed 450ms window is not enough — a
+	// drag-select held longer than that would get the layout yanked from under it). The 450ms
+	// floor stays as a same-paint debounce; pointerHeld carries gestures of any length.
+	function deferReaps() { pointerHeld = true; noReapUntil = performance.now() + 450; }
 	// Gesture is over at pointerup; timeout(0) runs after the click (if any) has dispatched —
-	// mouseup+click are one synchronous input sequence (same assumption as the row's own
-	// gesture-end handler). Reap immediately instead of riding out the 450ms fallback (that
-	// wait was a visible half-second lag on every click-out before the empty block swapped
-	// back to the dashed phantom). NOT hookable on 'click': clicking a view-mode block swaps
-	// span→textarea between mousedown and mouseup → mousedown target leaves the DOM → Chrome
-	// suppresses the click entirely (event-log verified). The 450ms timer stays as fallback
-	// for gestures that end off-window (no pointerup).
-	function releaseReaps() { setTimeout(function () { noReapUntil = 0; if (pending && pending.focused) ensure(); }, 0); }
+	// mouseup+click are one synchronous input sequence. Also the ONLY place row._gesture is
+	// cleared (rows can slide out from under the pointer → row-local pointerup is unreliable).
+	// Reap immediately instead of riding out a timer (that wait was a visible half-second lag
+	// on every click-out before the empty block swapped back to the dashed phantom). NOT
+	// hookable on 'click': clicking a view-mode block swaps span→textarea between mousedown and
+	// mouseup → mousedown target leaves the DOM → Chrome suppresses the click entirely
+	// (event-log verified). Off-window releases fire NO pointerup — recoverPointer (any
+	// pointermove with no buttons down) releases those the moment the pointer returns.
+	function releaseReaps() {
+		setTimeout(function () {
+			pointerHeld = false;
+			noReapUntil = 0;
+			var dirty = pending && pending.focused;
+			Array.from(document.querySelectorAll('.' + ROW)).forEach(function (row) {
+				if (row._gesture) { row._gesture = false; dirty = true; }
+			});
+			if (dirty) ensure();
+		}, 0);
+	}
+	function recoverPointer(e) { if (pointerHeld && e.buttons === 0) releaseReaps(); }
 	function reap() {
 		if (!pending || !pending.focused) return;
-		if (performance.now() < noReapUntil) { setTimeout(schedule, 500); return; }
+		if (pointerHeld || performance.now() < noReapUntil) { setTimeout(schedule, 500); return; }
 		var uid = pending.uid;
 		var ae = document.activeElement;
 		if (ae && ae.id && ae.id.slice(-uid.length) === uid) return;   // still editing it
@@ -230,13 +251,10 @@ window.ViktorAlwaysone = (function () {
 			// DOM first — pull LAGS a fresh blur-commit and would delete a block the user just typed into
 			var el = document.querySelector('.roam-block-container[data-block-uid="' + uid + '"]');
 			if (el) {
-				if (isEmptyBlock(el) && !hasKids(el)) { hotUntil = performance.now() + 1500; api.deleteBlock({ block: { uid: uid } }); }
+				if (isEmptyBlock(el) && !hasKids(el)) api.deleteBlock({ block: { uid: uid } });
 			} else {
 				var r = api.pull('[:block/string :block/children]', [':block/uid', uid]);
-				if (r && (r[':block/string'] || '') === '' && !r[':block/children']) {
-					hotUntil = performance.now() + 1500;
-					api.deleteBlock({ block: { uid: uid } });
-				}
+				if (r && (r[':block/string'] || '') === '' && !r[':block/children']) api.deleteBlock({ block: { uid: uid } });
 			}
 		} catch (e) { }
 	}
@@ -247,24 +265,19 @@ window.ViktorAlwaysone = (function () {
 			var host = o.parentElement; if (!host) return;
 			var blocks = blocksOf(o);
 			var top = rowFor(host, o, TOP), bot = rowFor(host, o, BOT);
-			if (!blocks.length) {                              // empty page: Roam's own virtual
-				top.style.display = 'none';                    // empty block is the free node
-				bot.style.display = 'none';
+			if (!blocks.length) {                              // completely empty page: only Roam's
+				top.style.display = 'none';                    // ghost placeholder — it is the free
+				bot.style.display = 'none';                    // node, phantoms would be noise
 				return;
 			}
-			var last = blocks[blocks.length - 1];
-			var topShow = !isEmptyBlock(blocks[0]);
-			var botShow = !isEmptyBlock(last) || hasKids(last);
-			var topDisp = topShow ? '' : 'none', botDisp = botShow ? '' : 'none';
+			// v0.5: rows are ALWAYS visible on a non-empty outline — no edge-empty hiding, no
+			// lift: the add is legitimate one-line growth (like Enter). The bottom row sliding
+			// down under a pressed pointer is safe: the retargeted click hits a structural
+			// common ancestor and the clickShield swallows it.
 			var h = neutralHeight(o, host, blocks[0]);
-			[[top, topDisp], [bot, botDisp]].forEach(function (rd) {
-				var row = rd[0], disp = rd[1];
-				if (row._gesture) {                       // pointer may still be down on the row:
-					if (disp === 'none') lift(row);       // leave flow NOW (pre-paint, zero-CLS) but
-					return;                               // stay in the DOM under the pointer
-				}
-				unlift(row);
-				if (row.style.display !== disp) row.style.display = disp;
+			[top, bot].forEach(function (row) {
+				if (row._gesture) return;                 // never restyle a row mid-gesture
+				if (row.style.display !== '') row.style.display = '';
 				var hpx = (h || 26) + 'px';
 				if (row.style.height !== hpx) row.style.height = hpx;
 			});
@@ -274,7 +287,7 @@ window.ViktorAlwaysone = (function () {
 			if (bullet) {
 				var bx = bullet.getBoundingClientRect();
 				[top, bot].forEach(function (row) {
-					if (row.style.display === 'none' || row._lifted || !bx.width) return;
+					if (row.style.display === 'none' || !bx.width) return;
 					var d = row.querySelector('.vt-a1-dot');
 					var want = Math.round(bx.left + bx.width / 2 - 4 - row.getBoundingClientRect().left) + 'px';
 					if (d && d.style.marginLeft !== want) d.style.marginLeft = want;
@@ -317,7 +330,6 @@ window.ViktorAlwaysone = (function () {
 	}
 	function add(row, isTop) {
 		if (busy) return; busy = true;
-		hotUntil = performance.now() + 1500;
 		setTimeout(function () { busy = false; }, 600);
 		(async function () {
 			var o = row.classList.contains(TOP) ? row.nextElementSibling : row.previousElementSibling;
@@ -325,12 +337,17 @@ window.ViktorAlwaysone = (function () {
 			var blocks = blocksOf(o);
 			if (!blocks.length) return;
 			var edge = isTop ? blocks[0] : blocks[blocks.length - 1];
-			var edgeUid = edge.getAttribute('data-block-uid');
-			if (!edgeUid) return;   // virtual placeholder — tap IT, not us
+			var edgeUid = edge.getAttribute('data-block-uid');   // never null: blocksOf filters uid-less
 			var winId = o.closest('.roam-log-page')
 				? 'log-outline'
 				: api.user.uid() + '-body-outline-' + pageUidOf(edgeUid);
-			if (isEmptyBlock(edge) && (isTop || !hasKids(edge))) { focusBlock(edgeUid, winId); return; }
+			if (isEmptyBlock(edge) && (isTop || !hasKids(edge))) {
+				// edge may be OUR still-pending block (re-tap on the phantom above it): the touch
+				// hidden-ta hop just stole DOM focus, so reap would see "not editing" and delete
+				// the very block we are refocusing — disarm until focusBlock re-arms on landing.
+				if (pending && pending.uid === edgeUid) pending.focused = false;
+				focusBlock(edgeUid, winId); return;
+			}
 			var parent = parentUidOf(edgeUid);
 			if (!parent) return;
 			var uid = api.util.generateUID();
@@ -367,9 +384,27 @@ window.ViktorAlwaysone = (function () {
 		d.remove();
 		return top;
 	}
+	// An open typeahead owns the arrows. Roam's [[ (( / ;; # :: menus all render
+	// .rm-autocomplete__results (direct child of <body>, live-verified 2026-07-02; no ARIA
+	// roles) and unmount it on close; colonmenu reuses the class but parks its menu MOUNTED
+	// with display:none — so presence alone is not enough, visibility is the signal.
+	// [role=listbox]/[role=menu] catches ARIA-correct foreign plugins (and Blueprint context
+	// menus, where arrows belong to the menu too). checkVisibility also sees visibility:hidden
+	// /opacity:0 parking (getClientRects only catches display:none).
+	function menuOwnsArrows() {
+		var els = document.querySelectorAll('.rm-autocomplete__results,[role=listbox],[role=menu]');
+		for (var i = 0; i < els.length; i++) {
+			var el = els[i];
+			if (el.checkVisibility ? el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })
+				: el.getClientRects().length) return true;
+		}
+		return false;
+	}
 	function onKey(e) {
 		if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
 		if (e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+		if (e.defaultPrevented) return;      // an earlier handler (menu plugin) claimed the key
+		if (menuOwnsArrows()) return;        // typeahead open → arrows navigate the menu, not blocks
 		var ta = e.target;
 		if (!ta || ta.tagName !== 'TEXTAREA' || ta.id.indexOf('block-input') !== 0) return;
 		var isTop = e.key === 'ArrowUp';
@@ -378,21 +413,25 @@ window.ViktorAlwaysone = (function () {
 		var cont = ta.closest('.roam-block-container');
 		if (!cont) return;
 		// climb to the root container whose parent is a phantom-flanked outline
-		var node = cont, outline = null, rootCont = null;
+		var node = cont, outline = null;
 		while (node) {
 			var p = node.parentElement;
 			if (p && p.classList.contains('rm-block-children')) {
 				var sib = isTop ? p.previousElementSibling : p.nextElementSibling;
-				if (sib && sib.classList && sib.classList.contains(ROW)) { outline = p; rootCont = node; break; }
+				if (sib && sib.classList && sib.classList.contains(ROW)) { outline = p; break; }
 			}
 			node = p ? p.closest('.roam-block-container') : null;
 		}
 		if (!outline) return;
 		var blocks = blocksOf(outline);
 		if (!blocks.length) return;
-		if (isTop ? cont !== blocks[0] : cont !== lastVisible(blocks[blocks.length - 1])) return;
+		var last = blocks[blocks.length - 1];
+		if (isTop ? cont !== blocks[0] : cont !== lastVisible(last)) return;
 		var row = isTop ? outline.previousElementSibling : outline.nextElementSibling;
-		if (!row || row.style.display === 'none') return;   // edge already empty → native handles it
+		if (!row || row.style.display === 'none') return;   // row hidden (transient) → nothing to enter
+		// edge block already empty (same condition add() focus-existing uses) → the caret is
+		// already IN the free node; consuming the key would make it dead. Native handles it.
+		if (isTop ? isEmptyBlock(blocks[0]) : (isEmptyBlock(last) && !hasKids(last))) return;
 		e.preventDefault(); e.stopPropagation();
 		add(row, isTop);
 	}
@@ -404,29 +443,36 @@ window.ViktorAlwaysone = (function () {
 			for (var i = 0; i < muts.length; i++) {
 				var t = muts[i].target;
 				if (t && t.closest && t.closest('.' + ROW)) continue;   // ignore our own rows
-				if (performance.now() < hotUntil) ensure();   // sync = pre-paint: zero-CLS swap
-				else schedule();
+				schedule();
 				return;
 			}
 		});
 		observer.observe(document.body, { childList: true, subtree: true });
 		document.addEventListener('focusout', schedule, true);   // blur alone mutates nothing → reap needs this
-		document.addEventListener('keydown', onKey, true);       // capture: beat Roam's own arrow handling
+		// keydown capture on #app, NOT document: menu plugins (colonmenu etc.) claim arrows at
+		// document-capture with stopPropagation → they preempt us regardless of load order, exactly
+		// as they preempt Roam. We still run before Roam's own leave-block keymap (React synthetic
+		// handler = root-container BUBBLE) — which preventDefaults even at page edges, so we cannot
+		// sit after it; capture-at-#app is the one slot that is both cooperative and effective.
+		keyHost = document.getElementById('app') || document;
+		keyHost.addEventListener('keydown', onKey, true);
 		document.addEventListener('click', clickShield, true);   // capture: beat Roam's unfocus click handler
 		document.addEventListener('pointerdown', deferReaps, true);
-		document.addEventListener('pointerup', releaseReaps, true);      // reap right after the gesture,
-		document.addEventListener('pointercancel', releaseReaps, true);  // not 450ms later
+		document.addEventListener('pointerup', releaseReaps, true);      // reap right after the gesture
+		document.addEventListener('pointercancel', releaseReaps, true);
+		document.addEventListener('pointermove', recoverPointer, true);  // off-window release recovery
 		return true;
 	}
 	function stop() {
 		if (!started) return; started = false;
 		if (observer) { observer.disconnect(); observer = null; }
 		document.removeEventListener('focusout', schedule, true);
-		document.removeEventListener('keydown', onKey, true);
+		if (keyHost) { keyHost.removeEventListener('keydown', onKey, true); keyHost = null; }
 		document.removeEventListener('click', clickShield, true);
 		document.removeEventListener('pointerdown', deferReaps, true);
 		document.removeEventListener('pointerup', releaseReaps, true);
 		document.removeEventListener('pointercancel', releaseReaps, true);
+		document.removeEventListener('pointermove', recoverPointer, true);
 		if (raf) { cancelAnimationFrame(raf); raf = 0; }
 		if (late) { clearTimeout(late); late = 0; }
 		Array.from(document.querySelectorAll('.' + ROW)).forEach(function (el) { el.remove(); });
