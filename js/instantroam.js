@@ -81,6 +81,23 @@ window.ViktorInstantroam = (function () {
 			try { localStorage.setItem('IR2:lastHash', String(W.location.hash || '')); } catch (e) { }
 			var CLS = classify(W.location.hash);
 			var EN = {}; try { EN = JSON.parse(localStorage.getItem('IR2:graphs') || '{}') || {}; } catch (e) { }
+			// The installed-PWA start_url is /#/pwa → Roam redirects it to /quick-capture (a non-graph
+			// route where capture can never hydrate), and the webmanifest is NOT precached anymore so we
+			// can't poison start_url. We run BEFORE Roam's router initializes: when exactly ONE graph is
+			// enabled and there is no share-target payload, retarget the hash to that graph — the PWA
+			// boots straight into it, exactly like a pre-/#/pwa install. replaceState: no history entry,
+			// no hashchange.
+			if (CLS.k === 'other' && (CLS.r === '/pwa' || CLS.r === '/quick-capture')) {
+				try {
+					var enN = []; for (var ek in EN) { if (EN[ek] && EN[ek].on) enN.push(ek); }
+					var hasShare = /[?&](title|text|url)=/.test(String(W.location.search || '')) || String(W.location.hash || '').indexOf('?') >= 0;
+					if (enN.length === 1 && !hasShare) {
+						var nh = '#/app/' + encodeURIComponent(enN[0]);
+						try { history.replaceState(null, '', W.location.pathname + W.location.search + nh); } catch (e2) { W.location.hash = nh; }
+						CLS = classify(nh);
+					}
+				} catch (e) { }
+			}
 			if (CLS.k !== 'graph' || !(EN[CLS.g] && EN[CLS.g].on)) return;   // inert: login / picker / other graphs / disabled
 			var G = CLS.g;
 			function KK(n) { return 'IR2:' + G + ':' + n; }
@@ -1046,9 +1063,10 @@ window.ViktorInstantroam = (function () {
 		} catch (_) { }
 	}
 
-	// Manifest: dark iOS splash + start_url pinned to the last-used graph. Roam's default start_url
-	// is /#/pwa → quick-capture, a NON-graph route where the overlay can never run — a Home-Screen
-	// re-add would silently kill instant capture without this. Takes effect on remove + re-add.
+	// Manifest: dark iOS splash + start_url pinned to the last-used graph. NOTE (2026-07-03): Roam's
+	// precache no longer contains manifest.webmanifest (only manifest.edn) → this is currently a
+	// silent no-op and the browser fetches the manifest from network. Kept for the day it returns;
+	// the /#/pwa problem is solved at T=0 instead (shell retargets the hash pre-router, see capture).
 	async function poisonManifest() {
 		try {
 			var e = await cacheEntry(isManifest); if (!e) return;
