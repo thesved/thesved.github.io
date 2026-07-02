@@ -1,10 +1,16 @@
 /*
  * Viktor's Roam plugin: AlwaysOne — always a free node at the top and bottom of the page.
- * version: 0.3  (2026-07-02)  — desktop, from Roam's compiled source (route-app.js $APP.JNb):
- * Roam unfocuses on document CLICK when the target chain lacks dont-unfocus-block. Our add hid
- * the row mid-gesture → the click retargeted to a class-less ancestor → blur. Fix: row carries
- * the class, holds visible until pointerup, and a capture-phase click shield swallows structural
- * clicks for 600ms after an add. Arrows now mirror Roam's own semantics (caret-mirror pixel-top:
+ * version: 0.4  (2026-07-02)  — ZERO-CLS entry. v0.3 held the row IN FLOW until pointerup →
+ * for ~100-300ms both the row and the new block occupied space (+56px push, then pop). Now the
+ * row LIFTS out of flow (position:absolute + opacity:0) in the same pre-paint ensure() that sees
+ * the new block — never painted double, but still in the DOM under the pointer so the in-flight
+ * click keeps landing on dont-unfocus-block (no blur retarget). And the row's height is MEASURED
+ * per outline so row↔block swap (add AND reap) is layout-neutral: h = blockFootprint + outlineGap
+ * − hostGap (the fixed 26px was 4px short of a real block → residual nudge on every entry).
+ *
+ * v0.3: Roam unfocuses on document CLICK when the target chain lacks dont-unfocus-block (compiled
+ * route-app.js $APP.JNb) → row carries the class + capture-phase click shield swallows structural
+ * clicks for 600ms after an add. Arrows mirror Roam's own semantics (caret-mirror pixel-top:
  * first/last VISUAL line, wrapped lines count): Up on first root block / Down on last visible
  * block enters the free node. Hidden-textarea hop = touch only.
  *
@@ -34,6 +40,9 @@ window.ViktorAlwaysone = (function () {
 	var pending = null;      // {uid, focused} — block WE created; deleted again if abandoned empty
 	var shieldUntil = 0;     // swallow structural clicks right after an add (see clickShield)
 	var noReapUntil = 0;     // never reap mid-click: the layout shift retargets the in-flight click
+	var hotUntil = 0;        // add/reap in flight: ensure() must run SYNC in the observer microtask
+	// (pre-paint even when React commits inside a rAF phase — a rAF-scheduled ensure() lands one
+	// frame LATE there and the row+block double-height state gets painted; measured 1-2 frames)
 	var api = window.roamAlphaAPI;
 	var css = document.createElement('style');
 	css.id = 'CSSViktorAlwaysone';
@@ -46,7 +55,11 @@ window.ViktorAlwaysone = (function () {
 		'@media(hover:hover){.' + ROW + ':hover .vt-a1-dot{opacity:.6}.' + ROW + ':hover .vt-a1-hint{opacity:.45}}',
 		'.' + ROW + ':active .vt-a1-dot{opacity:.75}',
 		'.' + ROW + ' .vt-a1-ta{position:absolute;left:0;top:0;width:1px;height:1px;opacity:.01;',
-		'  border:0;padding:0;resize:none;caret-color:transparent;background:transparent;}'
+		'  border:0;padding:0;resize:none;caret-color:transparent;background:transparent;}',
+		// lifted = out of flow the moment the real block renders (zero-CLS swap) but still in the
+		// DOM at its static position, invisible yet hit-testable: the in-flight click lands HERE
+		// (dont-unfocus-block chain intact) instead of retargeting to a structural div
+		'.' + ROW + '.vt-a1-lift{position:absolute;opacity:0;z-index:1;}'
 	].join('\n');
 
 	function outlines() {
@@ -143,6 +156,40 @@ window.ViktorAlwaysone = (function () {
 		if (e.target && e.target.closest && e.target.closest('.roam-block-container,.rm-title-display,.' + ROW)) return;
 		e.stopPropagation();
 	}
+	// Row height that makes phantom↔block swap layout-NEUTRAL, measured (themes vary):
+	// inserting a block into the outline costs singleLineBlockHeight + outline row-gap; removing
+	// the row from the host frees rowHeight + host row-gap → rowH = single + og − hg.
+	// single from the edge block, wrap-proof: mainH minus the extra wrapped lines (lines from
+	// inputH/lineH; VERIFIED single mainH == real block pitch, wrapped mainH == single + n·lineH).
+	// Falls back to 26px when the measure is implausible.
+	function gapOf(el) { var g = parseFloat(getComputedStyle(el).rowGap); return isNaN(g) ? 0 : g; }
+	function neutralHeight(outline, host, edge) {
+		var main = edge.querySelector(':scope > .rm-block-main');
+		var inp = main && main.querySelector('.rm-block__input, textarea');
+		if (!main || !inp) return 0;
+		var mh = main.getBoundingClientRect().height, ih = inp.getBoundingClientRect().height;
+		var lh = parseFloat(getComputedStyle(inp).lineHeight);
+		if (!lh || isNaN(lh)) lh = ih;
+		var lines = Math.max(1, Math.round(ih / lh));
+		var cs = getComputedStyle(edge);
+		var h = Math.round(mh - (lines - 1) * lh
+			+ (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0)
+			+ (parseFloat(cs.marginTop) || 0) + (parseFloat(cs.marginBottom) || 0)
+			+ gapOf(outline) - gapOf(host));
+		return (h > 8 && h < 120) ? h : 0;
+	}
+	// Out of flow, same paint as the block render — the pointer may still be down on the row, so
+	// it must stay in the DOM (hit-testable, class chain intact), just not occupy height.
+	function lift(row) {
+		if (row._lifted) return; row._lifted = true;
+		row.style.width = row.offsetWidth + 'px';   // abs would shrink-wrap; keep the hit area
+		row.classList.add('vt-a1-lift');
+	}
+	function unlift(row) {
+		if (!row._lifted) return; row._lifted = false;
+		row.classList.remove('vt-a1-lift');
+		row.style.width = '';
+	}
 	function rowFor(host, outline, kind) {
 		var row = null;
 		for (var el = host.firstElementChild; el; el = el.nextElementSibling)
@@ -171,11 +218,13 @@ window.ViktorAlwaysone = (function () {
 			// DOM first — pull LAGS a fresh blur-commit and would delete a block the user just typed into
 			var el = document.querySelector('.roam-block-container[data-block-uid="' + uid + '"]');
 			if (el) {
-				if (isEmptyBlock(el) && !hasKids(el)) api.deleteBlock({ block: { uid: uid } });
+				if (isEmptyBlock(el) && !hasKids(el)) { hotUntil = performance.now() + 1500; api.deleteBlock({ block: { uid: uid } }); }
 			} else {
 				var r = api.pull('[:block/string :block/children]', [':block/uid', uid]);
-				if (r && (r[':block/string'] || '') === '' && !r[':block/children'])
+				if (r && (r[':block/string'] || '') === '' && !r[':block/children']) {
+					hotUntil = performance.now() + 1500;
 					api.deleteBlock({ block: { uid: uid } });
+				}
 			}
 		} catch (e) { }
 	}
@@ -195,15 +244,25 @@ window.ViktorAlwaysone = (function () {
 			var topShow = !isEmptyBlock(blocks[0]);
 			var botShow = !isEmptyBlock(last) || hasKids(last);
 			var topDisp = topShow ? '' : 'none', botDisp = botShow ? '' : 'none';
-			if (!top._gesture && top.style.display !== topDisp) top.style.display = topDisp;
-			if (!bot._gesture && bot.style.display !== botDisp) bot.style.display = botDisp;
+			var h = neutralHeight(o, host, blocks[0]);
+			[[top, topDisp], [bot, botDisp]].forEach(function (rd) {
+				var row = rd[0], disp = rd[1];
+				if (row._gesture) {                       // pointer may still be down on the row:
+					if (disp === 'none') lift(row);       // leave flow NOW (pre-paint, zero-CLS) but
+					return;                               // stay in the DOM under the pointer
+				}
+				unlift(row);
+				if (row.style.display !== disp) row.style.display = disp;
+				var hpx = (h || 26) + 'px';
+				if (row.style.height !== hpx) row.style.height = hpx;
+			});
 			// align our dot's center with the outline's real bullets — MEASURED, not assumed: themes
 			// pad the host and Roam pulls the outline back out with negative margins (can go negative)
 			var bullet = blocks[0].querySelector('.rm-bullet');
 			if (bullet) {
 				var bx = bullet.getBoundingClientRect();
 				[top, bot].forEach(function (row) {
-					if (row.style.display === 'none' || !bx.width) return;
+					if (row.style.display === 'none' || row._lifted || !bx.width) return;
 					var d = row.querySelector('.vt-a1-dot');
 					var want = Math.round(bx.left + bx.width / 2 - 4 - row.getBoundingClientRect().left) + 'px';
 					if (d && d.style.marginLeft !== want) d.style.marginLeft = want;
@@ -246,6 +305,7 @@ window.ViktorAlwaysone = (function () {
 	}
 	function add(row, isTop) {
 		if (busy) return; busy = true;
+		hotUntil = performance.now() + 1500;
 		setTimeout(function () { busy = false; }, 600);
 		(async function () {
 			var o = row.classList.contains(TOP) ? row.nextElementSibling : row.previousElementSibling;
@@ -332,7 +392,9 @@ window.ViktorAlwaysone = (function () {
 			for (var i = 0; i < muts.length; i++) {
 				var t = muts[i].target;
 				if (t && t.closest && t.closest('.' + ROW)) continue;   // ignore our own rows
-				schedule(); return;
+				if (performance.now() < hotUntil) ensure();   // sync = pre-paint: zero-CLS swap
+				else schedule();
+				return;
 			}
 		});
 		observer.observe(document.body, { childList: true, subtree: true });
