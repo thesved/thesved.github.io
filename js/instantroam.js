@@ -816,6 +816,7 @@ window.ViktorInstantroam = (function () {
 					return (committed[lx] || pageExists(lx)) ? m : '[[' + x;
 				});
 			}
+			CAP._sani = sani; CAP._rank = rankPages;   // test/debug hooks (battery unit-tests, like _img)
 
 			function roamEditable(el) {
 				if (!el || el === ta || el.id === 'IR_lab_b') return false;
