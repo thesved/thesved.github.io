@@ -1,6 +1,15 @@
 /*
  * Viktor's Roam plugin: AlwaysOne — always a free node at the top and bottom of the page.
- * version: 0.5.1  (2026-07-03)
+ * version: 0.5.2  (2026-07-03)
+ * v0.5.2 — (1) BACKSPACE PARITY on the top block: Roam refuses to delete the FIRST root block
+ * with backspace (no previous block to merge into) — but with a phantom free node above it the
+ * top line should die like any empty line. Empty top root block (no children) + Backspace →
+ * focus the next block FIRST (textarea→textarea keeps the iOS keyboard, caret at 0), then
+ * deleteBlock. (2) NO MORE WHITE-BOX BOOT FLASH: the rows' BASE look (hidden textarea, dot,
+ * opacity-0 hint) moved to INLINE styles — for a few seconds around boot the injected <style>
+ * can be missing/inert and rows rendered as raw white textareas + visible "new line" text.
+ * Stylesheet keeps only :hover/:active sugar (!important to beat the inline base), and ensure()
+ * re-appends it if it ever leaves <head>.
  * v0.5.1 — GHOST TAKEOVER (touch only): Roam's empty-page placeholder ("Click here to start
  * writing…", .rm-block--ghost) is a NON-editable focusable DIV; Roam mounts the block textarea
  * ~30ms AFTER the gesture. On the user's real iPhone (PWA) that tap dies (report 2026-07-03:
@@ -77,18 +86,21 @@ window.ViktorAlwaysone = (function () {
 	// (v0.4's hotUntil sync-ensure + lift/unlift zero-CLS machinery is GONE in v0.5: rows never
 	// swap with blocks anymore, so there is no double-height state to keep out of the paint)
 	var api = window.roamAlphaAPI;
+	// v0.5.2: base look is INLINE on the elements (a late/lost stylesheet must never flash raw
+	// white textareas + visible hints during boot); the stylesheet carries only hover/active
+	// sugar, which needs !important to beat the inline base.
+	var ROW_CSS = 'display:flex;align-items:center;height:26px;cursor:text;position:relative;'
+		+ 'touch-action:manipulation;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;';
+	var TA_CSS = 'position:absolute;left:0;top:0;width:1px;height:1px;opacity:.01;overflow:hidden;'
+		+ 'border:0;padding:0;margin:0;resize:none;caret-color:transparent;background:transparent;';
+	var DOT_CSS = 'width:8px;height:8px;margin-left:23px;border-radius:50%;flex:0 0 auto;'
+		+ 'border:1.5px dashed currentColor;opacity:.28;';
+	var HINT_CSS = 'margin-left:9px;font-size:12px;opacity:0;transition:opacity .15s;';
 	var css = document.createElement('style');
 	css.id = 'CSSViktorAlwaysone';
 	css.innerHTML = [
-		'.' + ROW + '{display:flex;align-items:center;height:26px;cursor:text;position:relative;',
-		'  touch-action:manipulation;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;}',
-		'.' + ROW + ' .vt-a1-dot{width:8px;height:8px;margin-left:23px;border-radius:50%;flex:0 0 auto;',
-		'  border:1.5px dashed currentColor;opacity:.28;}',
-		'.' + ROW + ' .vt-a1-hint{margin-left:9px;font-size:12px;opacity:0;transition:opacity .15s;}',
-		'@media(hover:hover){.' + ROW + ':hover .vt-a1-dot{opacity:.6}.' + ROW + ':hover .vt-a1-hint{opacity:.45}}',
-		'.' + ROW + ':active .vt-a1-dot{opacity:.75}',
-		'.' + ROW + ' .vt-a1-ta{position:absolute;left:0;top:0;width:1px;height:1px;opacity:.01;',
-		'  border:0;padding:0;resize:none;caret-color:transparent;background:transparent;}'
+		'@media(hover:hover){.' + ROW + ':hover .vt-a1-dot{opacity:.6!important}.' + ROW + ':hover .vt-a1-hint{opacity:.45!important}}',
+		'.' + ROW + ':active .vt-a1-dot{opacity:.75!important}'
 	].join('\n');
 
 	function outlines() {
@@ -148,11 +160,15 @@ window.ViktorAlwaysone = (function () {
 		// OUTSIDE a block unless the target chain carries this class → without it the block we
 		// just focused loses focus the moment the click lands (desktop "requires multiple tries")
 		row.className = ROW + ' ' + kind + ' dont-unfocus-block';
+		row.style.cssText = ROW_CSS;
 		var ta = document.createElement('textarea');       // focused in-gesture → iOS keyboard opens,
 		ta.className = 'vt-a1-ta';                          // then textarea→textarea handoff keeps it
+		ta.style.cssText = TA_CSS;
 		ta.tabIndex = -1; ta.setAttribute('aria-hidden', 'true');
 		var dot = document.createElement('div'); dot.className = 'vt-a1-dot';
+		dot.style.cssText = DOT_CSS;
 		var hint = document.createElement('span'); hint.className = 'vt-a1-hint';
+		hint.style.cssText = HINT_CSS;
 		hint.textContent = 'new line';
 		row.appendChild(ta); row.appendChild(dot); row.appendChild(hint);
 		row.addEventListener('mousedown', function (e) { e.preventDefault(); e.stopPropagation(); });
@@ -271,6 +287,8 @@ window.ViktorAlwaysone = (function () {
 	}
 	function ensure() {
 		if (!started) return;
+		// self-heal: the hover-sugar stylesheet can get dropped around boot (head churn) — re-append
+		if (!css.isConnected) { try { document.head.appendChild(css); } catch (e) { } }
 		reap();
 		outlines().forEach(function (o) {
 			var host = o.parentElement; if (!host) return;
@@ -288,7 +306,7 @@ window.ViktorAlwaysone = (function () {
 			var h = neutralHeight(o, host, blocks[0]);
 			[top, bot].forEach(function (row) {
 				if (row._gesture) return;                 // never restyle a row mid-gesture
-				if (row.style.display !== '') row.style.display = '';
+				if (row.style.display !== 'flex') row.style.display = 'flex';   // inline base look — 'flex' IS the visible state
 				var hpx = (h || 26) + 'px';
 				if (row.style.height !== hpx) row.style.height = hpx;
 			});
@@ -317,10 +335,12 @@ window.ViktorAlwaysone = (function () {
 		late = setTimeout(function () { late = 0; ensure(); }, 600);
 	}
 
-	function focusBlock(uid, winId) {
+	function focusBlock(uid, winId, selStart) {
 		var tries = 0;
 		function attempt() {
-			api.ui.setBlockFocusAndSelection({ location: { 'block-uid': uid, 'window-id': winId } });
+			var arg = { location: { 'block-uid': uid, 'window-id': winId } };
+			if (typeof selStart === 'number') arg.selection = { start: selStart };
+			api.ui.setBlockFocusAndSelection(arg);
 		}
 		function loop() {
 			var ae = document.activeElement;
@@ -343,6 +363,7 @@ window.ViktorAlwaysone = (function () {
 	// keyboard hop; lives on <body> so it exists before any ghost renders.
 	var ghostTa = document.createElement('textarea');
 	ghostTa.className = 'vt-a1-ta';
+	ghostTa.style.cssText = TA_CSS;   // inline: must be invisible even with the stylesheet gone
 	ghostTa.tabIndex = -1; ghostTa.setAttribute('aria-hidden', 'true');
 	function onGhostDown(e) {
 		if (e.pointerType === 'mouse' || (navigator.maxTouchPoints || 0) === 0) return;   // touch/pen only
@@ -452,7 +473,45 @@ window.ViktorAlwaysone = (function () {
 		}
 		return false;
 	}
+	// v0.5.2 backspace parity: Roam refuses to delete the FIRST root block on Backspace (there is
+	// no previous block to merge into) — with a phantom free node above, the empty top line should
+	// die like any other. Empty top root block, no children, no menu open → focus the NEXT block
+	// first (textarea→textarea keeps the iOS keyboard, caret at 0 = the line above vanished), then
+	// deleteBlock once the caret has re-homed. Only block on the page → plain delete (ghost returns).
+	function onBackspace(e) {
+		if (e.shiftKey || e.metaKey || e.ctrlKey || e.altKey || e.isComposing) return;
+		if (e.defaultPrevented) return;
+		if (menuOwnsArrows()) return;        // a visible typeahead owns the keys
+		var ta = e.target;
+		if (!ta || ta.tagName !== 'TEXTAREA' || ta.id.indexOf('block-input') !== 0) return;
+		if (ta.value !== '') return;                               // only an EMPTY block dies
+		var cont = ta.closest('.roam-block-container');
+		if (!cont || hasKids(cont)) return;
+		var outline = cont.parentElement;                          // root ⇔ its outline is phantom-flanked
+		if (!outline || !outline.classList.contains('rm-block-children')) return;
+		var rowTop = outline.previousElementSibling;
+		if (!(rowTop && rowTop.classList && rowTop.classList.contains(ROW))) return;
+		var blocks = blocksOf(outline);
+		if (!blocks.length || cont !== blocks[0]) return;          // not the top block → native merge works
+		e.preventDefault(); e.stopPropagation();
+		var uid = cont.getAttribute('data-block-uid');
+		if (pending && pending.uid === uid) pending = null;        // we delete it ourselves — no reap double-fire
+		function del() { try { api.deleteBlock({ block: { uid: uid } }); } catch (err) { } }
+		var next = blocks[1];
+		if (!next) { del(); return; }
+		var nuid = next.getAttribute('data-block-uid');
+		var winId = outline.closest('.roam-log-page') ? 'log-outline'
+			: api.user.uid() + '-body-outline-' + pageUidOf(uid);
+		focusBlock(nuid, winId, 0);
+		var t0 = performance.now();
+		(function waitFocus() {                                    // delete only AFTER the caret re-homed
+			var ae = document.activeElement;
+			if ((ae && ae.id && ae.id.slice(-nuid.length) === nuid) || performance.now() - t0 > 1200) return del();
+			setTimeout(waitFocus, 40);
+		})();
+	}
 	function onKey(e) {
+		if (e.key === 'Backspace') return onBackspace(e);
 		if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
 		if (e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
 		if (e.defaultPrevented) return;      // an earlier handler (menu plugin) claimed the key

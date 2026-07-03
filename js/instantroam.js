@@ -1,5 +1,16 @@
 /*
  * Viktor's Instant Roam — instant, dark, cursor-ready capture on every open.
+ * version: 0.6.2  (2026-07-03) — capture polish trio:
+ *   (1) CMDBAR ON DESKTOP: the capture dock is no longer touch-only — desktop gets the same
+ *       [[ / checkbox / image / undo-redo bar (hover + pointer cursor added; SB2 pin is a no-op
+ *       on desktop since vv never shrinks). ta bottom padding now keys off dock presence.
+ *   (2) SYMMETRIC BRACKETS (native parity): every literal '[' auto-closes ONE ']' with the caret
+ *       between — '[' → '[|]', '[[' → '[[|]]' (was: only the ']]' after a full '[['). Backspace
+ *       between a pair deletes BOTH ('[|]' → ''), and ']' typed before an existing ']' types OVER
+ *       it instead of doubling — same feel as the main app editor.
+ *   (3) MENU BELOW THE CARET, ALWAYS: caret line found via a mirror-div measurement (memoized)
+ *       instead of counting '\n' — SOFT-WRAPPED lines were invisible to the old math, so on a
+ *       wrapped line the menu rendered one-plus lines too high and sat ON the text being typed.
  * version: 0.6.1  (2026-07-03) — inert routes strip the shell dark bg (picker /#/app + non-enabled
  *     graphs painted dark forever = the "black bottom half" / unreadable-light-graph bug); native-
  *     parity [[ menu (exact→prefix→substring shortest-first ranking, bold matched span, linked-ref
@@ -236,7 +247,8 @@ window.ViktorInstantroam = (function () {
 
 			var phStyle = D.createElement('style');
 			phStyle.textContent = '#IR_input::placeholder{color:' + dimOf(fg, .33) + ' !important;opacity:1}#IR_input:focus::placeholder{color:' + dimOf(fg, .25) + ' !important}'
-				+ '#IR_dock .IRb{transition:transform .12s ease}#IR_dock .IRb.IRp{transform:scale(.9)}';
+				+ '#IR_dock .IRb{transition:transform .12s ease,background .12s ease}#IR_dock .IRb.IRp{transform:scale(.9)}'
+				+ '@media(hover:hover){#IR_dock .IRb:hover{background:rgba(127,127,127,.14)}}';
 			(D.head || D.documentElement).appendChild(phStyle);
 
 			ov.appendChild(spacer); ov.appendChild(head); ov.appendChild(ta);
@@ -397,14 +409,38 @@ window.ViktorInstantroam = (function () {
 					return null;
 				} catch (e) { return null; }
 			}
+			// v0.6.2: caret line TOP in ta content coords via a mirror div (memoized — placeMenu rides
+			// an rAF loop). Counting '\n' missed SOFT WRAPS → on a wrapped line the menu sat ON the
+			// text being typed. offsetTop includes the mirror's paddingTop, so no '+4' fudge.
+			var MIR_PROPS = ['boxSizing', 'paddingTop', 'paddingRight', 'paddingLeft', 'borderTopWidth', 'borderRightWidth', 'borderLeftWidth',
+				'fontStyle', 'fontVariant', 'fontWeight', 'fontStretch', 'fontSize', 'fontFamily', 'lineHeight',
+				'letterSpacing', 'wordSpacing', 'textIndent', 'textTransform', 'tabSize'];
+			var mirMemo = { k: null, top: 0 };
+			function caretLineTop(pos) {
+				var w = ta.clientWidth, k = w + '\x01' + pos + '\x01' + ta.value.slice(0, pos);
+				if (mirMemo.k === k) return mirMemo.top;
+				var d = D.createElement('div'), s = getComputedStyle(ta);
+				for (var i = 0; i < MIR_PROPS.length; i++) d.style[MIR_PROPS[i]] = s[MIR_PROPS[i]];
+				d.style.position = 'absolute'; d.style.left = '-9999px'; d.style.top = '0'; d.style.visibility = 'hidden';
+				d.style.whiteSpace = 'pre-wrap'; d.style.wordWrap = 'break-word'; d.style.width = w + 'px';
+				d.textContent = ta.value.substring(0, pos);
+				var sp = D.createElement('span'); sp.textContent = 'x';   // marker: its offsetTop = caret line top
+				d.appendChild(sp);
+				(D.body || D.documentElement).appendChild(d);
+				var top = sp.offsetTop;
+				d.remove();
+				mirMemo.k = k; mirMemo.top = top;
+				return top;
+			}
 			function placeMenu() {
 				if (!menuOpen() || !menuSeg) return;
 				try {
 					var r = ta.getBoundingClientRect(), cs = getComputedStyle(ta);
 					var padL = parseFloat(cs.paddingLeft) || 0, padR = parseFloat(cs.paddingRight) || 0;
-					var lineIdx = (ta.value.slice(0, menuSeg.s).match(/\n/g) || []).length;
 					var lh = parseFloat(cs.lineHeight) || 31.5;
-					var caretBot = r.top + 4 + (lineIdx + 1) * lh - ta.scrollTop;
+					// anchor to the CARET's visual line (token is single-line, but the caret may have
+					// soft-wrapped past the token start) — the menu must never cover the line being typed
+					var caretBot = r.top + caretLineTop(ta.selectionStart) + lh - ta.scrollTop;
 					// like the native [[ menu: aligned to the text column, ALWAYS opening downward
 					var left = Math.max(6, Math.round(r.left + padL - 12));
 					var width = Math.min(Math.round(r.width - padL - padR + 24), (W.innerWidth || 9999) - left - 6);
@@ -520,7 +556,7 @@ window.ViktorInstantroam = (function () {
 			function mkBtn(html, aria, fn) {
 				var b = D.createElement('button'); b.className = 'IRb dont-unfocus-block'; b.setAttribute('aria-label', aria);
 				b.innerHTML = html;
-				b.style.cssText = 'height:44px;min-width:46px;border:none;border-radius:10px;background:transparent;color:' + dimOf(fg, .75) + ';font:600 17px -apple-system,BlinkMacSystemFont,sans-serif;display:flex;align-items:center;justify-content:center;padding:0';
+				b.style.cssText = 'height:44px;min-width:46px;border:none;border-radius:10px;background:transparent;color:' + dimOf(fg, .75) + ';font:600 17px -apple-system,BlinkMacSystemFont,sans-serif;display:flex;align-items:center;justify-content:center;padding:0;cursor:pointer';
 				var lastTouch = 0;
 				b.addEventListener('mousedown', function (e) { e.preventDefault(); });   // never steal focus → keyboard survives
 				b.addEventListener('touchstart', function (e) { e.preventDefault(); b.classList.add('IRp'); }, { passive: false });
@@ -588,7 +624,7 @@ window.ViktorInstantroam = (function () {
 			}
 			function actUndo() { try { D.execCommand('undo'); } catch (e) { } }
 			function actRedo() { try { D.execCommand('redo'); } catch (e) { } }
-			if (TOUCH) {
+			{   // v0.6.2: dock on EVERY form factor (was touch-only) — desktop wants the bar too
 				dock = D.createElement('div'); dock.id = 'IR_dock'; dock.className = 'dont-unfocus-block';
 				dock.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:2147483615;will-change:transform;background:' + bgA(.85) + ';-webkit-backdrop-filter:saturate(1.6) blur(18px);backdrop-filter:saturate(1.6) blur(18px);border-top:0.5px solid ' + dimOf(fg, .18) + ';box-shadow:0 -1px 14px rgba(0,0,0,.25)';
 				chipRow = D.createElement('div');
@@ -637,8 +673,8 @@ window.ViktorInstantroam = (function () {
 						kbInset = Math.max(0, SCREEN_H - vvB.height - vvB.offsetTop);
 					}
 					if (dock && ty !== lastTy) { lastTy = ty; dock.style.transform = 'translateY(' + ty + 'px)'; }
-					if (TOUCH) {
-						var padB = kbInset + (dock ? 64 : 10) + 18;
+					if (dock) {   // keep the last text line clear of the (keyboard-pinned) bar
+						var padB = kbInset + 64 + 18;
 						if (padB !== lastPad) { lastPad = padB; ta.style.paddingBottom = padB + 'px'; }
 					}
 					placeMenu();
@@ -677,17 +713,20 @@ window.ViktorInstantroam = (function () {
 				L('input len=' + ta.value.length + ' vv=' + vvh());
 				setBuf(ta.value);
 				if (!undoable && btnU) { undoable = true; btnU.style.visibility = 'visible'; btnR.style.visibility = 'visible'; }
-				// auto-close ]] right after a literal '[[' is typed (caret stays between) — DEFERRED one
-				// task: Chrome blocks re-entrant execCommand while the input event of the first command
-				// is still dispatching. Context is re-verified inside the timeout.
+				// v0.6.2 symmetric pairing (native parity): EVERY literal '[' auto-closes ONE ']' with
+				// the caret between — '[' → '[|]', second '[' → '[[|]]'. Only at EOL / before a
+				// whitespace-or-closer (never inside a word). DEFERRED one task: Chrome blocks
+				// re-entrant execCommand while the first command's input event is still dispatching;
+				// context is re-verified inside the timeout. The mirror ops (Backspace deletes the
+				// pair, ']' types over a ']') live in the keydown handler.
 				if (!composing && !mutating && e && e.inputType === 'insertText' && e.data === '[') {
 					var p = ta.selectionStart, v = ta.value;
-					if (v.slice(p - 2, p) === '[[' && v.charAt(p - 3) !== '[' && v.substr(p, 2) !== ']]' && (p >= v.length || /[\s\n)\].,;:!?]/.test(v.charAt(p)))) {
+					if (v.charAt(p - 1) === '[' && (p >= v.length || /[\s\n)\]}.,;:!?]/.test(v.charAt(p)))) {
 						setTimeout(function () {
 							try {
 								if (composing || mutating || CAP.sealed || CAP.hydrated || CAP.done || CAP.dismissed) return;
-								if (ta.selectionStart !== p || ta.value.slice(p - 2, p) !== '[[') return;   // context moved on
-								mutating = true; ta.focus({ preventScroll: true }); D.execCommand('insertText', false, ']]'); ta.setSelectionRange(p, p); mutating = false;
+								if (ta.selectionStart !== p || ta.selectionEnd !== p || ta.value.charAt(p - 1) !== '[') return;   // context moved on
+								mutating = true; ta.focus({ preventScroll: true }); D.execCommand('insertText', false, ']'); ta.setSelectionRange(p, p); mutating = false;
 								setBuf(ta.value);
 								scanMenu();
 							} catch (er) { mutating = false; }
@@ -709,6 +748,29 @@ window.ViktorInstantroam = (function () {
 						e.preventDefault(); commitIdx(menuIdx); return;
 					}
 					if (e.key === 'Escape') { e.preventDefault(); hideMenu(); return; }
+				}
+				// v0.6.2 pairing mirrors (native parity, whether or not the menu is open):
+				// Backspace between a bracket pair deletes BOTH ('[[|]]' → '[|]' → ''), and ']'
+				// typed right before an existing ']' types OVER it instead of doubling.
+				if (!frozen() && !composing && !e.isComposing && !e.metaKey && !e.ctrlKey && !e.altKey) {
+					var pk = ta.selectionStart;
+					if (pk === ta.selectionEnd) {
+						if (e.key === 'Backspace' && ta.value.charAt(pk - 1) === '[' && ta.value.charAt(pk) === ']') {
+							e.preventDefault();
+							mutating = true;
+							try { ta.setSelectionRange(pk - 1, pk + 1); D.execCommand('delete'); } catch (er) { }
+							mutating = false;
+							setBuf(ta.value);
+							setTimeout(scanMenu, 0);
+							return;
+						}
+						if (e.key === ']' && ta.value.charAt(pk) === ']') {
+							e.preventDefault();
+							try { ta.setSelectionRange(pk + 1, pk + 1); } catch (er) { }
+							setTimeout(scanMenu, 0);
+							return;
+						}
+					}
 				}
 				if (e.key === 'Escape') { e.preventDefault(); dismiss(); }
 			});
