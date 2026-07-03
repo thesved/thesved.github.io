@@ -2960,3 +2960,34 @@ body > .bp3-portal .rm-find-or-create-popover .bp3-menu {
 #app .rm-level-0 > .rm-multibar:hover {
   opacity: 1 !important;
 }
+
+/* ============================================================
+   2026-07-03 — confirmation modals ("Merge pages?" etc.) themed
+   ============================================================ */
+
+/* Roam's confirmation dialogs (merge pages, and the plain-confirmation variant) are Blueprint
+   dialogs mounted OUTSIDE #app (body > .roam-lift-modal > .bp3-portal.rm-modal-portal--confirmation*)
+   with Blueprint's WHITE card. The theme's light text (rgb(230,230,230)) lands on that white card =
+   unreadable in dark mode. Theme the CARD like the toasts: var(--bg-color) dark card, text follows
+   theme. Scoped with [class*="rm-modal-dialog--confirmation"] so the find-or-create modal and other
+   rm-modal-dialog variants are untouched. NO #app prefix (portal is a body child). */
+.bp3-portal .bp3-dialog[class*="rm-modal-dialog--confirmation"] {
+  background-color: var(--bg-color, #182026) !important;
+  color: var(--text-color, #e8e8e8) !important;
+  box-shadow: 0 0 0 1px rgba(127, 127, 127, 0.25), 0 12px 40px rgba(0, 0, 0, 0.55) !important;
+}
+.bp3-portal .bp3-dialog[class*="rm-modal-dialog--confirmation"] .bp3-heading,
+.bp3-portal .bp3-dialog[class*="rm-modal-dialog--confirmation"] p {
+  color: var(--text-color, #e8e8e8) !important;
+}
+/* Cancel is a minimal button — Blueprint dims it for white cards; re-dim for the dark card. */
+.bp3-portal .bp3-dialog[class*="rm-modal-dialog--confirmation"] .bp3-button.bp3-minimal,
+.bp3-portal .bp3-dialog[class*="rm-modal-dialog--confirmation"] .bp3-button.bp3-minimal span {
+  color: var(--text-color, #e8e8e8) !important;
+  opacity: 0.85;
+}
+/* keep the primary (Merge) button Blueprint-blue with white label — readable on both schemes */
+.bp3-portal .bp3-dialog[class*="rm-modal-dialog--confirmation"] .bp3-button.bp3-intent-primary,
+.bp3-portal .bp3-dialog[class*="rm-modal-dialog--confirmation"] .bp3-button.bp3-intent-primary span {
+  color: #ffffff !important;
+}

@@ -1,5 +1,16 @@
 /*
  * Viktor's Roam plugin: AlwaysOne — always a free node at the top and bottom of the page.
+ * version: 0.5.1  (2026-07-03)
+ * v0.5.1 — GHOST TAKEOVER (touch only): Roam's empty-page placeholder ("Click here to start
+ * writing…", .rm-block--ghost) is a NON-editable focusable DIV; Roam mounts the block textarea
+ * ~30ms AFTER the gesture. On the user's real iPhone (PWA) that tap dies (report 2026-07-03:
+ * block never focuses); desktop CDP + iOS-sim Safari work, so the failing detail is device-
+ * specific — instead of chasing it, touch taps on the ghost now take the SAME proven path as the
+ * phantom rows: cancel the pointerdown (no mousedown → Roam's div-focus path never starts),
+ * focus the hidden textarea IN-gesture (iOS keyboard opens by construction), create the first
+ * block ourselves (parent = log-day title→uid / getOpenPageOrBlockUid), focusBlock textarea→
+ * textarea handoff keeps the keyboard, clickShield swallows the retargeted click, and the
+ * abandoned-empty reap applies as usual. Desktop/mouse keeps Roam's native path.
  * version: 0.5.0  (2026-07-02)
  * v0.5 — (1) phantoms ALWAYS VISIBLE on a non-empty outline (no hide-when-edge-empty logic;
  * hidden only on a completely empty page = no uid-bearing root block, just Roam's ghost
@@ -328,6 +339,47 @@ window.ViktorAlwaysone = (function () {
 		attempt();
 		setTimeout(loop, 60);
 	}
+	// ---- v0.5.1 ghost takeover (touch): see header. One hidden textarea for the in-gesture
+	// keyboard hop; lives on <body> so it exists before any ghost renders.
+	var ghostTa = document.createElement('textarea');
+	ghostTa.className = 'vt-a1-ta';
+	ghostTa.tabIndex = -1; ghostTa.setAttribute('aria-hidden', 'true');
+	function onGhostDown(e) {
+		if (e.pointerType === 'mouse' || (navigator.maxTouchPoints || 0) === 0) return;   // touch/pen only
+		var g = e.target && e.target.closest && e.target.closest('.rm-block--ghost');
+		if (!g || !g.closest('.roam-article')) return;
+		if (g.closest('.rm-reference-main,.rm-reference-container,.rm-embed-container,#right-sidebar')) return;
+		// cancel: suppresses the compatibility mousedown → Roam's ghost div never gets focus, its
+		// async create-and-focus path never starts (we replace it). The click still fires → shield.
+		e.preventDefault(); e.stopPropagation();
+		shieldUntil = performance.now() + 600;
+		try { ghostTa.focus({ preventScroll: true }); } catch (err) { }   // in-gesture editable focus → iOS keyboard
+		ghostAdd(g);
+	}
+	function ghostAdd(g) {
+		if (busy) return; busy = true;
+		setTimeout(function () { busy = false; }, 600);
+		(async function () {
+			var day = g.closest('.roam-log-page');
+			var parent, winId;
+			if (day) {
+				var h = day.querySelector('.rm-title-display');
+				var title = h && h.textContent;
+				parent = title && api.data.q('[:find ?u . :in $ ?t :where [?e :node/title ?t] [?e :block/uid ?u]]', title);
+				winId = 'log-outline';
+			} else {
+				var open = await api.ui.mainWindow.getOpenPageOrBlockUid();   // page OR zoomed-block uid
+				parent = open;
+				winId = api.user.uid() + '-body-outline-' + (pageUidOf(open) || open);
+			}
+			if (!parent) return;
+			var uid = api.util.generateUID();
+			await api.createBlock({ location: { 'parent-uid': parent, order: 0 }, block: { string: '', uid: uid } });
+			pending = { uid: uid, focused: false };
+			focusBlock(uid, winId);
+		})().catch(function (e) { console.warn('alwaysone ghost add failed', e); });
+	}
+
 	function add(row, isTop) {
 		if (busy) return; busy = true;
 		setTimeout(function () { busy = false; }, 600);
@@ -456,6 +508,8 @@ window.ViktorAlwaysone = (function () {
 		// sit after it; capture-at-#app is the one slot that is both cooperative and effective.
 		keyHost = document.getElementById('app') || document;
 		keyHost.addEventListener('keydown', onKey, true);
+		document.body.appendChild(ghostTa);
+		document.addEventListener('pointerdown', onGhostDown, true);   // ghost takeover (touch) — before deferReaps is fine, both capture
 		document.addEventListener('click', clickShield, true);   // capture: beat Roam's unfocus click handler
 		document.addEventListener('pointerdown', deferReaps, true);
 		document.addEventListener('pointerup', releaseReaps, true);      // reap right after the gesture
@@ -468,6 +522,8 @@ window.ViktorAlwaysone = (function () {
 		if (observer) { observer.disconnect(); observer = null; }
 		document.removeEventListener('focusout', schedule, true);
 		if (keyHost) { keyHost.removeEventListener('keydown', onKey, true); keyHost = null; }
+		document.removeEventListener('pointerdown', onGhostDown, true);
+		if (ghostTa.parentNode) ghostTa.parentNode.removeChild(ghostTa);
 		document.removeEventListener('click', clickShield, true);
 		document.removeEventListener('pointerdown', deferReaps, true);
 		document.removeEventListener('pointerup', releaseReaps, true);

@@ -1,5 +1,12 @@
 /*
  * Viktor's Instant Roam — instant, dark, cursor-ready capture on every open.
+ * version: 0.6.1  (2026-07-03) — inert routes strip the shell dark bg (picker /#/app + non-enabled
+ *     graphs painted dark forever = the "black bottom half" / unreadable-light-graph bug); native-
+ *     parity [[ menu (exact→prefix→substring shortest-first ranking, bold matched span, linked-ref
+ *     superscript counts via pages-store v2 'title\x01n' lines, always opens downward, aligned to
+ *     the text column); unfinished-token guard (ready-poll holds hydration while the caret sits in
+ *     a live [[/#/: token; sani() strips the auto-closed ]] of any never-committed, non-existing
+ *     [[x]] at write time → updateBlock can no longer fabricate page 'te' from a half-typed name).
  * version: 0.6.0  (2026-07-03) — per-graph scoping + capture cmdbar + [[ ]]/#/: autocomplete +
  *                                  cached page-name store + templates + subtle loading ladder.
  *   - ROUTE/GRAPH SCOPING: the T=0 shell classifies location.hash itself. Overlay shows ONLY on
@@ -98,7 +105,11 @@ window.ViktorInstantroam = (function () {
 					}
 				} catch (e) { }
 			}
-			if (CLS.k !== 'graph' || !(EN[CLS.g] && EN[CLS.g].on)) return;   // inert: login / picker / other graphs / disabled
+			// the shell <style id="IR_style"> paints html/body for T=0 — correct ONLY while an enabled
+			// graph is loading. On every other route (picker /app, signin, other graphs) Roam renders its
+			// own (light) chrome on our dark bg → strip the style before first paint.
+			function stripStyle() { try { var st = D.getElementById('IR_style'); if (st) st.remove(); } catch (e) { } }
+			if (CLS.k !== 'graph' || !(EN[CLS.g] && EN[CLS.g].on)) { stripStyle(); return; }   // inert: login / picker / other graphs / disabled
 			var G = CLS.g;
 			function KK(n) { return 'IR2:' + G + ':' + n; }
 			var LS = KK('buffer');
@@ -292,15 +303,21 @@ window.ViktorInstantroam = (function () {
 			}
 
 			// ---------- cached stores (lazy readers) ----------
-			var PAGES = null, LOPAGES = null, TPLS = null;
+			var PAGES = null, LOPAGES = null, PCNT = null, HASCNT = false, TPLS = null;
 			function pagesArr() {
 				if (PAGES) return PAGES;
-				PAGES = []; LOPAGES = [];
+				PAGES = []; LOPAGES = []; PCNT = [];
 				try {
 					var raw = localStorage.getItem(KK('pages'));
-					if (raw) { var nl = raw.indexOf('\n'); if (nl > 0) PAGES = raw.slice(nl + 1).split('\n'); }
-					for (var i = 0; i < PAGES.length; i++) LOPAGES.push(PAGES[i].toLowerCase());
-				} catch (e) { PAGES = []; LOPAGES = []; }
+					var rows = [];
+					if (raw) { var nl = raw.indexOf('\n'); if (nl > 0) { rows = raw.slice(nl + 1).split('\n'); HASCNT = raw.slice(0, nl).split('|')[3] === '2'; } }
+					for (var i = 0; i < rows.length; i++) {
+						var sep = rows[i].indexOf('\x01');   // v2 line = 'title\x01refCount'; v1 = bare title
+						if (sep >= 0) { PAGES.push(rows[i].slice(0, sep)); PCNT.push(rows[i].slice(sep + 1) | 0); }
+						else { PAGES.push(rows[i]); PCNT.push(0); }
+					}
+					for (var j = 0; j < PAGES.length; j++) LOPAGES.push(PAGES[j].toLowerCase());
+				} catch (e) { PAGES = []; LOPAGES = []; PCNT = []; }
 				return PAGES;
 			}
 			function tplArr() {
@@ -309,18 +326,30 @@ window.ViktorInstantroam = (function () {
 				try { var t = JSON.parse(localStorage.getItem(KK('templates')) || '[]'); if (Array.isArray(t)) TPLS = t; } catch (e) { }
 				return TPLS;
 			}
+			// Native-parity ranking: exact match → prefix matches (shortest title first) → substring
+			// matches (shortest first); store order (recency) is the stable-sort tiebreak. Returns
+			// {t: title, n: refCount} rows.
 			function rankPages(q, max) {
 				pagesArr();
 				q = (q || '').toLowerCase();
-				var pre = [], sub = [];
-				for (var i = 0; i < PAGES.length; i++) {
-					var t = PAGES[i]; if (!t) continue;
-					if (!q) { pre.push(t); if (pre.length >= max) break; continue; }
-					var ix = LOPAGES[i].indexOf(q);
-					if (ix === 0) { pre.push(t); if (pre.length >= max) break; }
-					else if (ix > 0 && sub.length < max) sub.push(t);
+				var out = [], pre = [], sub = [], i;
+				if (!q) {
+					for (i = 0; i < PAGES.length && out.length < max; i++) { if (PAGES[i]) out.push({ t: PAGES[i], n: PCNT[i] }); }
+					return out;
 				}
-				return pre.concat(sub).slice(0, max);
+				for (i = 0; i < PAGES.length; i++) {
+					var t = PAGES[i]; if (!t) continue;
+					var ix = LOPAGES[i].indexOf(q);
+					if (ix < 0) continue;
+					if (ix === 0 && LOPAGES[i].length === q.length) out.push({ t: t, n: PCNT[i] });        // exact
+					else if (ix === 0) { if (pre.length < 400) pre.push(i); }
+					else if (sub.length < 400) sub.push(i);
+				}
+				function byLen(x, y) { return PAGES[x].length - PAGES[y].length; }
+				pre.sort(byLen); sub.sort(byLen);
+				var all = pre.concat(sub);
+				for (i = 0; i < all.length && out.length < max; i++) out.push({ t: PAGES[all[i]], n: PCNT[all[i]] });
+				return out;
 			}
 
 			// ---------- ONE mutation primitive (undo-coherent, keyboard-safe) ----------
@@ -371,23 +400,21 @@ window.ViktorInstantroam = (function () {
 			function placeMenu() {
 				if (!menuOpen() || !menuSeg) return;
 				try {
-					var r = ta.getBoundingClientRect();
+					var r = ta.getBoundingClientRect(), cs = getComputedStyle(ta);
+					var padL = parseFloat(cs.paddingLeft) || 0, padR = parseFloat(cs.paddingRight) || 0;
 					var lineIdx = (ta.value.slice(0, menuSeg.s).match(/\n/g) || []).length;
-					var lh = parseFloat(getComputedStyle(ta).lineHeight) || 31.5;
+					var lh = parseFloat(cs.lineHeight) || 31.5;
 					var caretBot = r.top + 4 + (lineIdx + 1) * lh - ta.scrollTop;
+					// like the native [[ menu: aligned to the text column, ALWAYS opening downward
+					var left = Math.max(6, Math.round(r.left + padL - 12));
+					var width = Math.min(Math.round(r.width - padL - padR + 24), (W.innerWidth || 9999) - left - 6);
+					menu.style.left = left + 'px'; menu.style.right = 'auto'; menu.style.width = width + 'px';
 					var vvB = W.visualViewport, kbTop = vvB ? (vvB.offsetTop + vvB.height) : W.innerHeight;
 					var barH = dock ? 64 : 10;
 					var limit = kbTop - barH - 8, rowH = 44;
-					var n = menuItems.length;
 					var fit = Math.floor((limit - (caretBot + 6)) / rowH);
-					if (fit >= Math.min(n, 3)) {
-						menuShown = Math.min(n, Math.max(3, fit), 6);
-						menu.style.top = Math.round(caretBot + 6) + 'px'; menu.style.bottom = 'auto';
-					} else {
-						menuShown = Math.min(n, 6);
-						var caretTop = caretBot - lh;
-						menu.style.bottom = Math.round(W.innerHeight - caretTop + 6) + 'px'; menu.style.top = 'auto';
-					}
+					menuShown = Math.min(menuItems.length, Math.max(1, fit), 8);
+					menu.style.top = Math.round(caretBot + 6) + 'px'; menu.style.bottom = 'auto';
 					if (menuIdx >= menuShown) menuIdx = Math.max(0, menuShown - 1);
 					for (var i = 0; i < menuRows.length; i++) menuRows[i].style.display = i < menuShown ? '' : 'none';
 				} catch (e) { }
@@ -397,15 +424,31 @@ window.ViktorInstantroam = (function () {
 			}
 			function renderMenu() {
 				var el = menuEl();
-				var key = menuSeg.t + '|' + menuItems.map(function (it) { return it.label; }).join('\x01');
+				var q = (menuSeg.q || '').toLowerCase();
+				var key = menuSeg.t + '|' + q + '|' + menuItems.map(function (it) { return it.label + '\x02' + it.n; }).join('\x01');
 				if (key !== menuKey) {   // rebuild ONLY when the item set changes (never under a pointer needlessly)
 					menuKey = key; menuRows = []; el.textContent = ''; menuIdx = 0;
 					for (var i = 0; i < menuItems.length; i++) {
 						(function (i) {
+							var it = menuItems[i];
 							var row = D.createElement('div');
-							row.style.cssText = 'padding:0 14px;height:44px;line-height:44px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:' + fg;
-							var main = D.createElement('span'); main.textContent = menuItems[i].label; row.appendChild(main);
-							if (menuItems[i].hint) { var h = D.createElement('span'); h.textContent = '  ' + menuItems[i].hint; h.style.cssText = 'color:' + dimOf(fg, .4) + ';font-size:13px'; row.appendChild(h); }
+							row.style.cssText = 'padding:0 14px;height:44px;line-height:44px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:' + dimOf(fg, .78);
+							// native-style label: the matched substring is bold + full-strength, rest dimmer
+							var main = D.createElement('span');
+							var lab = it.label, mi = q ? lab.toLowerCase().indexOf(q) : -1;
+							if (mi >= 0 && q) {
+								if (mi > 0) main.appendChild(D.createTextNode(lab.slice(0, mi)));
+								var bb = D.createElement('b'); bb.textContent = lab.slice(mi, mi + q.length);
+								bb.style.cssText = 'font-weight:700;color:' + fg; main.appendChild(bb);
+								main.appendChild(D.createTextNode(lab.slice(mi + q.length)));
+							} else main.textContent = lab;
+							row.appendChild(main);
+							if (typeof it.n === 'number') {   // linked-ref count, superscript like the native menu
+								var sup = D.createElement('span'); sup.textContent = it.n;
+								sup.style.cssText = 'font-size:11px;color:' + dimOf(fg, .45) + ';margin-left:5px;position:relative;top:-0.45em';
+								row.appendChild(sup);
+							}
+							if (it.hint) { var h = D.createElement('span'); h.textContent = '  ' + it.hint; h.style.cssText = 'color:' + dimOf(fg, .4) + ';font-size:13px'; row.appendChild(h); }
 							row.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); commitIdx(i); });
 							el.appendChild(row); menuRows.push(row);
 						})(i);
@@ -428,8 +471,8 @@ window.ViktorInstantroam = (function () {
 							if (tp[i] && tp[i].n && tp[i].n.toLowerCase().indexOf(q) === 0) items.push({ label: ':' + tp[i].n, v: tp[i].t, hint: (tp[i].t || '').split('\n')[0].slice(0, 30) });
 						}
 					} else {
-						var list = rankPages(seg.q, 6);
-						for (var j = 0; j < list.length; j++) items.push({ label: list[j], v: list[j] });
+						var list = rankPages(seg.q, 8);
+						for (var j = 0; j < list.length; j++) items.push({ label: list[j].t, v: list[j].t, n: HASCNT ? list[j].n : null });
 					}
 					if (!items.length) { hideMenu(); return; }
 					menuSeg = seg; menuItems = items;
@@ -441,6 +484,7 @@ window.ViktorInstantroam = (function () {
 				if (!it || !seg || CAP.hydrated || CAP.done || CAP.dismissed) { hideMenu(); return; }
 				hideMenu();
 				var posn = ta.selectionStart, v = ta.value, end = posn;
+				committed[String(it.v || '').toLowerCase()] = 1;   // a menu commit is a finished token — sani keeps it
 				if (seg.t === '[[') {
 					if (v.substr(posn, 2) === ']]') end = posn + 2;
 					replaceSpan(seg.s, end, '[[' + it.v + ']]');
@@ -450,6 +494,7 @@ window.ViktorInstantroam = (function () {
 				} else {
 					var txt = String(it.v || ''), ci = txt.indexOf('$cursor');
 					if (ci >= 0) txt = txt.replace('$cursor', '');
+					markCommitted(txt);   // template bodies may link not-yet-existing pages by design
 					replaceSpan(seg.s, end, txt, ci >= 0 ? ci : undefined);
 				}
 				engage('menu-commit');
@@ -742,9 +787,35 @@ window.ViktorInstantroam = (function () {
 				} catch (e) { }
 				setTimeout(function () { try { ov.remove(); } catch (e) { } L('overlay-removed active=' + cls(D.activeElement) + ' vv=' + vvh()); }, 210);
 			}
-			function dismiss() { CAP.dismissed = true; L('dismiss'); ladderDone(); fadeRemove(); }
+			// dismiss = we routed AWAY from the enabled graph (signin / picker / another graph) — the
+			// shell bg no longer matches what Roam will paint there, so drop it with the overlay.
+			function dismiss() { CAP.dismissed = true; L('dismiss'); ladderDone(); stripStyle(); fadeRemove(); }
 			function clearBuf() { try { localStorage.removeItem(LS); } catch (e) { } }
 			function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+			// A half-typed [[page at the caret must never reach a Roam write API — updateBlock('[[te]]')
+			// CREATES page 'te' instantly. Two layers:
+			//  1) while the caret sits in a live token AND the box is focused, the ready-poll holds the
+			//     handoff (menu stays usable; commit / caret-move / space resolves it), and
+			//  2) sani() runs on every string we write: a [[x]] whose x was neither menu-committed nor an
+			//     existing page keeps only its opening [[ — the half-typed name lands as literal text the
+			//     user finishes in Roam (native autocomplete takes over), no phantom page.
+			function liveSeg() { return D.activeElement === ta && !!findSeg(); }
+			var committed = { 'todo': 1, 'done': 1 };   // titles whose ]] survive sani (menu commits + button inserts)
+			function markCommitted(text) {
+				try { var m2, re = /\[\[([^\[\]\n]*)\]\]/g; while ((m2 = re.exec(text))) committed[m2[1].toLowerCase()] = 1; } catch (e) { }
+			}
+			var LOSET = null;
+			function pageExists(lx) {
+				if (!LOSET) { LOSET = {}; pagesArr(); for (var i = 0; i < LOPAGES.length; i++) LOSET[LOPAGES[i]] = 1; }
+				return !!LOSET[lx];
+			}
+			function sani(s) {
+				return String(s || '').replace(/\[\[([^\[\]\n]*)\]\]/g, function (m, x) {
+					var lx = x.toLowerCase();
+					return (committed[lx] || pageExists(lx)) ? m : '[[' + x;
+				});
+			}
 
 			function roamEditable(el) {
 				if (!el || el === ta || el.id === 'IR_lab_b') return false;
@@ -799,8 +870,9 @@ window.ViktorInstantroam = (function () {
 						if (liveG !== G) { L('GRAPH GUARD tripped live=' + liveG + ' expected=' + G + ' — buffer kept, no write'); batonOn = false; ladderDone(); fadeRemove(); return; }
 						var dnp = a.util.dateToPageUid(new Date());
 						if (!a.pull('[:db/id]', [':block/uid', dnp])) { try { await a.createPage({ page: { title: a.util.dateToPageTitle(new Date()), uid: dnp } }); } catch (e) { } }
-						// NO openPage — stay on the Daily Notes LOG. Text stored VERBATIM (keep trailing space).
-						var text = (ta.value || ''), has = text.trim().length > 0;
+						// NO openPage — stay on the Daily Notes LOG. Text stored VERBATIM (keep trailing space)
+						// except sani(): unfinished [[x]] drops its auto-closed ]] so no phantom page is created.
+						var text = sani(ta.value || ''), has = text.trim().length > 0;
 						var p = a.pull('[{:block/children [:block/string :block/uid :block/order]}]', [':block/uid', dnp]);
 						var kids = ((p && p[':block/children']) || []).slice();
 						kids.sort(function (m, n) { return (m[':block/order'] || 0) - (n[':block/order'] || 0); });
@@ -810,15 +882,15 @@ window.ViktorInstantroam = (function () {
 						else if (topUid && has && (top[':block/string'] || '') === wrote) { target = topUid; L('top block already holds the text (stale-buffer replay) — no write'); }
 						else { target = a.util.generateUID(); try { await a.createBlock({ location: { 'parent-uid': dnp, order: 0 }, block: { uid: target, string: wrote } }); } catch (e) { } }
 						L('target uid=' + target + ' (' + (topUid && topEmpty ? 'reused-top' : 'new-block') + ') len=' + wrote.length);
-						// reconcile keystrokes typed during the awaits (verbatim)
-						var latest = (ta.value || '');
+						// reconcile keystrokes typed during the awaits (verbatim + sani)
+						var latest = sani(ta.value || '');
 						if (latest !== wrote && (latest.trim() || wrote)) { L('reconcile len ' + wrote.length + '->' + latest.length); try { await a.updateBlock({ block: { uid: target, string: latest } }); } catch (e) { } wrote = latest; }
 						// live caret (templates/$cursor + mid-line edits keep their position through handoff)
 						var caretPos = wrote.length;
 						try { var ss = ta.selectionStart; if (typeof ss === 'number') caretPos = Math.min(ss, wrote.length); } catch (e) { }
 						var ok = await focusTarget(a, target, caretPos);
 						// FINAL reconcile AFTER focus left IR_input (iOS blur-commits pending autocorrect)
-						var fin = (ta.value || '');
+						var fin = sani(ta.value || '');
 						if (fin !== wrote && (fin.trim() || wrote)) { L('post-blur reconcile len ' + wrote.length + '->' + fin.length); try { await a.updateBlock({ block: { uid: target, string: fin } }); } catch (e) { } wrote = fin; if (endsWithUid(D.activeElement, target)) { try { D.activeElement.setSelectionRange(wrote.length, wrote.length); } catch (e) { } } }
 						CAP.sealed = true;   // mirror is dead from here — no late input event can repopulate the buffer
 						try {
@@ -879,7 +951,7 @@ window.ViktorInstantroam = (function () {
 				var ready = a && a.util && a.createBlock && a.ui && a.ui.mainWindow;
 				if (ready && !CAP.readyAt) { CAP.readyAt = Date.now() - T0; L('roam-ready at ' + CAP.readyAt + 'ms engaged=' + CAP.engaged); recordBoot(CAP.readyAt); ladderDone(); }
 				if (CAP.done || CAP.dismissed) { clearInterval(poll); return; }
-				if (ready && CAP.engaged && !pickerOpen && (!labT || labFinished)) { clearInterval(poll); hydrate(a); }
+				if (ready && CAP.engaged && !pickerOpen && !liveSeg() && (!labT || labFinished)) { clearInterval(poll); hydrate(a); }
 				else if (ready && !CAP.engaged && painted()) { clearInterval(poll); L('painted -> melt (not engaged)'); fadeRemove(); }
 				else if (tries > 1500) { clearInterval(poll); L('hard-timeout melt'); fadeRemove(); }
 			}, 100);
@@ -936,20 +1008,30 @@ window.ViktorInstantroam = (function () {
 			var g = gname(); if (!g) return;
 			var rows = a.data.fast.q('[:find ?t ?tm :where [?e :node/title ?t] [?e :edit/time ?tm]]');
 			rows.sort(function (x, y) { return (y[1] || 0) - (x[1] || 0); });
+			// linked-ref counts (the native [[ menu shows them) — aggregate query only returns pages
+			// that HAVE refs; everything else is 0
+			var refN = {};
+			try {
+				var rr = a.data.fast.q('[:find ?t (count ?r) :where [?e :node/title ?t] [?r :block/refs ?e]]');
+				for (var ri = 0; ri < rr.length; ri++) refN[String(rr[ri][0])] = rr[ri][1] | 0;
+			} catch (er) { }
 			var main = [], dnp = [], seen = {};
 			for (var i = 0; i < rows.length; i++) {
 				var t = String(rows[i][0]);
-				if (!t || /[\n\r]/.test(t) || seen[t]) continue;   // \n titles would corrupt row boundaries (one exists in the wild!)
+				if (!t || /[\n\r\x01]/.test(t) || seen[t]) continue;   // \n titles would corrupt row boundaries (one exists in the wild!); \x01 is our count separator
 				seen[t] = 1;
 				(DNP_RE.test(t) ? dnp : main).push(t);             // date pages demoted: recency rows shouldn't be a DNP wall
 			}
 			var titles = main.concat(dnp);
-			var body = titles.join('\n');
+			// v2 line = 'title\x01count' (count omitted when 0 → line stays plain title, v1-compatible)
+			var lines = [];
+			for (var li = 0; li < titles.length; li++) { var cnt = refN[titles[li]] | 0; lines.push(cnt ? titles[li] + '\x01' + cnt : titles[li]); }
+			var body = lines.join('\n');
 			var h = hashStr(body);
 			var key = 'IR2:' + g + ':pages';
 			var cur = null; try { cur = localStorage.getItem(key); } catch (e) { }
 			if (cur) { var nl = cur.indexOf('\n'); var curH = (nl > 0 ? cur.slice(0, nl) : '').split('|')[0]; if (curH === h) return; }   // CAS skip: another tab (or we) already wrote these bytes
-			localStorage.setItem(key, h + '|' + titles.length + '|' + Date.now() + '\n' + body);
+			localStorage.setItem(key, h + '|' + titles.length + '|' + Date.now() + '|2\n' + body);   // |2 = v2 (lines may carry \x01 ref counts)
 			if (doLog) console.log('** instant-roam: pages cache -> ' + titles.length + ' titles **');
 		} catch (e) { }
 	}
