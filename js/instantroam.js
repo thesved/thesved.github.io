@@ -1,5 +1,9 @@
 /*
  * Viktor's Instant Roam — instant, dark, cursor-ready capture on every open.
+ * version: 0.6.3  (2026-07-04) — capture dock on wide viewports (>600px = desktop/tablet) is a
+ *     CENTERED COMPACT PILL (width:max-content, margin:auto, radius 14, hairline border, drop
+ *     shadow — the main cmdbar's exact desktop idiom); dock wrapper goes transparent +
+ *     click-through there (no dead full-width strip). Mobile stays edge-to-edge.
  * version: 0.6.2  (2026-07-03) — capture polish trio:
  *   (1) CMDBAR ON DESKTOP: the capture dock is no longer touch-only — desktop gets the same
  *       [[ / checkbox / image / undo-redo bar (hover + pointer cursor added; SB2 pin is a no-op
@@ -248,7 +252,18 @@ window.ViktorInstantroam = (function () {
 			var phStyle = D.createElement('style');
 			phStyle.textContent = '#IR_input::placeholder{color:' + dimOf(fg, .33) + ' !important;opacity:1}#IR_input:focus::placeholder{color:' + dimOf(fg, .25) + ' !important}'
 				+ '#IR_dock .IRb{transition:transform .12s ease,background .12s ease}#IR_dock .IRb.IRp{transform:scale(.9)}'
-				+ '@media(hover:hover){#IR_dock .IRb:hover{background:rgba(127,127,127,.14)}}';
+				+ '@media(hover:hover){#IR_dock .IRb:hover{background:rgba(127,127,127,.14)}}'
+				// v0.6.3 desktop/tablet: CENTERED COMPACT PILL, same idiom as the main cmdbar (mobile
+				// <=600 stays edge-to-edge, the iOS toolbar look). The pill carries the chrome; the
+				// full-width dock goes transparent + click-through (no dead strip across the bottom).
+				+ '@media (min-width:601px){'
+				+ '#IR_dock{background:transparent !important;-webkit-backdrop-filter:none !important;backdrop-filter:none !important;border-top:0 !important;box-shadow:none !important;pointer-events:none}'
+				+ '#IR_dockrow{pointer-events:auto;width:max-content;max-width:min(620px,92vw);margin:0 auto 10px;padding:0 6px;border-radius:14px;'
+				+ 'background:' + bgA(.85) + ';-webkit-backdrop-filter:saturate(1.6) blur(18px);backdrop-filter:saturate(1.6) blur(18px);'
+				+ 'border:0.5px solid ' + dimOf(fg, .18) + ';box-shadow:0 6px 20px rgba(0,0,0,.30)}'
+				+ '#IR_dockrow .IRgap{min-width:14px}'
+				+ '#IR_chips{pointer-events:auto;width:max-content;max-width:min(620px,92vw);margin:0 auto;padding:0 0 8px}'
+				+ '}';
 			(D.head || D.documentElement).appendChild(phStyle);
 
 			ov.appendChild(spacer); ov.appendChild(head); ov.appendChild(ta);
@@ -627,9 +642,9 @@ window.ViktorInstantroam = (function () {
 			{   // v0.6.2: dock on EVERY form factor (was touch-only) — desktop wants the bar too
 				dock = D.createElement('div'); dock.id = 'IR_dock'; dock.className = 'dont-unfocus-block';
 				dock.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:2147483615;will-change:transform;background:' + bgA(.85) + ';-webkit-backdrop-filter:saturate(1.6) blur(18px);backdrop-filter:saturate(1.6) blur(18px);border-top:0.5px solid ' + dimOf(fg, .18) + ';box-shadow:0 -1px 14px rgba(0,0,0,.25)';
-				chipRow = D.createElement('div');
+				chipRow = D.createElement('div'); chipRow.id = 'IR_chips';
 				chipRow.style.cssText = 'display:none;gap:8px;padding:8px 12px 0;align-items:center';
-				var row = D.createElement('div');
+				var row = D.createElement('div'); row.id = 'IR_dockrow';
 				row.style.cssText = 'display:flex;gap:2px;align-items:center;height:48px;padding:0 max(8px, env(safe-area-inset-left))';
 				var bW = mkBtn('[[', 'link a page', actWikilink);
 				var bT = mkBtn(ICON.todo, 'checkbox', actTodo);
@@ -637,7 +652,7 @@ window.ViktorInstantroam = (function () {
 				btnU = mkBtn(ICON.undo, 'undo', actUndo);
 				btnR = mkBtn(ICON.redo, 'redo', actRedo);
 				btnU.style.visibility = 'hidden'; btnR.style.visibility = 'hidden';   // pre-mounted: zero layout shift on reveal
-				var gap = D.createElement('div'); gap.style.cssText = 'flex:1';
+				var gap = D.createElement('div'); gap.className = 'IRgap'; gap.style.cssText = 'flex:1';
 				row.appendChild(bW); row.appendChild(bT); row.appendChild(bM); row.appendChild(gap); row.appendChild(btnU); row.appendChild(btnR);
 				var pad = D.createElement('div'); pad.style.cssText = 'height:env(safe-area-inset-bottom,0px)';
 				dock.appendChild(chipRow); dock.appendChild(row); dock.appendChild(pad);
