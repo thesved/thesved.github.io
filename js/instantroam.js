@@ -1,5 +1,8 @@
 /*
  * Viktor's Instant Roam — instant, dark, cursor-ready capture on every open.
+ * version: 0.6.4  (2026-07-10) — undo/redo slots are display:none until first input (was
+ *     visibility:hidden = invisible dead space widening the desktop pill); the flex gap hides
+ *     with them, so the pill is exactly as wide as its live buttons and grows on reveal.
  * version: 0.6.3  (2026-07-04) — capture dock on wide viewports (>600px = desktop/tablet) is a
  *     CENTERED COMPACT PILL (width:max-content, margin:auto, radius 14, hairline border, drop
  *     shadow — the main cmdbar's exact desktop idiom); dock wrapper goes transparent +
@@ -559,7 +562,7 @@ window.ViktorInstantroam = (function () {
 			});
 
 			// ---------- capture cmdbar (touch only) + image queue + SB2 keyboard pin ----------
-			var dock = null, fileIn = null, chipRow = null, IMGQ = [], pickerOpen = false, undoable = false, btnU = null, btnR = null;
+			var dock = null, fileIn = null, chipRow = null, IMGQ = [], pickerOpen = false, undoable = false, btnU = null, btnR = null, dockGap = null;
 			function svg(p) { return '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + p + '</svg>'; }
 			var ICON = {
 				todo: svg('<rect x="4" y="4" width="16" height="16" rx="4"/><path d="m8.5 12.5 2.5 2.5 5-5.5"/>'),
@@ -651,9 +654,11 @@ window.ViktorInstantroam = (function () {
 				var bM = mkBtn(ICON.media, 'add photo', actImage);
 				btnU = mkBtn(ICON.undo, 'undo', actUndo);
 				btnR = mkBtn(ICON.redo, 'redo', actRedo);
-				btnU.style.visibility = 'hidden'; btnR.style.visibility = 'hidden';   // pre-mounted: zero layout shift on reveal
-				var gap = D.createElement('div'); gap.className = 'IRgap'; gap.style.cssText = 'flex:1';
-				row.appendChild(bW); row.appendChild(bT); row.appendChild(bM); row.appendChild(gap); row.appendChild(btnU); row.appendChild(btnR);
+				// v0.6.4: display:none (not visibility:hidden) — hidden slots must not reserve width,
+				// or the max-content desktop pill carries ~106px of dead space until first input.
+				btnU.style.display = 'none'; btnR.style.display = 'none';
+				dockGap = D.createElement('div'); dockGap.className = 'IRgap'; dockGap.style.cssText = 'flex:1;display:none';
+				row.appendChild(bW); row.appendChild(bT); row.appendChild(bM); row.appendChild(dockGap); row.appendChild(btnU); row.appendChild(btnR);
 				var pad = D.createElement('div'); pad.style.cssText = 'height:env(safe-area-inset-bottom,0px)';
 				dock.appendChild(chipRow); dock.appendChild(row); dock.appendChild(pad);
 				fileIn = D.createElement('input'); fileIn.type = 'file'; fileIn.accept = 'image/*';
@@ -727,7 +732,7 @@ window.ViktorInstantroam = (function () {
 				engage('input');
 				L('input len=' + ta.value.length + ' vv=' + vvh());
 				setBuf(ta.value);
-				if (!undoable && btnU) { undoable = true; btnU.style.visibility = 'visible'; btnR.style.visibility = 'visible'; }
+				if (!undoable && btnU) { undoable = true; btnU.style.display = 'flex'; btnR.style.display = 'flex'; if (dockGap) dockGap.style.display = ''; }
 				// v0.6.2 symmetric pairing (native parity): EVERY literal '[' auto-closes ONE ']' with
 				// the caret between — '[' → '[|]', second '[' → '[[|]]'. Only at EOL / before a
 				// whitespace-or-closer (never inside a word). DEFERRED one task: Chrome blocks
